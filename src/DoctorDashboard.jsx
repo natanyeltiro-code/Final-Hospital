@@ -7,11 +7,11 @@ import {
   FileText,
   Settings,
   LogOut,
-  Menu,
-  Search,
   Bell,
   ChevronDown,
+  ChevronLeft,
   Activity,
+  Search,
   ClipboardList,
   Pencil,
   Plus,
@@ -29,10 +29,11 @@ import {
   Eye,
 } from "lucide-react";
 
-const DoctorDashboard = ({ loggedInUser, onLogout }) => {
+const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const [activePage, setActivePage] = useState("dashboard");
   const [appointmentFilter, setAppointmentFilter] = useState("All");
   const [darkMode, setDarkMode] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [showNotifications, setShowNotifications] = useState(false);
   const [loading, setLoading] = useState(true);
   const [patients, setPatients] = useState([]);
@@ -90,20 +91,16 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
     : "min-h-screen bg-[#f6f7f9] text-slate-800";
 
   const sidebarClasses = darkMode
-    ? "flex w-[260px] flex-col justify-between border-r border-slate-800 bg-slate-900"
-    : "flex w-[260px] flex-col justify-between border-r border-slate-200 bg-white";
+    ? `flex flex-col justify-between transition-all duration-300 ${sidebarCollapsed ? "w-20" : "w-[260px]"} border-r border-slate-800 bg-slate-900 hidden md:flex`
+    : `flex flex-col justify-between transition-all duration-300 ${sidebarCollapsed ? "w-20" : "w-[260px]"} border-r border-slate-200 bg-white hidden md:flex`;
 
   const topbarClasses = darkMode
-    ? "flex h-[72px] items-center justify-between border-b border-slate-800 bg-slate-900 px-9"
-    : "flex h-[72px] items-center justify-between border-b border-slate-200 bg-white px-9";
+    ? "relative flex h-[72px] items-center justify-between border-b border-slate-800 bg-slate-900 px-4 md:px-9"
+    : "relative flex h-[72px] items-center justify-between border-b border-slate-200 bg-white px-4 md:px-9";
 
   const cardClasses = darkMode
     ? "rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-sm"
     : "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm";
-
-  const searchBarClasses = darkMode
-    ? "hidden items-center gap-3 rounded-xl bg-slate-800 px-4 py-3 text-slate-400 lg:flex lg:w-[390px]"
-    : "hidden items-center gap-3 rounded-xl bg-slate-100 px-4 py-3 text-slate-400 lg:flex lg:w-[390px]";
 
   const textMain = darkMode ? "text-slate-100" : "text-slate-900";
   const textMuted = darkMode ? "text-slate-400" : "text-slate-500";
@@ -214,11 +211,24 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
   useEffect(() => {
     if (!loggedInUser) return;
 
-    setProfileForm((prev) => ({
-      ...prev,
-      fullName: loggedInUser.name || prev.fullName,
-      email: loggedInUser.email || prev.email,
-    }));
+    console.log("📖 useEffect - Syncing loggedInUser to profileForm:");
+    console.log("  loggedInUser:", loggedInUser);
+
+    setProfileForm((prev) => {
+      const newForm = {
+        ...prev,
+        // Always update with loggedInUser values, even if empty
+        fullName: loggedInUser.name !== undefined && loggedInUser.name !== null ? loggedInUser.name : prev.fullName,
+        email: loggedInUser.email !== undefined && loggedInUser.email !== null ? loggedInUser.email : prev.email,
+        phone: loggedInUser.phone !== undefined && loggedInUser.phone !== null ? loggedInUser.phone : prev.phone,
+        specialization: loggedInUser.specialty !== undefined && loggedInUser.specialty !== null ? loggedInUser.specialty : prev.specialization,
+        department: loggedInUser.department !== undefined && loggedInUser.department !== null ? loggedInUser.department : prev.department,
+        yearsExperience: loggedInUser.experience !== null && loggedInUser.experience !== undefined ? String(loggedInUser.experience) : prev.yearsExperience,
+        bio: loggedInUser.bio !== undefined && loggedInUser.bio !== null ? loggedInUser.bio : prev.bio,
+      };
+      console.log("  Updated profileForm:", newForm);
+      return newForm;
+    });
   }, [loggedInUser]);
 
   const handleUpdateAppointmentStatus = async (appointmentId, status) => {
@@ -259,9 +269,36 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
         name: profileForm.fullName,
         email: profileForm.email,
         phone: profileForm.phone,
+        specialization: profileForm.specialization,
+        department: profileForm.department,
+        yearsExperience: profileForm.yearsExperience,
+        bio: profileForm.bio,
       };
 
+      console.log("💾 Sending profile update:");
+      console.log("  Data:", profileData);
+
       const response = await api.put(`/users/${loggedInUser.id}`, profileData);
+
+      console.log("✅ Response from server:");
+      console.log("  Message:", response.data?.message);
+      console.log("  User data:", response.data?.user);
+
+      // Update the loggedInUser state with the response data
+      if (response.data?.user) {
+        const updatedUser = {
+          ...loggedInUser,
+          ...response.data.user,
+          // Ensure these fields are included
+          specialty: response.data.user.specialty,
+          experience: response.data.user.experience,
+          rating: response.data.user.rating,
+          bio: response.data.user.bio,
+          department: response.data.user.department,
+        };
+        console.log("🔄 Updating loggedInUser state with:", updatedUser);
+        setLoggedInUser(updatedUser);
+      }
 
       setProfileSaveMessage({
         type: "success",
@@ -360,7 +397,7 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
         <body>
           <div class="header">
             <h2>Prescription</h2>
-            <p>Dr. ${loggedInUser.name}</p>
+            <p>Dr. ${loggedInUser?.name || 'Doctor'}</p>
           </div>
           <div class="card">
             <div class="row"><span class="label">Patient:</span> ${prescription.patient_name || "Unknown"}</div>
@@ -487,6 +524,33 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
     date: record.record_date || record.date || "Unknown date",
   }));
 
+  // Helper function to format time as HH:MM AM/PM
+  const formatTimeString = (timeString) => {
+    if (!timeString) return "TBD";
+    try {
+      // If it's in HH:MM or HH:MM:SS format
+      if (typeof timeString === "string" && timeString.includes(":")) {
+        const [hours, minutes] = timeString.split(":").slice(0, 2);
+        const date = new Date();
+        date.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0);
+        return date.toLocaleTimeString("en-US", { 
+          hour: "numeric", 
+          minute: "2-digit", 
+          hour12: true 
+        });
+      }
+      // If it's a full ISO date string
+      const date = new Date(timeString);
+      return date.toLocaleTimeString("en-US", { 
+        hour: "numeric", 
+        minute: "2-digit", 
+        hour12: true 
+      });
+    } catch (err) {
+      return timeString;
+    }
+  };
+
   const doctorAppointments = appointments.map((apt) => ({
     ...apt,
     patientName: patients.find((p) => p.id === apt.patient_id)?.name || "Unknown Patient",
@@ -497,7 +561,7 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
           year: "numeric",
         })
       : "TBD",
-    formattedTime: apt.time || "TBD",
+    formattedTime: formatTimeString(apt.time),
     type: apt.type || "Consultation",
     status: apt.status || "Pending",
   }));
@@ -518,7 +582,7 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
     <div className="p-9">
       <div className="mb-8">
         <h2 className="text-[32px] font-bold">
-          Welcome back, <span className="text-teal-600">Dr. {loggedInUser.name}</span>
+          Welcome back, <span className="text-teal-600">Dr. {loggedInUser?.name || 'Doctor'}</span>
         </h2>
         <p className={`mt-2 text-[18px] ${textMuted}`}>Here's your schedule for today.</p>
       </div>
@@ -796,17 +860,25 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
     const filteredAppointments = doctorAppointments.filter((apt) => {
       if (appointmentFilter === "All") return true;
 
-      const aptDate = new Date(`${apt.date}T${apt.time || "00:00"}`);
-      const today = new Date();
-      const isToday = aptDate.toDateString() === today.toDateString();
-      const isUpcoming = aptDate > today;
+      try {
+        if (!apt.date) return false;
+        
+        const aptDate = new Date(`${apt.date}T${apt.time || "00:00"}`);
+        if (isNaN(aptDate.getTime())) return false;
+        
+        const today = new Date();
+        const isToday = aptDate.toDateString() === today.toDateString();
+        const isUpcoming = aptDate > today;
 
-      if (appointmentFilter === "Today") return isToday;
-      if (appointmentFilter === "Upcoming") return isUpcoming;
-      if (appointmentFilter === "Pending") return apt.status === "Pending";
-      if (appointmentFilter === "Completed") return apt.status === "Completed";
+        if (appointmentFilter === "Today") return isToday;
+        if (appointmentFilter === "Upcoming") return isUpcoming;
+        if (appointmentFilter === "Pending") return apt.status === "Pending";
+        if (appointmentFilter === "Completed") return apt.status === "Completed";
 
-      return apt.status === appointmentFilter;
+        return apt.status === appointmentFilter;
+      } catch (err) {
+        return false;
+      }
     });
 
     return (
@@ -857,12 +929,12 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
                       <div className={`mt-5 flex flex-wrap items-center gap-6 text-[18px] ${textMuted}`}>
                         <div className="flex items-center gap-2">
                           <CalendarDays size={18} />
-                          <span>{apt.date}</span>
+                          <span>{apt.formattedDate}</span>
                         </div>
 
                         <div className="flex items-center gap-2">
                           <Clock3 size={18} />
-                          <span>{apt.time}</span>
+                          <span>{apt.formattedTime}</span>
                         </div>
                       </div>
                     </div>
@@ -1190,7 +1262,7 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
 
                       <div>
                         <label className={`text-xs font-semibold uppercase ${textMuted}`}>Doctor</label>
-                        <p className="text-base font-medium mt-1">{selectedRecord.doctorName || loggedInUser.name}</p>
+                        <p className="text-base font-medium mt-1">{selectedRecord.doctorName || loggedInUser?.name || 'Unknown Doctor'}</p>
                       </div>
                     </div>
                   </div>
@@ -1416,7 +1488,7 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
                       .filter((apt) => String(apt.patient_id) === String(prescriptionForm.patientId))
                       .map((apt) => (
                         <option key={apt.id} value={apt.id}>
-                          {new Date(apt.date).toLocaleDateString()} {apt.time} — {apt.type || "Consultation"}
+                          {new Date(apt.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} {formatTimeString(apt.time)} — {apt.type || "Consultation"}
                         </option>
                       ))}
                   </select>
@@ -1638,7 +1710,7 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
               <div className={`mt-6 flex flex-wrap items-center gap-6 text-[16px] ${textSoft}`}>
                 <div className="flex items-center gap-2">
                   <Star size={18} className="fill-amber-400 text-amber-400" />
-                  <span className="font-semibold">4.9</span>
+                  <span className="font-semibold">{loggedInUser?.rating !== null && loggedInUser?.rating !== undefined ? parseFloat(loggedInUser.rating).toFixed(1) : '4.5'}</span>
                   <span>Rating</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1714,11 +1786,16 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
               onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })}
               className={inputClasses}
             >
+              <option value="">Select Department</option>
               <option>Cardiology</option>
               <option>Neurology</option>
               <option>Orthopedics</option>
               <option>Pediatrics</option>
               <option>Dermatology</option>
+              <option>General Medicine</option>
+              <option>Surgery</option>
+              <option>Internal Medicine</option>
+              <option>Pathology</option>
             </select>
           </div>
 
@@ -1815,75 +1892,102 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
     );
   }
 
+  if (!loggedInUser) {
+    return (
+      <div className={`flex min-h-screen items-center justify-center ${darkMode ? "bg-slate-950 text-slate-100" : "bg-slate-100 text-slate-700"}`}>
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-teal-600"></div>
+          <p className={`rounded-2xl border px-8 py-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+            Initializing your profile...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={appClasses}>
       <div className="flex min-h-screen">
         <aside className={sidebarClasses}>
           <div>
-            <div className={`flex h-[72px] items-center gap-3 border-b px-6 ${borderSoft}`}>
-              <Activity className="text-teal-600" size={28} />
-              <h1 className="text-[30px] font-semibold tracking-tight">MediCare</h1>
+            <div className={`flex h-[72px] items-center ${sidebarCollapsed ? "justify-center" : "justify-between"} transition-all duration-300 gap-3 border-b px-6 ${borderSoft}`}>
+              <div className={`flex items-center gap-3 transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0" : "opacity-100 w-auto"}`}>
+                <Activity className="text-teal-600 flex-shrink-0" size={28} />
+                <h1 className="text-[30px] font-semibold tracking-tight whitespace-nowrap">MediCare</h1>
+              </div>
+              <button
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                className={`p-2 rounded-lg transition-all flex-shrink-0 ${darkMode ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-600"}`}
+              >
+                <ChevronLeft size={20} style={{ transform: sidebarCollapsed ? "scaleX(-1)" : "scaleX(1)", transition: "transform 300ms ease-in-out" }} />
+              </button>
             </div>
 
-            <nav className="px-3 py-6">
+            <nav className="px-3 py-6 space-y-3">
               <button
                 onClick={() => setActivePage("dashboard")}
-                className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                title="Dashboard"
+                className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                   activePage === "dashboard" ? activeNav : inactiveNav
                 }`}
               >
                 <LayoutDashboard size={22} />
-                <span className="text-[18px] font-medium">Dashboard</span>
+                <span className={`text-[18px] font-medium transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Dashboard</span>
               </button>
 
               <button
                 onClick={() => setActivePage("patients")}
-                className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                title="My Patients"
+                className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                   activePage === "patients" ? activeNav : inactiveNav
                 }`}
               >
                 <Users size={22} />
-                <span className="text-[18px]">My Patients</span>
+                <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>My Patients</span>
               </button>
 
               <button
                 onClick={() => setActivePage("appointments")}
-                className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                title="Appointments"
+                className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                   activePage === "appointments" ? activeNav : inactiveNav
                 }`}
               >
                 <CalendarDays size={22} />
-                <span className="text-[18px]">Appointments</span>
+                <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Appointments</span>
               </button>
 
               <button
                 onClick={() => setActivePage("prescriptions")}
-                className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                title="Prescriptions"
+                className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                   activePage === "prescriptions" ? activeNav : inactiveNav
                 }`}
               >
                 <ClipboardList size={22} />
-                <span className="text-[18px]">Prescriptions</span>
+                <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Prescriptions</span>
               </button>
 
               <button
                 onClick={() => setActivePage("records")}
-                className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                title="Medical History"
+                className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                   activePage === "records" ? activeNav : inactiveNav
                 }`}
               >
                 <FileText size={22} />
-                <span className="text-[18px]">Medical History</span>
+                <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Medical History</span>
               </button>
 
               <button
                 onClick={() => setActivePage("settings")}
-                className={`flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                title="Settings"
+                className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                   activePage === "settings" ? activeNav : inactiveNav
                 }`}
               >
                 <Settings size={22} />
-                <span className="text-[18px]">Settings</span>
+                <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Settings</span>
               </button>
             </nav>
           </div>
@@ -1891,28 +1995,25 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
           <div className={`border-t p-4 ${borderSoft}`}>
             <button
               onClick={onLogout}
-              className="flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left text-slate-600 hover:bg-slate-50"
+              title="Logout"
+              className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
+                darkMode
+                  ? "text-slate-400 hover:bg-slate-800"
+                  : "text-slate-600 hover:bg-slate-50"
+              }`}
             >
               <LogOut size={22} />
-              <span className="text-[18px]">Logout</span>
+              <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Logout</span>
             </button>
           </div>
         </aside>
 
         <main className="flex-1">
           <div className={topbarClasses}>
-            <div className="flex items-center gap-6">
-              <button className={darkMode ? "text-slate-300" : "text-slate-600"}>
-                <Menu size={24} />
-              </button>
-
-              <div className={searchBarClasses}>
-                <Search size={18} />
-                <span>Search patients or appointments...</span>
-              </div>
+            <div className="flex items-center gap-2 md:gap-6 flex-1">
             </div>
 
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2 md:gap-6">
               <button
                 onClick={() => setDarkMode(!darkMode)}
                 className={`flex h-10 w-10 items-center justify-center rounded-lg transition ${
@@ -1981,9 +2082,9 @@ const DoctorDashboard = ({ loggedInUser, onLogout }) => {
                 )}
               </div>
 
-              <div className={`flex items-center gap-3 border-l pl-6 ${borderSoft}`}>
+              <div className={`flex items-center gap-3 border-l pl-6 ${borderSoft} hidden md:flex`}>
                 <div className="text-right">
-                  <p className="text-sm font-semibold">Dr. {loggedInUser.name}</p>
+                  <p className="text-sm font-semibold">Dr. {loggedInUser?.name || 'Doctor'}</p>
                   <p className={`text-xs ${textMuted}`}>Doctor</p>
                 </div>
                 <button className={darkMode ? "text-slate-300" : "text-slate-600"}>

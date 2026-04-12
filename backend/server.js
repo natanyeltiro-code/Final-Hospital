@@ -1,4 +1,4 @@
-require("dotenv").config();
+require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
@@ -9,51 +9,59 @@ const { signToken, authenticateToken, authorizeRoles } = require("./middleware/a
 
 const app = express();
 
-const ensureUserProfileColumns = () => {
-  const dbName = process.env.DB_NAME || "medicare";
-  const profileColumns = [
-    { name: "phone", definition: "VARCHAR(20)" },
-    { name: "blood_group", definition: "VARCHAR(10)" },
-    { name: "age", definition: "INT" },
-    { name: "gender", definition: "VARCHAR(20)" },
-    { name: "date_of_birth", definition: "DATE" },
-    { name: "address", definition: "VARCHAR(255)" },
-    { name: "emergency_contact", definition: "VARCHAR(50)" },
-    { name: "condition", definition: "VARCHAR(255)" },
+// Database schema initialization - creates missing columns automatically
+const initializeSchema = () => {
+  console.log("🔄 Initializing database schema...");
+  
+  const columns = [
+    { name: "phone", type: "VARCHAR(20)" },
+    { name: "blood_group", type: "VARCHAR(10)" },
+    { name: "age", type: "INT" },
+    { name: "gender", type: "VARCHAR(20)" },
+    { name: "date_of_birth", type: "DATE" },
+    { name: "address", type: "VARCHAR(255)" },
+    { name: "emergency_contact", type: "VARCHAR(50)" },
+    { name: "condition", type: "VARCHAR(255)" },
+    { name: "specialty", type: "VARCHAR(100)" },
+    { name: "department", type: "VARCHAR(100)" },
+    { name: "bio", type: "TEXT" },
+    { name: "rating", type: "DECIMAL(2,1) DEFAULT 4.5" },
+    { name: "experience", type: "INT DEFAULT 0" },
   ];
 
-  profileColumns.forEach((column) => {
-    const checkColumnSql = `
-      SELECT COLUMN_NAME
-      FROM INFORMATION_SCHEMA.COLUMNS
-      WHERE TABLE_SCHEMA = ?
-        AND TABLE_NAME = ?
-        AND COLUMN_NAME = ?
-    `;
-
-    db.query(checkColumnSql, [dbName, "users", column.name], (err, results) => {
-      if (err) {
-        console.error(`Failed to check users.${column.name} column:`, err);
-        return;
-      }
-
-      if (results.length === 0) {
-        const columnDef = column.name === "condition" ? `\`${column.name}\` ${column.definition}` : `${column.name} ${column.definition}`;
-        db.query(`ALTER TABLE users ADD COLUMN ${columnDef}`, (alterErr) => {
-          if (alterErr) {
-            console.error(`Failed to add users.${column.name} column:`, alterErr);
+  // Use promises to ensure columns are created sequentially
+  const createColumnsSequentially = async () => {
+    for (const column of columns) {
+      await new Promise((resolve) => {
+        // Simpler syntax: just try to add the column and catch duplicate column error
+        const sql = `ALTER TABLE users ADD COLUMN \`${column.name}\` ${column.type}`;
+        db.query(sql, (err) => {
+          if (err) {
+            // Ignore "Duplicate column" errors, show other errors but don't crash
+            if (err.message.includes("Duplicate column") || err.message.includes("already exists")) {
+              console.log(`  ℹ️  Column ${column.name} already exists`);
+            } else {
+              console.log(`  ⚠️  Column ${column.name}: ${err.message.substring(0, 60)}`);
+            }
           } else {
-            console.log(`✅ Added users.${column.name} column`);
+            console.log(`  ✅ Column ${column.name} created`);
           }
+          // Always resolve to continue with next column
+          resolve();
         });
-      } else {
-        console.log(`✅ users.${column.name} column already exists`);
-      }
-    });
+      });
+    }
+    console.log("✅ Database schema initialization complete!\n");
+  };
+
+  createColumnsSequentially().catch(() => {
+    // Silently catch any errors, schema may already exist
+    console.log("✅ Database ready\n");
   });
 };
 
-ensureUserProfileColumns();
+initializeSchema();
+
 
 app.use(
   cors({
@@ -71,6 +79,28 @@ app.use((req, res, next) => {
 /* TEST ENDPOINT */
 app.get("/test", (req, res) => {
   res.json({ message: "✅ Backend is working!" });
+});
+
+/* DEBUG: Check database schema */
+app.get("/debug/schema", (req, res) => {
+  const dbName = process.env.DB_NAME || "medicare";
+  const sql = `
+    SELECT COLUMN_NAME, COLUMN_TYPE
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users'
+    ORDER BY ORDINAL_POSITION
+  `;
+  
+  db.query(sql, [dbName], (err, results) => {
+    if (err) {
+      return res.status(500).json({ message: "Error checking schema", error: err.message });
+    }
+    res.json({
+      message: "Current users table columns:",
+      columns: results.map(r => `${r.COLUMN_NAME} (${r.COLUMN_TYPE})`),
+      count: results.length
+    });
+  });
 });
 
 /* REGISTER */
@@ -153,36 +183,62 @@ app.post("/login", (req, res) => {
         address: user.address || "",
         emergencyContact: user.emergency_contact || "",
         role: user.role,
+        specialty: user.specialty || "",
+        department: user.department || "",
+        experience: user.experience !== null ? parseInt(user.experience) : 0,
+        bio: user.bio || "",
+        rating: user.rating !== null ? parseFloat(user.rating) : null,
       },
     });
   });
 });
 
 app.get("/me", authenticateToken, (req, res) => {
-  const sql = "SELECT id, name, email, phone, blood_group, age, gender, date_of_birth, address, emergency_contact, role, created_at FROM users WHERE id = ?";
+  const sql = "SELECT id, name, email, phone, blood_group, age, gender, date_of_birth, address, emergency_contact, role, specialty, rating, experience, bio, department, created_at FROM users WHERE id = ?";
   db.query(sql, [req.user.id], (err, results) => {
     if (err) {
+      console.error("❌ /me endpoint - Database error:", err.message);
       return res.status(500).json({ message: "Database error" });
     }
     if (results.length === 0) {
+      console.error("❌ /me endpoint - User not found, ID:", req.user.id);
       return res.status(404).json({ message: "User not found" });
     }
     const user = results[0];
-    res.json({
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone || "",
-        bloodGroup: user.blood_group || "",
-        age: user.age || "",
-        gender: user.gender || "",
-        dateOfBirth: user.date_of_birth || "",
-        address: user.address || "",
-        emergencyContact: user.emergency_contact || "",
-        role: user.role,
-      },
-    });
+    console.log("\n📖 GET /me - Fetching user data:");
+    console.log("  User ID:", user.id);
+    console.log("  Name:", user.name);
+    console.log("  Experience DB value:", user.experience);
+    console.log("  Bio DB value:", user.bio);
+    console.log("  Department DB value:", user.department);
+    console.log("  Specialty DB value:", user.specialty);
+    
+    const responseUser = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone || "",
+      bloodGroup: user.blood_group || "",
+      age: user.age || "",
+      gender: user.gender || "",
+      dateOfBirth: user.date_of_birth || "",
+      address: user.address || "",
+      emergencyContact: user.emergency_contact || "",
+      role: user.role,
+      specialty: user.specialty || "",
+      rating: user.rating !== null ? parseFloat(user.rating) : null,
+      experience: user.experience !== null ? parseInt(user.experience) : 0,
+      bio: user.bio || "",
+      department: user.department || "",
+    };
+    
+    console.log("\n📤 /me RESPONSE DATA:");
+    console.log("  Specialty:", responseUser.specialty);
+    console.log("  Department:", responseUser.department);
+    console.log("  Experience:", responseUser.experience);
+    console.log("  Bio:", responseUser.bio);
+    
+    res.json({ user: responseUser });
   });
 });
 
@@ -286,7 +342,7 @@ app.get("/patients", authenticateToken, authorizeRoles("doctor", "admin"), (req,
 
 /* GET ALL DOCTORS */
 app.get("/doctors", authenticateToken, (req, res) => {
-  const sql = "SELECT id, name, email, role, specialty FROM users WHERE role = 'doctor'";
+  const sql = "SELECT id, name, email, role, specialty, department, phone, rating, experience FROM users WHERE role = 'doctor'";
   
   db.query(sql, (err, results) => {
     if (err) {
@@ -294,9 +350,17 @@ app.get("/doctors", authenticateToken, (req, res) => {
       return res.status(500).json({ message: "Database error" });
     }
     
+    // Convert rating and experience to proper types
+    const doctorsWithTypes = results.map(doc => ({
+      ...doc,
+      rating: doc.rating !== null ? parseFloat(doc.rating) : null,
+      experience: doc.experience !== null ? parseInt(doc.experience) : null
+    }));
+    
+    console.log("Doctors query results:", doctorsWithTypes);
     res.json({ 
       message: "Doctors retrieved successfully",
-      doctors: results
+      doctors: doctorsWithTypes
     });
   });
 });
@@ -427,7 +491,7 @@ app.get("/medical-records/:patientId", authenticateToken, (req, res) => {
 /* UPDATE USER PROFILE */
 app.put("/users/:userId", authenticateToken, (req, res) => {
   const { userId } = req.params;
-  const { name, email, phone, bloodGroup, age, gender, dateOfBirth, address, emergencyContact } = req.body;
+  const { name, email, phone, bloodGroup, age, gender, dateOfBirth, address, emergencyContact, specialization, department, yearsExperience, bio } = req.body;
 
   console.log("Profile update request:");
   console.log("userId param:", userId);
@@ -444,7 +508,16 @@ app.put("/users/:userId", authenticateToken, (req, res) => {
   }
 
   const parsedAge = age !== undefined && age !== null && age !== "" ? Number(age) : null;
-  const sql = "UPDATE users SET name = ?, email = ?, phone = ?, blood_group = ?, age = ?, gender = ?, date_of_birth = ?, address = ?, emergency_contact = ? WHERE id = ?";
+  const parsedExperience = yearsExperience !== undefined && yearsExperience !== null && yearsExperience !== "" ? Number(yearsExperience) : null;
+  const sql = "UPDATE users SET name = ?, email = ?, phone = ?, blood_group = ?, age = ?, gender = ?, date_of_birth = ?, address = ?, emergency_contact = ?, specialty = ?, department = ?, experience = ?, bio = ? WHERE id = ?";
+
+  console.log("\n📝 UPDATE PROFILE DETAILS:");
+  console.log("  User ID:", userId);
+  console.log("  Name:", name);
+  console.log("  Experience:", parsedExperience);
+  console.log("  Specialization:", specialization);
+  console.log("  Department:", department);
+  console.log("  Bio:", bio);
 
   db.query(
     sql,
@@ -458,32 +531,66 @@ app.put("/users/:userId", authenticateToken, (req, res) => {
       dateOfBirth || null,
       address || null,
       emergencyContact || null,
+      specialization || null,
+      department || null,
+      parsedExperience,
+      bio || null,
       userId,
     ],
     (err, result) => {
       if (err) {
-        console.error("Database error:", err);
-        console.error("SQL:", sql);
-        console.error("Params:", [name, email, phone, bloodGroup, age, gender, dateOfBirth, address, emergencyContact, userId]);
+        console.error("\n❌ DATABASE ERROR:");
+        console.error("  Message:", err.message);
+        console.error("  Code:", err.code);
+        console.error("  SQL:", sql);
         return res.status(500).json({ message: "❌ Failed to update profile", error: err.message });
       }
 
-      console.log("Update result:", result);
+      console.log("\n✅ UPDATE SUCCESSFUL:");
+      console.log("  Rows affected:", result.affectedRows);
+      
       if (result.affectedRows === 0) {
+        console.log("  ⚠️ No rows were updated!");
         return res.status(404).json({ message: "❌ User not found" });
       }
 
       console.log("Profile updated successfully for user:", userId);
-      const selectSql = "SELECT id, name, email, phone, blood_group AS bloodGroup, age, gender, date_of_birth AS dateOfBirth, address, emergency_contact AS emergencyContact, role FROM users WHERE id = ?";
+      const selectSql = "SELECT id, name, email, phone, blood_group AS bloodGroup, age, gender, date_of_birth AS dateOfBirth, address, emergency_contact AS emergencyContact, role, specialty, department, experience, bio, rating FROM users WHERE id = ?";
       db.query(selectSql, [userId], (selectErr, selectResults) => {
         if (selectErr) {
           console.error("Failed to retrieve updated user:", selectErr);
           return res.status(500).json({ message: "✅ Profile updated successfully" });
         }
 
+        const user = selectResults[0];
+        const responseUser = {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone || "",
+          bloodGroup: user.bloodGroup || "",
+          age: user.age || "",
+          gender: user.gender || "",
+          dateOfBirth: user.dateOfBirth || "",
+          address: user.address || "",
+          emergencyContact: user.emergencyContact || "",
+          role: user.role,
+          specialty: user.specialty || "",
+          department: user.department || "",
+          experience: user.experience !== null ? parseInt(user.experience) : 0,
+          bio: user.bio || "",
+          rating: user.rating !== null ? parseFloat(user.rating) : null,
+        };
+
+        console.log("\n📤 RESPONSE DATA:");
+        console.log("  Specialty:", responseUser.specialty);
+        console.log("  Department:", responseUser.department);
+        console.log("  Experience:", responseUser.experience);
+        console.log("  Bio:", responseUser.bio);
+
         res.json({
           message: "✅ Profile updated successfully",
-          user: selectResults[0],
+          user: responseUser,
         });
       });
     }
@@ -911,7 +1018,7 @@ app.get("/appointments-range/:patientId/:startDate/:endDate", (req, res) => {
 
 /* GET ALL APPOINTMENTS (ADMIN) */
 app.get("/admin/appointments", authenticateToken, authorizeRoles("admin"), (req, res) => {
-  const sql = "SELECT a.*, p.name as patient_name, d.name as doctor_name FROM appointments a JOIN users p ON a.patient_id = p.id JOIN users d ON a.doctor_id = d.id ORDER BY a.date DESC";
+  const sql = "SELECT a.*, p.name as patient_name, p.email as patient_email, d.name as doctor_name, d.specialty FROM appointments a JOIN users p ON a.patient_id = p.id JOIN users d ON a.doctor_id = d.id ORDER BY a.date DESC";
   
   db.query(sql, (err, results) => {
     if (err) {

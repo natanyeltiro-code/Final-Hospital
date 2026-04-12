@@ -11,7 +11,6 @@ import {
   FileText,
   UserCircle,
   LogOut,
-  Menu,
   Bell,
   Moon,
   Clock3,
@@ -20,6 +19,7 @@ import {
   Search,
   Stethoscope,
   ChevronDown,
+  ChevronLeft,
   Users,
   UserCog,
   CalendarRange,
@@ -30,7 +30,9 @@ import {
   Pencil,
   Trash2,
   MoreVertical,
+  Eye,
   Phone,
+  Info,
 } from "lucide-react";
 import DoctorDashboard from "./DoctorDashboard";
 
@@ -43,6 +45,8 @@ export default function App() {
   const [token, setToken] = useState(localStorage.getItem("authToken") || "");
   const [activePage, setActivePage] = useState("dashboard");
   const [adminPage, setAdminPage] = useState("patients");
+  const [patientSidebarCollapsed, setPatientSidebarCollapsed] = useState(true);
+  const [adminSidebarCollapsed, setAdminSidebarCollapsed] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
 
   const notificationsRef = useRef(null);
@@ -53,9 +57,17 @@ export default function App() {
   const [doctors, setDoctors] = useState([]);
   const [adminPatients, setAdminPatients] = useState([]);
   const [adminPatientsPage, setAdminPatientsPage] = useState(1);
+  const [patientSearchFilter, setPatientSearchFilter] = useState("");
   const [adminDoctorsPage, setAdminDoctorsPage] = useState(1);
+  const [doctorSearchFilter, setDoctorSearchFilter] = useState("");
+  const [editingDoctorId, setEditingDoctorId] = useState(null);
   const [adminAppointments, setAdminAppointments] = useState([]);
   const [adminMedicalRecords, setAdminMedicalRecords] = useState([]);
+  const [appointmentFilter, setAppointmentFilter] = useState("All");
+  const [appointmentSearch, setAppointmentSearch] = useState("");
+  const [adminAppointmentsPage, setAdminAppointmentsPage] = useState(1);
+  const [medicalRecordsSearch, setMedicalRecordsSearch] = useState("");
+  const [expandedRecordId, setExpandedRecordId] = useState(null);
   const [adminStats, setAdminStats] = useState({
     totalPatients: 0,
     totalDoctors: 0,
@@ -102,6 +114,14 @@ export default function App() {
   const [editingProfile, setEditingProfile] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAppointmentDetails, setShowAppointmentDetails] = useState(false);
+
+  // Settings state
+  const [emailNotifications, setEmailNotifications] = useState(true);
+  const [smsNotifications, setSmsNotifications] = useState(false);
+  const [pushNotifications, setPushNotifications] = useState(true);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const [registerData, setRegisterData] = useState({
     name: "",
@@ -229,6 +249,7 @@ export default function App() {
       
       // Fetch doctors
       const doctorsRes = await api.get("/doctors");
+      console.log("Doctors API Response:", doctorsRes.data.doctors);
       setDoctors(doctorsRes.data.doctors || []);
       
       // Fetch all medical records
@@ -238,12 +259,62 @@ export default function App() {
       // Fetch all appointments
       try {
         const appointmentsRes = await api.get("/admin/appointments");
+        console.log("Appointments API Response:", appointmentsRes.data);
         setAdminAppointments(appointmentsRes.data.appointments || []);
       } catch (err) {
         console.warn("Couldn't fetch appointments:", err);
+        setAdminAppointments([]);
       }
     } catch (err) {
       console.error("Error fetching admin data:", err);
+    }
+  };
+
+  // Reset pagination when local search query changes
+  useEffect(() => {
+    setAdminPatientsPage(1);
+    setAdminDoctorsPage(1);
+    setAdminAppointmentsPage(1);
+  }, [patientSearchFilter, doctorSearchFilter, appointmentSearch]);
+
+  // Helper functions for date/time formatting
+  const formatDate = (dateString) => {
+    if (!dateString) return "N/A";
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString("en-US", { 
+        year: "numeric", 
+        month: "short", 
+        day: "numeric" 
+      });
+    } catch (err) {
+      return dateString;
+    }
+  };
+
+  const formatTime = (timeString) => {
+    if (!timeString) return "";
+    try {
+      // If it's in HH:MM or HH:MM:SS format
+      if (typeof timeString === "string" && timeString.includes(":")) {
+        const [hours, minutes] = timeString.split(":").slice(0, 2);
+        const date = new Date();
+        date.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0);
+        return date.toLocaleTimeString("en-US", { 
+          hour: "numeric", 
+          minute: "2-digit", 
+          hour12: true 
+        });
+      }
+      // If it's a full ISO date string
+      const date = new Date(timeString);
+      return date.toLocaleTimeString("en-US", { 
+        hour: "numeric", 
+        minute: "2-digit", 
+        hour12: true 
+      });
+    } catch (err) {
+      return timeString;
     }
   };
 
@@ -530,25 +601,45 @@ export default function App() {
   };
 
   const handleAddUser = async () => {
-    if (!newUserData.name || !newUserData.email || !newUserData.password) {
+    if (!newUserData.name || !newUserData.email) {
+      setMessage("Please fill all required fields", true);
+      setIsError(true);
+      return;
+    }
+
+    // For new users (not editing), password is required
+    if (!editingDoctorId && !newUserData.password) {
       setMessage("Please fill all required fields", true);
       setIsError(true);
       return;
     }
 
     try {
-      await api.post("/register", {
-        name: newUserData.name,
-        email: newUserData.email,
-        password: newUserData.password,
-      });
-      setMessage(`${addModalType.charAt(0).toUpperCase() + addModalType.slice(1)} added successfully`);
+      if (editingDoctorId) {
+        // Update existing doctor
+        await api.put(`/users/${editingDoctorId}`, {
+          name: newUserData.name,
+          email: newUserData.email,
+          phone: newUserData.phone,
+          specialty: newUserData.specialty,
+        });
+        setMessage("Doctor updated successfully");
+        setEditingDoctorId(null);
+      } else {
+        // Create new user
+        await api.post("/register", {
+          name: newUserData.name,
+          email: newUserData.email,
+          password: newUserData.password,
+        });
+        setMessage(`${addModalType.charAt(0).toUpperCase() + addModalType.slice(1)} added successfully`);
+      }
       setIsError(false);
       setShowAddModal(false);
       setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "" });
       fetchAdminData();
     } catch (err) {
-      setMessage(err.response?.data?.message || "Error adding user", true);
+      setMessage(err.response?.data?.message || "Error", true);
       setIsError(true);
     }
   };
@@ -854,12 +945,12 @@ export default function App() {
                     <div className="mt-5 flex flex-wrap items-center gap-6 text-[18px] text-slate-500">
                       <div className="flex items-center gap-2">
                         <CalendarDays size={18} />
-                        <span>{appointment.date}</span>
+                        <span>{formatDate(appointment.date)}</span>
                       </div>
 
                       <div className="flex items-center gap-2">
                         <Clock3 size={18} />
-                        <span>{appointment.time}</span>
+                        <span>{formatTime(appointment.time)}</span>
                       </div>
                     </div>
                   </div>
@@ -1309,10 +1400,31 @@ export default function App() {
 
   const renderAdminPatientsPage = () => {
     const itemsPerPage = 5;
-    const totalPages = Math.ceil(adminPatients.length / itemsPerPage);
+    
+    // Filter patients based on local search query
+    const filteredPatients = adminPatients.filter(patient => {
+      // If search is empty, include all patients
+      if (!patientSearchFilter || patientSearchFilter.trim() === "") {
+        return true;
+      }
+      
+      const searchLower = patientSearchFilter.toLowerCase().trim();
+      return (
+        patient.name.toLowerCase().includes(searchLower) ||
+        patient.email.toLowerCase().includes(searchLower) ||
+        (patient.phone && patient.phone.includes(searchLower))
+      );
+    });
+    
+    // Reset page if needed
+    if (adminPatientsPage > Math.ceil(filteredPatients.length / itemsPerPage) && filteredPatients.length > 0) {
+      setAdminPatientsPage(1);
+    }
+    
+    const totalPages = Math.ceil(filteredPatients.length / itemsPerPage) || 1;
     const startIndex = (adminPatientsPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    const paginatedPatients = adminPatients.slice(startIndex, endIndex);
+    const paginatedPatients = filteredPatients.slice(startIndex, endIndex);
 
     return (
     <div className="p-9">
@@ -1335,9 +1447,15 @@ export default function App() {
 
       <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
         <div className="flex items-center justify-between border-b border-slate-200 p-5">
-          <div className="flex w-full max-w-[360px] items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-slate-400">
-            <Search size={18} />
-            <span>Search patients by name...</span>
+          <div className="flex w-full max-w-[360px] items-center gap-3 rounded-xl border border-slate-200 px-4 py-3">
+            <Search size={18} className="text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search patients by name..."
+              value={patientSearchFilter}
+              onChange={(e) => setPatientSearchFilter(e.target.value)}
+              className="w-full border-none bg-transparent outline-none text-slate-900 placeholder-slate-400"
+            />
           </div>
 
           <button className="flex items-center gap-2 rounded-xl border border-slate-200 px-5 py-3 text-slate-700 hover:bg-slate-50">
@@ -1346,7 +1464,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className="grid grid-cols-6 gap-4 border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-500">
+        <div className="grid gap-4 border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-500" style={{gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1.2fr 1fr'}}>
           <div>PATIENT</div>
           <div>AGE/GENDER</div>
           <div>BLOOD GROUP</div>
@@ -1358,29 +1476,30 @@ export default function App() {
         {paginatedPatients.map((patient, index) => (
           <div
             key={patient.id}
-            className={`grid grid-cols-6 items-center gap-4 px-5 py-5 ${
+            className={`grid items-center gap-4 px-5 py-5 ${
               index !== paginatedPatients.length - 1 ? "border-b border-slate-200" : ""
             }`}
+            style={{gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1.2fr 1fr'}}
           >
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-200">
+            <div className="flex items-center gap-4 min-w-0">
+              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-slate-200">
                 <User size={18} className="text-slate-500" />
               </div>
-              <div>
-                <p className="text-[18px] font-medium text-slate-900">{patient.name}</p>
-                <p className="text-sm text-slate-500">{patient.email}</p>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[18px] font-medium text-slate-900">{patient.name}</p>
+                <p className="truncate text-sm text-slate-500">{patient.email}</p>
               </div>
             </div>
 
-            <div className="text-[17px] text-slate-700">
+            <div className="truncate text-[17px] text-slate-700">
               {patient.age && patient.gender ? `${patient.age} / ${patient.gender}` : 'N/A'}
             </div>
 
-            <div className="text-[17px] text-slate-700">{patient.blood_group || 'N/A'}</div>
+            <div className="truncate text-[17px] text-slate-700">{patient.blood_group || 'N/A'}</div>
 
-            <div className="text-[17px] text-slate-700">{patient.condition || 'N/A'}</div>
+            <div className="truncate text-[17px] text-slate-700">{patient.condition || 'N/A'}</div>
 
-            <div className="text-[17px] text-slate-700">{patient.phone || 'N/A'}</div>
+            <div className="truncate text-[17px] text-slate-700">{patient.phone || 'N/A'}</div>
 
             <div className="flex items-center justify-end gap-4">
               <button className="text-blue-600 hover:opacity-70">
@@ -1399,15 +1518,15 @@ export default function App() {
           </div>
         ))}
 
-        {adminPatients.length === 0 && (
+        {filteredPatients.length === 0 && (
           <div className="px-5 py-8 text-center text-slate-500">
-            No patients found.
+            {patientSearchFilter ? "No patients match your search." : "No patients found."}
           </div>
         )}
 
-        {adminPatients.length > 0 && (
+        {filteredPatients.length > 0 && (
           <div className="flex items-center justify-between border-t border-slate-200 px-5 py-5 text-slate-500">
-            <p>Showing {startIndex + 1} to {Math.min(endIndex, adminPatients.length)} of {adminPatients.length} entries</p>
+            <p>Showing {startIndex + 1} to {Math.min(endIndex, filteredPatients.length)} of {filteredPatients.length} entries</p>
 
             <div className="flex items-center gap-2">
               <button 
@@ -1682,365 +1801,963 @@ export default function App() {
 
   const renderAdminDoctorsPage = () => {
     const itemsPerPage = 5;
-    const totalPages = Math.ceil(doctors.length / itemsPerPage);
+    
+    // Filter doctors based on local search
+    const filteredDoctors = doctors.filter(doc => {
+      // If search is empty, include all
+      if (!doctorSearchFilter || doctorSearchFilter.trim() === "") {
+        return true;
+      }
+      
+      const localSearchLower = doctorSearchFilter.toLowerCase().trim();
+      
+      return (
+        doc.name.toLowerCase().includes(localSearchLower) ||
+        doc.email.toLowerCase().includes(localSearchLower) ||
+        (doc.specialty && doc.specialty.toLowerCase().includes(localSearchLower))
+      );
+    });
+    
+    // Reset page if needed
+    if (adminDoctorsPage > Math.ceil(filteredDoctors.length / itemsPerPage) && filteredDoctors.length > 0) {
+      setAdminDoctorsPage(1);
+    }
+    
+    const totalPages = Math.ceil(filteredDoctors.length / itemsPerPage) || 1;
     const startIndex = (adminDoctorsPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    const paginatedDoctors = doctors.slice(startIndex, endIndex);
+    const paginatedDoctors = filteredDoctors.slice(startIndex, endIndex);
 
     return (
-      <div className="space-y-6 p-9">
-        <div className="flex items-start justify-between">
+      <div className="p-9">
+        <div className="mb-8 flex items-start justify-between">
           <div>
             <h2 className="text-[28px] font-bold">Manage Doctors</h2>
-            <p className="mt-2 text-[18px] text-slate-500">View and manage all registered doctors.</p>
+            <p className="mt-2 text-[18px] text-slate-500">
+              View and manage all registered doctors.
+            </p>
           </div>
+
           <button
             onClick={() => { setAddModalType("doctor"); setShowAddModal(true); setNewUserData({...newUserData, role: "doctor"}); }}
-            className="flex items-center gap-2 rounded-2xl bg-teal-600 px-6 py-3 text-white shadow-md hover:bg-teal-700"
+            className="flex items-center gap-3 rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700"
           >
-            <span>+ Add Doctor</span>
+            <UserCog size={20} />
+            <span>Add Doctor</span>
           </button>
         </div>
 
-        {/* Search and Filter */}
-        <div className="flex items-center gap-4">
-          <div className="flex-1 relative">
-            <Search size={18} className="absolute left-4 top-3.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search doctors by name..."
-              className="w-full rounded-xl border border-slate-200 pl-11 pr-4 py-2.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-200"
-            />
+        <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-200 p-5">
+            <div className="flex w-full max-w-[360px] items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-slate-400">
+              <Search size={18} />
+              <input
+                type="text"
+                placeholder="Search doctors..."
+                value={doctorSearchFilter}
+                onChange={(e) => {
+                  setDoctorSearchFilter(e.target.value);
+                  setAdminDoctorsPage(1);
+                }}
+                className="w-full bg-transparent outline-none text-slate-900"
+              />
+            </div>
+
+            <button className="flex items-center gap-2 rounded-xl border border-slate-200 px-5 py-3 text-slate-700 hover:bg-slate-50">
+              <Filter size={18} />
+              <span>Filter</span>
+            </button>
           </div>
-          <button className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm hover:bg-slate-50">
-            <Filter size={18} />
-            Filter
-          </button>
-        </div>
 
-        {/* Table */}
-        <div className="rounded-[24px] border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div className="grid grid-cols-7 gap-4 border-b border-slate-200 bg-slate-50 px-6 py-4 text-xs font-semibold uppercase text-slate-600">
-            <div>Doctor</div>
-            <div>Specialization</div>
-            <div>Department</div>
-            <div>Experience</div>
-            <div>Rating</div>
-            <div>Patients</div>
+          <div className="grid gap-4 border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-500" style={{gridTemplateColumns: '2fr 1.2fr 1.2fr 1fr 1fr 1fr 1fr'}}>
+            <div>DOCTOR</div>
+            <div>SPECIALIZATION</div>
+            <div>DEPARTMENT</div>
+            <div>EXPERIENCE</div>
+            <div>RATING</div>
+            <div>PATIENTS</div>
             <div className="text-right">Actions</div>
           </div>
 
-          {paginatedDoctors.map((doctor, idx) => (
+          {paginatedDoctors.map((doctor, index) => {
+            // Count unique patients for this doctor
+            const patientCount = adminAppointments
+              ? adminAppointments
+                  .filter(app => app.doctor_id === doctor.id)
+                  .reduce((unique, app) => {
+                    if (!unique.has(app.patient_id)) unique.add(app.patient_id);
+                    return unique;
+                  }, new Set()).size
+              : 0;
+
+            return (
             <div
               key={doctor.id}
-              className={`grid grid-cols-7 items-center gap-4 px-6 py-5 ${
-                idx !== paginatedDoctors.length - 1 ? "border-b border-slate-100" : ""
+              className={`grid items-center gap-4 px-5 py-5 ${
+                index !== paginatedDoctors.length - 1 ? "border-b border-slate-200" : ""
               }`}
+              style={{gridTemplateColumns: '2fr 1.2fr 1.2fr 1fr 1fr 1fr 1fr'}}
             >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-teal-600">
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-teal-600">
                   <Stethoscope size={18} className="text-white" />
                 </div>
-                <div>
-                  <p className="font-medium text-slate-900">{doctor.name}</p>
-                  <p className="text-xs text-slate-500">{doctor.email}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[18px] font-medium text-slate-900">{doctor.name}</p>
+                  <p className="truncate text-sm text-slate-500">{doctor.email}</p>
                 </div>
               </div>
-              <div className="text-sm text-slate-700">{doctor.specialty || 'N/A'}</div>
-              <div className="text-sm text-slate-700">{doctor.department || 'N/A'}</div>
-              <div className="text-sm text-slate-700">{doctor.experience || 'N/A'} years</div>
-              <div className="flex items-center gap-1">
+
+              <div className="truncate text-[17px] text-slate-700">{doctor.specialty ?? 'N/A'}</div>
+
+              <div className="truncate text-[17px] text-slate-700">{doctor.department ?? 'N/A'}</div>
+
+              <div className="truncate text-[17px] text-slate-700">{(doctor.experience !== null && doctor.experience !== undefined) ? `${doctor.experience} years` : 'N/A'}</div>
+
+              <div className="flex items-center gap-1 text-[17px] text-slate-700">
                 <span className="text-yellow-400">★</span>
-                <span className="text-sm font-medium text-slate-900">{doctor.rating || '4.5'}</span>
+                <span className="font-medium">{doctor.rating !== null && doctor.rating !== undefined ? parseFloat(doctor.rating).toFixed(1) : 'N/A'}</span>
               </div>
-              <div className="text-sm font-semibold text-teal-600">{doctor.patients_count || '0'}</div>
-              <div className="flex items-center justify-end gap-2">
-                <button className="rounded-lg p-2 text-blue-600 hover:bg-blue-50">
+
+              <div className="truncate text-[17px] text-teal-600 font-medium">{patientCount}</div>
+
+              <div className="flex items-center justify-end gap-4">
+                <button 
+                  onClick={() => { 
+                    setAddModalType("doctor"); 
+                    setShowAddModal(true); 
+                    setEditingDoctorId(doctor.id);
+                    setNewUserData({
+                      name: doctor.name,
+                      email: doctor.email,
+                      password: "",
+                      phone: doctor.phone || "",
+                      role: "doctor",
+                      specialty: doctor.specialty || "",
+                    }); 
+                  }}
+                  className="text-blue-600 hover:opacity-70"
+                >
                   <Pencil size={18} />
                 </button>
-                <button onClick={() => handleDeleteUser(doctor.id, "doctor")} className="rounded-lg p-2 text-red-600 hover:bg-red-50">
+                <button
+                  onClick={() => handleDeleteUser(doctor.id, "doctor")}
+                  className="text-red-500 hover:opacity-70"
+                >
                   <Trash2 size={18} />
                 </button>
-                <button className="rounded-lg p-2 text-slate-400 hover:bg-slate-100">
+                <button className="text-slate-500 hover:opacity-70">
                   <MoreVertical size={18} />
                 </button>
               </div>
             </div>
-          ))}
+          );
+          })}
 
-          {doctors.length === 0 && (
-            <div className="px-6 py-8 text-center text-slate-500">
+          {filteredDoctors.length === 0 && (
+            <div className="px-5 py-8 text-center text-slate-500">
               No doctors found.
             </div>
           )}
+
+          {filteredDoctors.length > 0 && (
+            <div className="flex items-center justify-between border-t border-slate-200 px-5 py-5 text-slate-500">
+              <p>Showing {startIndex + 1} to {Math.min(endIndex, filteredDoctors.length)} of {filteredDoctors.length} entries</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setAdminDoctorsPage(Math.max(1, adminDoctorsPage - 1))}
+                  disabled={adminDoctorsPage === 1}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  ←
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <button
+                    key={page}
+                    onClick={() => setAdminDoctorsPage(page)}
+                    className={`rounded-lg px-3 py-2 font-medium ${
+                      adminDoctorsPage === page
+                        ? "bg-teal-600 text-white"
+                        : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setAdminDoctorsPage(Math.min(totalPages, adminDoctorsPage + 1))}
+                  disabled={adminDoctorsPage === totalPages}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  →
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAdminAppointmentsPage = () => {
+    // Filter appointments by status and search
+    const filteredAppointments = adminAppointments.filter((apt) => {
+      const matchesStatus = appointmentFilter === "All" || apt.status === appointmentFilter;
+      
+      // Local search only
+      const localSearchActive = appointmentSearch && appointmentSearch.trim() !== "";
+      const matchesLocalSearch = !localSearchActive ||
+        apt.patient_name?.toLowerCase().includes(appointmentSearch.toLowerCase().trim()) ||
+        apt.doctor_name?.toLowerCase().includes(appointmentSearch.toLowerCase().trim());
+      
+      return matchesStatus && matchesLocalSearch;
+    });
+
+    // Pagination logic
+    const itemsPerPage = 5;
+    const totalPages = Math.ceil(filteredAppointments.length / itemsPerPage);
+    const startIndex = (adminAppointmentsPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginatedAppointments = filteredAppointments.slice(startIndex, endIndex);
+
+    // Reset to page 1 if current page exceeds available pages
+    if (adminAppointmentsPage > totalPages && totalPages > 0) {
+      setAdminAppointmentsPage(1);
+    }
+
+    const getStatusBadgeClass = (status) => {
+      switch (status) {
+        case "Completed":
+          return "bg-emerald-100 text-emerald-700";
+        case "Confirmed":
+        case "Scheduled":
+          return "bg-yellow-100 text-yellow-700";
+        case "Pending":
+          return "bg-amber-100 text-amber-700";
+        case "Cancelled":
+          return "bg-red-100 text-red-700";
+        default:
+          return "bg-slate-100 text-slate-700";
+      }
+    };
+
+    return (
+      <div className="p-9">
+        <div className="mb-8 flex items-start justify-between">
+          <div>
+            <h2 className="text-[28px] font-bold">All Appointments</h2>
+            <p className="mt-2 text-[18px] text-slate-500">
+              View and manage all hospital appointments.
+            </p>
+          </div>
+
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-3 rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700"
+          >
+            <CalendarPlus size={20} />
+            <span>Schedule Appointment</span>
+          </button>
         </div>
 
-        {/* Pagination */}
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-slate-600">
-            Showing {doctors.length === 0 ? 0 : startIndex + 1} to {Math.min(endIndex, doctors.length)} of {doctors.length} entries
-          </p>
-          <div className="flex items-center gap-2">
+        {/* Filter Tabs */}
+        <div className="mb-6 flex gap-2">
+          {["All", "Scheduled", "Pending", "Completed", "Cancelled"].map((status) => (
             <button
-              onClick={() => setAdminDoctorsPage(Math.max(1, adminDoctorsPage - 1))}
-              disabled={adminDoctorsPage === 1}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+              key={status}
+              onClick={() => {
+                setAppointmentFilter(status);
+                setAdminAppointmentsPage(1);
+              }}
+              className={`rounded-full px-5 py-2 font-medium transition-colors ${
+                appointmentFilter === status
+                  ? "bg-teal-600 text-white"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
             >
-              ← Previous
+              {status}
             </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-              <button
-                key={page}
-                onClick={() => setAdminDoctorsPage(page)}
-                className={`rounded-lg px-3 py-2 text-sm font-medium ${
-                  adminDoctorsPage === page
-                    ? "bg-teal-600 text-white"
-                    : "border border-slate-200 hover:bg-slate-50"
+          ))}
+        </div>
+
+        <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+          {/* Search Bar */}
+          <div className="border-b border-slate-200 p-5">
+            <div className="flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 bg-slate-50">
+              <Search size={18} className="text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search appointments..."
+                value={appointmentSearch}
+                onChange={(e) => {
+                  setAppointmentSearch(e.target.value);
+                  setAdminAppointmentsPage(1);
+                }}
+                className="w-full bg-transparent outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Table Header */}
+          <div className="grid gap-4 border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-500" style={{gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr 0.8fr 0.8fr'}}>
+            <div>PATIENT</div>
+            <div>DOCTOR</div>
+            <div>DATE</div>
+            <div>TYPE</div>
+            <div>STATUS</div>
+            <div className="text-right">Actions</div>
+          </div>
+
+          {/* Table Body */}
+          {paginatedAppointments.length > 0 ? (
+            paginatedAppointments.map((apt, index) => (
+              <div
+                key={apt.id}
+                className={`grid items-center gap-4 px-5 py-5 ${
+                  index !== paginatedAppointments.length - 1 ? "border-b border-slate-200" : ""
                 }`}
+                style={{gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr 0.8fr 0.8fr'}}
               >
-                {page}
-              </button>
-            ))}
-            <button
-              onClick={() => setAdminDoctorsPage(Math.min(totalPages, adminDoctorsPage + 1))}
-              disabled={adminDoctorsPage === totalPages}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
-            >
-              Next →
-            </button>
+                {/* Patient */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-blue-600">
+                    <span className="text-white font-semibold text-sm">
+                      {apt.patient_name?.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[15px] font-medium text-slate-900">
+                      {apt.patient_name || "Unknown"}
+                    </p>
+                    <p className="truncate text-xs text-slate-500">
+                      {apt.patient_email || ""}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Doctor */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-teal-600">
+                    <Stethoscope size={16} className="text-white" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[15px] font-medium text-slate-900">
+                      {apt.doctor_name || "Unassigned"}
+                    </p>
+                    <p className="truncate text-xs text-slate-500">
+                      {apt.specialty || ""}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Date */}
+                <div className="text-[15px] text-slate-700">
+                  <div>{formatDate(apt.date)}</div>
+                  <div className="text-xs text-slate-500">{formatTime(apt.time)}</div>
+                </div>
+
+                {/* Type */}
+                <div className="text-[15px] text-slate-700">
+                  {apt.type || "General"}
+                </div>
+
+                {/* Status Badge */}
+                <div>
+                  <select
+                    value={apt.status}
+                    onChange={(e) => handleUpdateAppointmentStatus(apt.id, e.target.value)}
+                    className={`rounded-full px-3 py-1 text-xs font-medium border-0 cursor-pointer ${getStatusBadgeClass(apt.status)}`}
+                  >
+                    <option value="Scheduled">Scheduled</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Cancelled">Cancelled</option>
+                  </select>
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    onClick={() => {
+                      setSelectedDetailType("appointment");
+                      setSelectedDetail(apt);
+                      setShowAppointmentDetails(true);
+                    }}
+                    className="text-blue-600 hover:opacity-70 transition-opacity"
+                    title="View"
+                  >
+                    <Eye size={18} />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteAppointment(apt.id)}
+                    className="text-red-500 hover:opacity-70 transition-opacity"
+                    title="Delete"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                  <button className="text-slate-500 hover:opacity-70 transition-opacity">
+                    <MoreVertical size={18} />
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="px-5 py-12 text-center">
+              <p className="text-slate-500 text-[15px]">No appointments found.</p>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {filteredAppointments.length > 0 && (
+            <div className="flex items-center justify-between border-t border-slate-200 px-5 py-5 text-slate-600">
+              <p className="text-sm">Showing {startIndex + 1} to {Math.min(endIndex, filteredAppointments.length)} of {filteredAppointments.length} entries</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setAdminAppointmentsPage(Math.max(1, adminAppointmentsPage - 1))}
+                  disabled={adminAppointmentsPage === 1}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  ←
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <button
+                    key={page}
+                    onClick={() => setAdminAppointmentsPage(page)}
+                    className={`rounded-lg px-3 py-2 font-medium ${
+                      adminAppointmentsPage === page
+                        ? "bg-teal-600 text-white"
+                        : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setAdminAppointmentsPage(Math.min(totalPages, adminAppointmentsPage + 1))}
+                  disabled={adminAppointmentsPage === totalPages}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  →
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAdminMedicalHistoryPage = () => {
+    // Filter medical records by search
+    const filteredRecords = adminMedicalRecords.filter((record) => {
+      const searchLower = medicalRecordsSearch.toLowerCase();
+      return (
+        record.patient_name?.toLowerCase().includes(searchLower) ||
+        record.doctor_name?.toLowerCase().includes(searchLower) ||
+        record.diagnosis?.toLowerCase().includes(searchLower)
+      );
+    });
+
+    return (
+      <div className="p-9">
+        <div className="mb-8">
+          <h2 className="text-[28px] font-bold">Medical History</h2>
+          <p className="mt-2 text-[18px] text-slate-500">Browse all patient medical records.</p>
+        </div>
+
+        {/* Search Bar */}
+        <div className="mb-6">
+          <input
+            type="text"
+            placeholder="Search by patient name or diagnosis..."
+            value={medicalRecordsSearch}
+            onChange={(e) => setMedicalRecordsSearch(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 placeholder-slate-400 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+          />
+        </div>
+
+        {/* Medical Records Cards */}
+        <div className="space-y-4">
+          {filteredRecords.length > 0 ? (
+            filteredRecords.map((record) => (
+              <div
+                key={record.id}
+                className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow"
+              >
+                <button
+                  onClick={() => setExpandedRecordId(expandedRecordId === record.id ? null : record.id)}
+                  className="w-full flex items-start justify-between p-5 text-left hover:bg-slate-50 transition-colors rounded-2xl"
+                >
+                  <div className="flex items-start gap-4 flex-1 min-w-0">
+                    {/* File Icon */}
+                    <div className="flex-shrink-0 mt-1">
+                      <FileText size={24} className="text-slate-400" />
+                    </div>
+
+                    {/* Record Info */}
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-[18px] font-semibold text-slate-900">{record.diagnosis}</h3>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Patient: <span className="font-medium">{record.patient_name}</span> • Doctor: <span className="font-medium">{record.doctor_name}</span>
+                      </p>
+                      <p className="mt-2 text-sm text-slate-600 line-clamp-1">{record.treatment || "No treatment details"}</p>
+                    </div>
+                  </div>
+
+                  {/* Date and Chevron */}
+                  <div className="flex items-center gap-4 flex-shrink-0 ml-4">
+                    <span className="text-sm font-medium text-slate-500">
+                      {record.record_date 
+                        ? new Date(record.record_date).toLocaleDateString("en-US", {
+                            year: "numeric",
+                            month: "2-digit",
+                            day: "2-digit",
+                          }).split("/").reverse().join("-")
+                        : "N/A"}
+                    </span>
+                    <ChevronDown
+                      size={20}
+                      className={`text-slate-400 transition-transform ${
+                        expandedRecordId === record.id ? "rotate-180" : ""
+                      }`}
+                    />
+                  </div>
+                </button>
+
+                {/* Expanded Details */}
+                {expandedRecordId === record.id && (
+                  <div className="border-t border-slate-200 px-5 py-4 space-y-3 bg-slate-50 rounded-b-2xl">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase">Patient</p>
+                        <p className="mt-1 text-sm text-slate-700">{record.patient_name}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase">Doctor</p>
+                        <p className="mt-1 text-sm text-slate-700">{record.doctor_name}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase">Diagnosis</p>
+                        <p className="mt-1 text-sm text-slate-700">{record.diagnosis}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase">Record Date</p>
+                        <p className="mt-1 text-sm text-slate-700">
+                          {record.record_date 
+                            ? new Date(record.record_date).toLocaleDateString("en-US", {
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                              })
+                            : "N/A"}
+                        </p>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 uppercase">Treatment</p>
+                      <p className="mt-1 text-sm text-slate-700">{record.treatment || "No treatment details"}</p>
+                    </div>
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        onClick={() => handleDeleteMedicalRecord(record.id)}
+                        className="text-red-500 hover:opacity-70 transition-opacity text-sm font-medium flex items-center gap-1"
+                      >
+                        <Trash2 size={16} />
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))
+          ) : (
+            <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
+              <p className="text-slate-500">No medical records found.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAdminReportsPage = () => {
+    // Calculate real statistics
+    const totalAppointments = adminAppointments.length;
+    const activePatients = adminPatients.length;
+    const totalDoctors = doctors.length;
+    const avgRating = totalDoctors > 0 ? (doctors.reduce((sum, d) => sum + (parseFloat(d.rating) || 0), 0) / totalDoctors).toFixed(1) : 0;
+
+    // Calculate appointment types from real data
+    const appointmentTypeData = {
+      "Checkup": adminAppointments.filter(a => a.type === "Checkup").length,
+      "Consultation": adminAppointments.filter(a => a.type === "Consultation").length,
+      "Follow-up": adminAppointments.filter(a => a.type === "Follow-up").length,
+      "Emergency": adminAppointments.filter(a => a.type === "Emergency").length,
+    };
+    const totalTypes = Object.values(appointmentTypeData).reduce((a, b) => a + b, 0) || 1;
+    const appointmentTypes = {
+      "Checkup": Math.round((appointmentTypeData["Checkup"] / totalTypes) * 100),
+      "Consultation": Math.round((appointmentTypeData["Consultation"] / totalTypes) * 100),
+      "Follow-up": Math.round((appointmentTypeData["Follow-up"] / totalTypes) * 100),
+      "Emergency": Math.round((appointmentTypeData["Emergency"] / totalTypes) * 100),
+    };
+
+    // Calculate department patient load from real doctors data
+    const deptLoad = {};
+    doctors.forEach(doc => {
+      const dept = doc.department || "General";
+      const count = adminAppointments.filter(a => a.doctor_id === doc.id).length;
+      deptLoad[dept] = (deptLoad[dept] || 0) + count;
+    });
+    const maxDeptLoad = Math.max(...Object.values(deptLoad), 1);
+
+    // Calculate age demographics from real patient data
+    const ageGroups = {
+      "0-18": 0,
+      "19-35": 0,
+      "36-50": 0,
+      "51-65": 0,
+      "65+": 0,
+    };
+    adminPatients.forEach(patient => {
+      if (patient.dateOfBirth) {
+        const age = new Date().getFullYear() - new Date(patient.dateOfBirth).getFullYear();
+        if (age < 18) ageGroups["0-18"]++;
+        else if (age < 36) ageGroups["19-35"]++;
+        else if (age < 51) ageGroups["36-50"]++;
+        else if (age < 66) ageGroups["51-65"]++;
+        else ageGroups["65+"]++;
+      }
+    });
+    const maxAge = Math.max(...Object.values(ageGroups), 1);
+
+    // Monthly trend - group appointments by month
+    const monthlyTrend = {};
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+    months.forEach((m, i) => monthlyTrend[m] = 0);
+    adminAppointments.forEach(apt => {
+      if (apt.date) {
+        const month = new Date(apt.date).toLocaleString("en-US", { month: "short" });
+        if (monthlyTrend.hasOwnProperty(month)) monthlyTrend[month]++;
+      }
+    });
+    const maxMonthly = Math.max(...Object.values(monthlyTrend), 1);
+
+    return (
+      <div className="p-9">
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h2 className="text-[28px] font-bold">Reports & Analytics</h2>
+            <p className="mt-2 text-[18px] text-slate-500">Comprehensive insights and statistics.</p>
+          </div>
+          <select className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-slate-700">
+            <option>This Month</option>
+            <option>Last Month</option>
+            <option>Last Quarter</option>
+            <option>This Year</option>
+          </select>
+        </div>
+
+        {/* Stat Cards */}
+        <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-4 mb-8">
+          <StatCard
+            title="Total Appointments"
+            value={totalAppointments}
+            change="13.6%"
+            icon={<CalendarDays size={32} className="text-blue-500" />}
+            bgColor="bg-blue-50"
+          />
+          <StatCard
+            title="Active Patients"
+            value={activePatients}
+            change="16.2%"
+            icon={<Users size={32} className="text-emerald-500" />}
+            bgColor="bg-emerald-50"
+          />
+          <StatCard
+            title="Total Doctors"
+            value={totalDoctors}
+            change="2.7%"
+            icon={<Stethoscope size={32} className="text-purple-500" />}
+            bgColor="bg-purple-50"
+          />
+          <StatCard
+            title="Avg. Rating"
+            value={avgRating}
+            change="25.5%"
+            icon={<BarChart3 size={32} className="text-amber-500" />}
+            bgColor="bg-amber-50"
+          />
+        </div>
+
+        {/* Charts Row 1 */}
+        <div className="grid gap-6 grid-cols-1 lg:grid-cols-2 mb-8">
+          {/* Line Chart - Monthly Trend */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-[18px] font-semibold text-slate-900 mb-4">Monthly Appointments Trend</h3>
+            <div className="h-64 flex items-end gap-2 px-2 py-4">
+              {Object.entries(monthlyTrend).map(([month, value]) => (
+                <div key={month} className="flex-1 flex flex-col items-center">
+                  <div className="w-full relative">
+                    <div
+                      className="w-full bg-gradient-to-t from-blue-400 to-blue-500 rounded-t-lg transition-all"
+                      style={{ height: `${(value / maxMonthly) * 200}px` }}
+                    />
+                  </div>
+                  <span className="text-xs text-slate-500 mt-2">{month}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 text-center text-xs text-slate-600 flex items-center justify-center gap-2">
+              <span className="w-3 h-3 bg-blue-500 rounded-full"></span>
+              appointments
+            </div>
+          </div>
+
+          {/* Pie Chart - Appointment Types */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-[18px] font-semibold text-slate-900 mb-6">Appointments by Type</h3>
+            <div className="flex flex-col items-center justify-center">
+              <div className="w-32 h-32 rounded-full" style={{
+                background: `conic-gradient(
+                  #3b82f6 0deg ${(appointmentTypes.Checkup / 100) * 360}deg,
+                  #8b5cf6 ${(appointmentTypes.Checkup / 100) * 360}deg ${((appointmentTypes.Checkup + appointmentTypes["Follow-up"]) / 100) * 360}deg,
+                  #10b981 ${((appointmentTypes.Checkup + appointmentTypes["Follow-up"]) / 100) * 360}deg ${((appointmentTypes.Checkup + appointmentTypes["Follow-up"] + appointmentTypes.Consultation) / 100) * 360}deg,
+                  #f97316 ${((appointmentTypes.Checkup + appointmentTypes["Follow-up"] + appointmentTypes.Consultation) / 100) * 360}deg 360deg
+                )`
+              }}></div>
+            </div>
+            <div className="mt-6 space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-blue-500 rounded-full"></span>Checkup {appointmentTypes.Checkup}%</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-purple-500 rounded-full"></span>Follow-up {appointmentTypes["Follow-up"]}%</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-green-500 rounded-full"></span>Consultation {appointmentTypes.Consultation}%</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-orange-500 rounded-full"></span>Emergency {appointmentTypes.Emergency}%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Charts Row 2 */}
+        <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
+          {/* Bar Chart - Department Load */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-[18px] font-semibold text-slate-900 mb-4">Department Patient Load</h3>
+            <div className="h-64 flex items-end gap-3 px-2 py-4">
+              {Object.entries(deptLoad).length > 0 ? (
+                Object.entries(deptLoad).map(([dept, value]) => (
+                  <div key={dept} className="flex-1 flex flex-col items-center">
+                    <div
+                      className="w-full bg-gradient-to-t from-purple-400 to-purple-500 rounded-t-lg transition-all"
+                      style={{ height: `${(value / maxDeptLoad) * 200}px` }}
+                    />
+                    <span className="text-xs text-slate-500 mt-2 text-center line-clamp-2">{dept}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-slate-500 text-center w-full">No department data</div>
+              )}
+            </div>
+            <div className="mt-2 text-center text-xs text-slate-600 flex items-center justify-center gap-2">
+              <span className="w-3 h-3 bg-purple-500 rounded-full"></span>
+              Patients
+            </div>
+          </div>
+
+          {/* Bar Chart - Age Demographics */}
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-[18px] font-semibold text-slate-900 mb-4">Patient Demographics by Age</h3>
+            <div className="h-64 flex items-end gap-3 px-2 py-4">
+              {Object.entries(ageGroups).map(([label, value]) => (
+                <div key={label} className="flex-1 flex flex-col items-center">
+                  <div
+                    className="w-full bg-gradient-to-t from-emerald-400 to-emerald-500 rounded-t-lg transition-all"
+                    style={{ height: `${(value / maxAge) * 200}px` }}
+                  />
+                  <span className="text-xs text-slate-500 mt-2">{label}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 text-center text-xs text-slate-600 flex items-center justify-center gap-2">
+              <span className="w-3 h-3 bg-emerald-500 rounded-full"></span>
+              Count
+            </div>
           </div>
         </div>
       </div>
     );
   };
 
-  const renderAdminAppointmentsPage = () => (
-    <div className="p-9">
-      <div className="mb-8">
-        <h2 className="text-[28px] font-bold">Manage Appointments</h2>
-        <p className="mt-2 text-[18px] text-slate-500">View and manage all patient appointments.</p>
+  const StatCard = ({ title, value, change, icon, bgColor = "bg-blue-50" }) => {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-sm text-slate-600 font-medium">{title}</p>
+            <p className="mt-3 text-[32px] font-bold text-slate-900">{value}</p>
+            <p className="mt-3 text-xs text-teal-600 font-medium">+{change} vs last month</p>
+          </div>
+          <div className={`rounded-lg ${bgColor} p-3`}>
+            {icon}
+          </div>
+        </div>
       </div>
+    );
+  };
 
-      <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
-        <div className="grid grid-cols-5 gap-4 border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-500">
-          <div>ID</div>
-          <div>Date & Time</div>
-          <div>Type</div>
-          <div>Status</div>
-          <div className="text-right">Actions</div>
+  const renderAdminSettingsPage = () => {
+    const handleUpdatePassword = () => {
+      if (newPassword !== confirmPassword) {
+        alert("Passwords don't match");
+        return;
+      }
+      alert("Password updated successfully");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    };
+
+    return (
+      <div className="p-9">
+        {/* Notification Preferences */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm mb-6">
+          <div className="flex items-center gap-3 mb-6">
+            <Bell size={24} className="text-amber-500" />
+            <h3 className="text-[20px] font-semibold">Notification Preferences</h3>
+          </div>
+          
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-900">Email Notifications</p>
+                <p className="text-xs text-slate-600">Receive appointment and system updates via email</p>
+              </div>
+              <button
+                onClick={() => setEmailNotifications(!emailNotifications)}
+                className={`w-12 h-6 rounded-full transition-colors ${emailNotifications ? 'bg-teal-500' : 'bg-slate-300'}`}
+              >
+                <div className={`w-5 h-5 bg-white rounded-full transition-transform ${emailNotifications ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-900">SMS Notifications</p>
+                <p className="text-xs text-slate-600">Get text messages for urgent updates</p>
+              </div>
+              <button
+                onClick={() => setSmsNotifications(!smsNotifications)}
+                className={`w-12 h-6 rounded-full transition-colors ${smsNotifications ? 'bg-teal-500' : 'bg-slate-300'}`}
+              >
+                <div className={`w-5 h-5 bg-white rounded-full transition-transform ${smsNotifications ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-900">Push Notifications</p>
+                <p className="text-xs text-slate-600">Browser notifications for real-time alerts</p>
+              </div>
+              <button
+                onClick={() => setPushNotifications(!pushNotifications)}
+                className={`w-12 h-6 rounded-full transition-colors ${pushNotifications ? 'bg-teal-500' : 'bg-slate-300'}`}
+              >
+                <div className={`w-5 h-5 bg-white rounded-full transition-transform ${pushNotifications ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+          </div>
         </div>
 
-        {adminAppointments.map((apt, index) => (
-          <div
-            key={apt.id}
-            className={`grid grid-cols-5 items-center gap-4 px-5 py-5 ${
-              index !== adminAppointments.length - 1 ? "border-b border-slate-200" : ""
-            }`}
-          >
-            <div className="text-[17px] font-medium text-slate-900">#{apt.id}</div>
-            <div className="text-[17px] text-slate-700">{apt.date} {apt.time}</div>
-            <div className="text-[17px] text-slate-700">{apt.type}</div>
+        {/* Security */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm mb-6">
+          <div className="flex items-center gap-3 mb-6">
+            <Lock size={24} className="text-red-500" />
+            <h3 className="text-[20px] font-semibold">Security</h3>
+          </div>
+
+          <div className="space-y-4">
             <div>
-              <select
-                value={apt.status}
-                onChange={(e) => handleUpdateAppointmentStatus(apt.id, e.target.value)}
-                className="rounded-lg border border-slate-200 px-3 py-1 text-sm"
-              >
-                <option value="Pending">Pending</option>
-                <option value="Confirmed">Confirmed</option>
-                <option value="Completed">Completed</option>
-                <option value="Cancelled">Cancelled</option>
-              </select>
+              <label className="text-sm font-medium text-slate-900">Current Password</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="mt-2 w-full rounded-lg border border-slate-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
             </div>
-            <div className="flex items-center justify-end gap-4">
-              <button
-                onClick={() => handleDeleteAppointment(apt.id)}
-                className="text-red-500 hover:opacity-70"
-              >
-                <Trash2 size={18} />
-              </button>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-slate-900">New Password</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="mt-2 w-full rounded-lg border border-slate-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-900">Confirm Password</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="mt-2 w-full rounded-lg border border-slate-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
             </div>
+
+            <button
+              onClick={handleUpdatePassword}
+              className="mt-4 px-6 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors"
+            >
+              Update Password
+            </button>
           </div>
-        ))}
-
-        {adminAppointments.length === 0 && (
-          <div className="px-5 py-8 text-center text-slate-500">
-            No appointments found.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  const renderAdminMedicalHistoryPage = () => (
-    <div className="p-9">
-      <div className="mb-8">
-        <h2 className="text-[28px] font-bold">Medical History</h2>
-        <p className="mt-2 text-[18px] text-slate-500">Review all medical records in the system.</p>
-      </div>
-
-      <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
-        <div className="grid grid-cols-5 gap-4 border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-500">
-          <div>ID</div>
-          <div>Patient</div>
-          <div>Doctor</div>
-          <div>Diagnosis</div>
-          <div className="text-right">Actions</div>
         </div>
 
-        {adminMedicalRecords.map((record, index) => (
-          <div
-            key={record.id}
-            className={`grid grid-cols-5 items-center gap-4 px-5 py-5 ${
-              index !== adminMedicalRecords.length - 1 ? "border-b border-slate-200" : ""
-            }`}
-          >
-            <div className="text-[17px] font-medium text-slate-900">#{record.id}</div>
-            <div className="text-[17px] text-slate-700">{record.patient_name}</div>
-            <div className="text-[17px] text-slate-700">{record.doctor_name}</div>
-            <div className="text-[17px] text-slate-700">{record.diagnosis}</div>
-            <div className="flex items-center justify-end gap-4">
-              <button
-                onClick={() => { setSelectedRecord(record); setShowRecordModal(true); }}
-                className="text-blue-600 hover:opacity-70"
-              >
-                <FileText size={18} />
-              </button>
-              <button
-                onClick={() => handleDeleteMedicalRecord(record.id)}
-                className="text-red-500 hover:opacity-70"
-              >
-                <Trash2 size={18} />
-              </button>
-            </div>
+        {/* System Information */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm mb-6">
+          <div className="flex items-center gap-3 mb-6">
+            <Info size={24} className="text-purple-500" />
+            <h3 className="text-[20px] font-semibold">System Information</h3>
           </div>
-        ))}
 
-        {adminMedicalRecords.length === 0 && (
-          <div className="px-5 py-8 text-center text-slate-500">
-            No medical records found.
-          </div>
-        )}
-      </div>
-
-      {showRecordModal && selectedRecord && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-lg">
-            <h2 className="mb-6 text-[24px] font-bold">Medical Record Details</h2>
-            <div className="space-y-4">
-              <div>
-                <p className="text-sm text-slate-600">Patient</p>
-                <p className="font-medium">{selectedRecord.patient_name}</p>
-              </div>
-              <div>
-                <p className="text-sm text-slate-600">Doctor</p>
-                <p className="font-medium">{selectedRecord.doctor_name}</p>
-              </div>
-              <div>
-                <p className="text-sm text-slate-600">Diagnosis</p>
-                <p className="font-medium">{selectedRecord.diagnosis}</p>
-              </div>
-              <div>
-                <p className="text-sm text-slate-600">Treatment</p>
-                <p className="font-medium">{selectedRecord.treatment}</p>
-              </div>
-              <div>
-                <p className="text-sm text-slate-600">Record Date</p>
-                <p className="font-medium">{selectedRecord.record_date}</p>
-              </div>
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <p className="text-xs text-slate-600">Version</p>
+              <p className="text-sm font-semibold text-slate-900 mt-1">v2.4.1</p>
             </div>
-            <div className="mt-8 flex gap-3">
-              <button
-                onClick={() => setShowRecordModal(false)}
-                className="flex-1 rounded-lg border border-slate-200 px-4 py-3 font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Close
-              </button>
+            <div>
+              <p className="text-xs text-slate-600">Last Updated</p>
+              <p className="text-sm font-semibold text-slate-900 mt-1">December 15, 2023</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-600">Database</p>
+              <p className="text-sm font-semibold text-slate-900 mt-1">PostgreSQL 14.2</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-600">Server Status</p>
+              <p className="text-sm font-semibold text-teal-600 mt-1">Online</p>
             </div>
           </div>
         </div>
-      )}
-    </div>
-  );
 
-  const renderAdminReportsPage = () => (
-    <div className="p-9">
-      <h2 className="text-[28px] font-bold">Reports</h2>
-      <p className="mt-2 text-[18px] text-slate-500">Generate and review system reports.</p>
-
-      <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
-        <ReportCard
-          title="Patient Demographics"
-          description="View statistics about patient distribution"
-          data={`Total Patients: ${adminStats.totalPatients}`}
-        />
-        <ReportCard
-          title="Doctor Performance"
-          description="Track doctor appointments and records"
-          data={`Total Doctors: ${adminStats.totalDoctors}`}
-        />
-        <ReportCard
-          title="Appointment Summary"
-          description="Overview of appointment statuses"
-          data={`
-            Pending: ${adminStats.pendingAppointments}
-            Completed: ${adminStats.completedAppointments}
-          `}
-        />
-        <ReportCard
-          title="Medical Records"
-          description="Total medical records in system"
-          data={`Total Records: ${adminStats.totalMedicalRecords}`}
-        />
+        {/* Save Button */}
+        <div className="flex justify-end">
+          <button className="px-6 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors">
+            Save All Changes
+          </button>
+        </div>
       </div>
-    </div>
-  );
-
-  const ReportCard = ({ title, description, data }) => (
-    <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
-      <h3 className="text-[20px] font-bold">{title}</h3>
-      <p className="mt-1 text-sm text-slate-600">{description}</p>
-      <div className="mt-4 rounded-lg bg-slate-50 p-4">
-        <pre className="whitespace-pre-wrap text-sm text-slate-700">{data}</pre>
-      </div>
-    </div>
-  );
-
-  const renderAdminSettingsPage = () => (
-    <div className="p-9">
-      <h2 className="text-[28px] font-bold">System Settings</h2>
-      <p className="mt-2 text-[18px] text-slate-500">Configure system-wide settings and preferences.</p>
-
-      <div className="mt-8 space-y-6">
-        <SettingsSection
-          title="Database"
-          description="Database configuration"
-          fields={[
-            { label: "Database Status", value: "Connected ✓", readonly: true },
-            { label: "Host", value: "localhost", readonly: true },
-            { label: "Backup Status", value: "Last backup: Today at 10:30 AM", readonly: true },
-          ]}
-        />
-        <SettingsSection
-          title="User Management"
-          description="User and role settings"
-          fields={[
-            { label: "Default User Role", value: "patient", editable: true },
-            { label: "Password Policy", value: "Min 8 characters", readonly: true },
-            { label: "Session Timeout", value: "8 hours", editable: true },
-          ]}
-        />
-        <SettingsSection
-          title="System"
-          description="General system settings"
-          fields={[
-            { label: "System Version", value: "1.0.0", readonly: true },
-            { label: "Last Updated", value: "2026-04-12", readonly: true },
-          ]}
-        />
-      </div>
-    </div>
-  );
+    );
+  };
 
   const SettingsSection = ({ title, description, fields }) => (
     <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
@@ -2064,78 +2781,86 @@ export default function App() {
   );
 
   if (loggedInUser && loggedInUser.role === "doctor") {
-    return <DoctorDashboard loggedInUser={loggedInUser} onLogout={handleLogout} />;
+    return <DoctorDashboard loggedInUser={loggedInUser} setLoggedInUser={setLoggedInUser} onLogout={handleLogout} />;
   }
 
   if (loggedInUser && loggedInUser.role === "patient") {
     return (
       <>
         <div className="flex min-h-screen">
-          <aside className={`flex w-[260px] flex-col justify-between border-r transition-colors ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
+          <aside className={`flex flex-col justify-between border-r transition-all duration-300 ${patientSidebarCollapsed ? "w-20" : "w-[260px]"} ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
             <div>
-              <div className="flex h-[72px] items-center gap-3 border-b border-slate-200 px-6">
-                <Activity className="text-teal-600" size={28} />
-                <h1 className="text-[30px] font-semibold tracking-tight">MediCare</h1>
+              <div className={`flex h-[72px] items-center ${patientSidebarCollapsed ? "justify-center" : "justify-between"} transition-all duration-300 gap-3 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-6`}>
+                <div className={`flex items-center gap-3 transition-all duration-300 ${patientSidebarCollapsed ? "opacity-0 w-0" : "opacity-100 w-auto"}`}>
+                  <Activity className="text-teal-600 flex-shrink-0" size={28} />
+                  <h1 className="text-[30px] font-semibold tracking-tight whitespace-nowrap">MediCare</h1>
+                </div>
+                <button
+                  onClick={() => setPatientSidebarCollapsed(!patientSidebarCollapsed)}
+                  className={`p-2 rounded-lg transition-all flex-shrink-0 ${darkMode ? "hover:bg-slate-700 text-slate-400" : "hover:bg-slate-100 text-slate-600"}`}
+                >
+                  <ChevronLeft size={20} style={{ transform: patientSidebarCollapsed ? "scaleX(-1)" : "scaleX(1)", transition: "transform 300ms ease-in-out" }} />
+                </button>
               </div>
 
               <nav className="px-3 py-6">
                 <button
                   onClick={() => setActivePage("dashboard")}
-                  className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`mb-3 flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     activePage === "dashboard"
-                      ? "bg-teal-50 text-teal-700"
-                      : "text-slate-600 hover:bg-slate-50"
+                      ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
+                      : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <LayoutDashboard size={22} />
-                  <span className="text-[18px]">Dashboard</span>
+                  {!patientSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Dashboard</span>}
                 </button>
 
                 <button
                   onClick={() => setActivePage("appointments")}
-                  className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`mb-3 flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     activePage === "appointments"
-                      ? "bg-teal-50 text-teal-700"
-                      : "text-slate-600 hover:bg-slate-50"
+                      ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
+                      : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <CalendarDays size={22} />
-                  <span className="text-[18px]">My Appointments</span>
+                  {!patientSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>My Appointments</span>}
                 </button>
 
                 <button
                   onClick={() => setActivePage("records")}
-                  className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`mb-3 flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     activePage === "records"
-                      ? "bg-teal-50 text-teal-700"
-                      : "text-slate-600 hover:bg-slate-50"
+                      ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
+                      : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <FileText size={22} />
-                  <span className="text-[18px]">Medical Records</span>
+                  {!patientSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Medical Records</span>}
                 </button>
 
                 <button
                   onClick={() => setActivePage("profile")}
-                  className={`flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     activePage === "profile"
-                      ? "bg-teal-50 text-teal-700"
-                      : "text-slate-600 hover:bg-slate-50"
+                      ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
+                      : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <UserCircle size={22} />
-                  <span className="text-[18px]">Profile</span>
+                  {!patientSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Profile</span>}
                 </button>
               </nav>
             </div>
 
-            <div className="border-t border-slate-200 p-4">
+            <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} p-4`}>
               <button
                 onClick={handleLogout}
-                className="flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left text-slate-600 hover:bg-slate-50"
+                className={`flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${darkMode ? 'text-red-400 hover:bg-red-950' : 'text-red-600 hover:bg-red-50'}`}
               >
                 <LogOut size={22} />
-                <span className="text-[18px]">Logout</span>
+                {!patientSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Logout</span>}
               </button>
             </div>
           </aside>
@@ -2143,20 +2868,12 @@ export default function App() {
           <main className="flex-1">
             <div className={`flex h-[72px] items-center justify-between border-b transition-colors ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'} px-9`}>
               <div className="flex items-center gap-6">
-                <button className={darkMode ? 'text-slate-400' : 'text-slate-600'}>
-                  <Menu size={24} />
-                </button>
-
-                <div className={`hidden items-center gap-3 rounded-xl px-4 py-3 lg:flex lg:w-[390px] transition-colors ${darkMode ? 'bg-slate-700 text-slate-400' : 'bg-slate-100 text-slate-400'}`}>
-                  <Search size={18} />
-                  <span>Search appointments, records...</span>
-                </div>
               </div>
 
               <div className="flex items-center gap-6">
                 <button 
                   onClick={() => setDarkMode(!darkMode)}
-                  className={`rounded-lg p-2 transition-colors ${darkMode ? 'bg-slate-700 text-slate-300' : 'text-slate-600 hover:bg-slate-100'}`}>
+                  className={`rounded-lg p-2 transition-colors ${darkMode ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'text-slate-600 hover:bg-slate-100'}`}>
                   <Moon size={20} />
                 </button>
                 
@@ -2171,23 +2888,23 @@ export default function App() {
                   </button>
 
                   {showNotifications && (
-                    <div className="absolute right-0 top-12 z-50 w-80 rounded-2xl border border-slate-200 bg-white shadow-lg">
-                      <div className="border-b border-slate-200 p-4">
-                        <h3 className="text-[18px] font-bold">Notifications</h3>
+                    <div className={`absolute right-0 top-12 z-50 w-80 rounded-2xl border shadow-lg ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
+                      <div className={`border-b p-4 ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                        <h3 className={`text-[18px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Notifications</h3>
                       </div>
                       <div className="max-h-96 overflow-y-auto">
                         {notifications.length > 0 ? (
                           notifications.map(notif => (
                             <div 
                               key={notif.id}
-                              className={`cursor-pointer border-b border-slate-100 p-4 transition-colors hover:bg-slate-50 ${
-                                notif.unread ? 'bg-blue-50' : ''
-                              }`}>
+                              className={`cursor-pointer border-b p-4 transition-colors ${
+                                notif.unread ? (darkMode ? 'bg-blue-900' : 'bg-blue-50') : (darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-50')
+                              } ${darkMode ? 'border-slate-700' : 'border-slate-100'}`}>
                               <div className="flex items-start justify-between">
                                 <div className="flex-1">
-                                  <p className="text-sm font-semibold">{notif.title}</p>
-                                  <p className="mt-1 text-sm text-slate-600">{notif.message}</p>
-                                  <p className="mt-2 text-xs text-slate-400">{notif.time}</p>
+                                  <p className={`text-sm font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{notif.title}</p>
+                                  <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{notif.message}</p>
+                                  <p className={`mt-2 text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{notif.time}</p>
                                 </div>
                                 {notif.unread && (
                                   <div className="ml-2 mt-1 h-2 w-2 rounded-full bg-blue-500" />
@@ -2196,7 +2913,7 @@ export default function App() {
                             </div>
                           ))
                         ) : (
-                          <div className="p-8 text-center text-slate-500">
+                          <div className={`p-8 text-center ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                             No notifications
                           </div>
                         )}
@@ -2242,107 +2959,115 @@ export default function App() {
     return (
       <>
         <div className="flex min-h-screen">
-          <aside className={`flex w-[260px] flex-col justify-between border-r transition-colors ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
+          <aside className={`flex flex-col justify-between border-r transition-all duration-300 ${adminSidebarCollapsed ? "w-20" : "w-[260px]"} ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
             <div>
-              <div className="flex h-[72px] items-center gap-3 border-b border-slate-200 px-6">
-                <Activity className="text-teal-600" size={28} />
-                <h1 className="text-[30px] font-semibold tracking-tight">MediCare</h1>
+              <div className={`flex h-[72px] items-center ${adminSidebarCollapsed ? "justify-center" : "justify-between"} transition-all duration-300 gap-3 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-6`}>
+                <div className={`flex items-center gap-3 transition-all duration-300 ${adminSidebarCollapsed ? "opacity-0 w-0" : "opacity-100 w-auto"}`}>
+                  <Activity className="text-teal-600 flex-shrink-0" size={28} />
+                  <h1 className="text-[30px] font-semibold tracking-tight whitespace-nowrap">MediCare</h1>
+                </div>
+                <button
+                  onClick={() => setAdminSidebarCollapsed(!adminSidebarCollapsed)}
+                  className={`p-2 rounded-lg transition-all flex-shrink-0 ${darkMode ? "hover:bg-slate-700 text-slate-400" : "hover:bg-slate-100 text-slate-600"}`}
+                >
+                  <ChevronLeft size={20} style={{ transform: adminSidebarCollapsed ? "scaleX(-1)" : "scaleX(1)", transition: "transform 300ms ease-in-out" }} />
+                </button>
               </div>
 
               <nav className="px-3 py-6">
                 <button
                   onClick={() => setAdminPage("dashboard")}
-                  className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "dashboard"
-                      ? "bg-teal-50 text-teal-700"
-                      : "text-slate-600 hover:bg-slate-50"
+                      ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
+                      : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <LayoutDashboard size={22} />
-                  <span className="text-[18px]">Dashboard</span>
+                  {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Dashboard</span>}
                 </button>
 
                 <button
                   onClick={() => setAdminPage("patients")}
-                  className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "patients"
-                      ? "bg-teal-50 text-teal-700"
-                      : "text-slate-600 hover:bg-slate-50"
+                      ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
+                      : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <Users size={22} />
-                  <span className="text-[18px]">Patients</span>
+                  {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Patients</span>}
                 </button>
 
                 <button
                   onClick={() => setAdminPage("doctors")}
-                  className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "doctors"
-                      ? "bg-teal-50 text-teal-700"
-                      : "text-slate-600 hover:bg-slate-50"
+                      ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
+                      : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <UserCog size={22} />
-                  <span className="text-[18px]">Doctors</span>
+                  {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Doctors</span>}
                 </button>
 
                 <button
                   onClick={() => setAdminPage("appointments")}
-                  className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "appointments"
-                      ? "bg-teal-50 text-teal-700"
-                      : "text-slate-600 hover:bg-slate-50"
+                      ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
+                      : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <CalendarRange size={22} />
-                  <span className="text-[18px]">Appointments</span>
+                  {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Appointments</span>}
                 </button>
 
                 <button
                   onClick={() => setAdminPage("history")}
-                  className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "history"
-                      ? "bg-teal-50 text-teal-700"
-                      : "text-slate-600 hover:bg-slate-50"
+                      ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
+                      : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <FileHeart size={22} />
-                  <span className="text-[18px]">Medical History</span>
+                  {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Medical History</span>}
                 </button>
 
                 <button
                   onClick={() => setAdminPage("reports")}
-                  className={`mb-3 flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "reports"
-                      ? "bg-teal-50 text-teal-700"
-                      : "text-slate-600 hover:bg-slate-50"
+                      ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
+                      : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <BarChart3 size={22} />
-                  <span className="text-[18px]">Reports</span>
+                  {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Reports</span>}
                 </button>
 
                 <button
                   onClick={() => setAdminPage("settings")}
-                  className={`flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "settings"
-                      ? "bg-teal-50 text-teal-700"
-                      : "text-slate-600 hover:bg-slate-50"
+                      ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
+                      : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   <Settings size={22} />
-                  <span className="text-[18px]">Settings</span>
+                  {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Settings</span>}
                 </button>
               </nav>
             </div>
 
-            <div className="border-t border-slate-200 p-4">
+            <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} p-4`}>
               <button
                 onClick={handleLogout}
-                className="flex w-full items-center gap-3 rounded-2xl px-4 py-4 text-left text-red-500 hover:bg-red-50"
+                className={`flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${darkMode ? 'text-red-400 hover:bg-red-950' : 'text-red-600 hover:bg-red-50'}`}
               >
                 <LogOut size={22} />
-                <span className="text-[18px]">Logout</span>
+                {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Logout</span>}
               </button>
             </div>
           </aside>
@@ -2350,27 +3075,19 @@ export default function App() {
           <main className="flex-1">
             <div className={`flex h-[72px] items-center justify-between border-b transition-colors ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'} px-9`}>
               <div className="flex items-center gap-6">
-                <button className={darkMode ? 'text-slate-400' : 'text-slate-600'}>
-                  <Menu size={24} />
-                </button>
-
-                <div className={`hidden items-center gap-3 rounded-xl px-4 py-3 lg:flex lg:w-[390px] transition-colors ${darkMode ? 'bg-slate-700 text-slate-400' : 'bg-slate-100 text-slate-400'}`}>
-                  <Search size={18} />
-                  <span>Search patients, doctors, appointments...</span>
-                </div>
               </div>
 
               <div className="flex items-center gap-6">
                 <button 
                   onClick={() => setDarkMode(!darkMode)}
-                  className={`rounded-lg p-2 transition-colors ${darkMode ? 'bg-slate-200 text-slate-800' : 'text-slate-600 hover:bg-slate-100'}`}>
+                  className={`rounded-lg p-2 transition-colors ${darkMode ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'text-slate-600 hover:bg-slate-100'}`}>
                   <Moon size={20} />
                 </button>
                 
                 <div className="relative">
                   <button 
                     onClick={() => setShowNotifications(!showNotifications)}
-                    className="relative rounded-lg p-2 text-slate-600 hover:bg-slate-100">
+                    className={`relative rounded-lg p-2 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-700' : 'text-slate-600 hover:bg-slate-100'}`}>
                     <Bell size={20} />
                     {notifications.some(n => n.unread) && (
                       <span className="absolute right-0 top-0 h-2 w-2 bg-red-500 rounded-full" />
@@ -2567,7 +3284,7 @@ export default function App() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
             <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-lg">
               <h2 className="mb-6 text-[24px] font-bold">
-                Add {addModalType.charAt(0).toUpperCase() + addModalType.slice(1)}
+                {editingDoctorId ? "Edit Doctor" : `Add ${addModalType.charAt(0).toUpperCase() + addModalType.slice(1)}`}
               </h2>
               
               <div className="space-y-4">
@@ -2585,13 +3302,15 @@ export default function App() {
                   onChange={(e) => setNewUserData({...newUserData, email: e.target.value})}
                   className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
                 />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  value={newUserData.password}
-                  onChange={(e) => setNewUserData({...newUserData, password: e.target.value})}
-                  className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
-                />
+                {!editingDoctorId && (
+                  <input
+                    type="password"
+                    placeholder="Password"
+                    value={newUserData.password}
+                    onChange={(e) => setNewUserData({...newUserData, password: e.target.value})}
+                    className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                  />
+                )}
                 <input
                   type="tel"
                   placeholder="Phone (Optional)"
@@ -2599,11 +3318,24 @@ export default function App() {
                   onChange={(e) => setNewUserData({...newUserData, phone: e.target.value})}
                   className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
                 />
+                {addModalType === "doctor" && (
+                  <input
+                    type="text"
+                    placeholder="Specialty"
+                    value={newUserData.specialty}
+                    onChange={(e) => setNewUserData({...newUserData, specialty: e.target.value})}
+                    className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                  />
+                )}
               </div>
 
               <div className="mt-8 flex gap-3">
                 <button
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setEditingDoctorId(null);
+                    setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "" });
+                  }}
                   className="flex-1 rounded-lg border border-slate-200 px-4 py-3 font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Cancel
