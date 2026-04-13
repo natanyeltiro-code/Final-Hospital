@@ -51,6 +51,114 @@ const initializeSchema = () => {
         });
       });
     }
+    
+    // Now fix appointments table
+    await new Promise((resolve) => {
+      console.log("  🔧 Modifying appointments table...");
+      const alterSQL = `ALTER TABLE appointments MODIFY patient_id INT NULL`;
+      db.query(alterSQL, (err) => {
+        if (err && !err.message.includes("already exists")) {
+          console.log(`  ℹ️  patient_id: ${err.message.substring(0, 60)}`);
+        } else if (!err) {
+          console.log(`  ✅ patient_id changed to nullable`);
+        }
+        resolve();
+      });
+    });
+    
+    // Add patient_name column
+    await new Promise((resolve) => {
+      const sql = `ALTER TABLE appointments ADD COLUMN patient_name VARCHAR(255)`;
+      db.query(sql, (err) => {
+        if (err) {
+          if (err.message.includes("Duplicate column") || err.message.includes("already exists")) {
+            console.log(`  ℹ️  Column patient_name already exists`);
+          } else {
+            console.log(`  ⚠️  patient_name: ${err.message.substring(0, 60)}`);
+          }
+        } else {
+          console.log(`  ✅ patient_name column added`);
+        }
+        resolve();
+      });
+    });
+    
+    // Add patient_phone column
+    await new Promise((resolve) => {
+      const sql = `ALTER TABLE appointments ADD COLUMN patient_phone VARCHAR(20)`;
+      db.query(sql, (err) => {
+        if (err) {
+          if (err.message.includes("Duplicate column") || err.message.includes("already exists")) {
+            console.log(`  ℹ️  Column patient_phone already exists`);
+          } else {
+            console.log(`  ⚠️  patient_phone: ${err.message.substring(0, 60)}`);
+          }
+        } else {
+          console.log(`  ✅ patient_phone column added`);
+        }
+        resolve();
+      });
+    });
+    
+    // Create notifications table
+    await new Promise((resolve) => {
+      console.log("  🔧 Creating notifications table...");
+      const createTableSQL = `
+        CREATE TABLE IF NOT EXISTS notifications (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          message TEXT NOT NULL,
+          type VARCHAR(50) DEFAULT 'system',
+          is_read BOOLEAN DEFAULT FALSE,
+          related_entity_id INT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `;
+      db.query(createTableSQL, (err) => {
+        if (err) {
+          if (err.message.includes("already exists")) {
+            console.log(`  ℹ️  notifications table already exists`);
+          } else {
+            console.log(`  ⚠️  notifications table: ${err.message.substring(0, 60)}`);
+          }
+        } else {
+          console.log(`  ✅ notifications table created`);
+        }
+        resolve();
+      });
+    });
+
+    // Create notification_preferences table
+    await new Promise((resolve) => {
+      console.log("  🔧 Creating notification_preferences table...");
+      const createPreferencesSQL = `
+        CREATE TABLE IF NOT EXISTS notification_preferences (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL UNIQUE,
+          email_notifications BOOLEAN DEFAULT TRUE,
+          sms_notifications BOOLEAN DEFAULT FALSE,
+          push_notifications BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `;
+      db.query(createPreferencesSQL, (err) => {
+        if (err) {
+          if (err.message.includes("already exists")) {
+            console.log(`  ℹ️  notification_preferences table already exists`);
+          } else {
+            console.log(`  ⚠️  notification_preferences table: ${err.message.substring(0, 60)}`);
+          }
+        } else {
+          console.log(`  ✅ notification_preferences table created`);
+        }
+        resolve();
+      });
+    });
+    
     console.log("✅ Database schema initialization complete!\n");
   };
 
@@ -75,6 +183,285 @@ app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
   next();
 });
+
+/* HELPER FUNCTION: Generate notifications for new appointments */
+const generateAppointmentNotifications = (appointmentId, patientId, doctorId, emergencyPatientName) => {
+  // Get doctor name to personalize messages
+  db.query("SELECT name FROM users WHERE id = ?", [doctorId], (err, doctorResults) => {
+    if (err || !doctorResults.length) {
+      console.log("⚠️  Could not fetch doctor name:", err?.message);
+      return;
+    }
+    
+    const doctorName = doctorResults[0].name;
+    
+    // Notify the doctor
+    const doctorNotificationSql = `
+      INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+      VALUES (?, ?, ?, ?, ?)
+    `;
+    
+    // For emergency patients, notify doctor with patient name
+    if (emergencyPatientName) {
+      const doctorMsg = `New emergency appointment booked with patient ${emergencyPatientName}`;
+      db.query(doctorNotificationSql, [doctorId, "New Appointment", doctorMsg, "appointment", appointmentId], (err) => {
+        if (err) console.log("⚠️  Could not create doctor notification:", err.message);
+        else console.log("✅ Doctor notification created");
+      });
+    } else if (patientId && patientId > 0) {
+      // For registered patients, get their name for better notification
+      db.query("SELECT name FROM users WHERE id = ?", [patientId], (err, patientResults) => {
+        let doctorMsg = "New appointment booked";
+        if (patientResults && patientResults.length > 0) {
+          doctorMsg = `New appointment booked with ${patientResults[0].name}`;
+        }
+        db.query(doctorNotificationSql, [doctorId, "New Appointment", doctorMsg, "appointment", appointmentId], (err) => {
+          if (err) console.log("⚠️  Could not create doctor notification:", err.message);
+          else console.log("✅ Doctor notification created");
+        });
+      });
+    } else {
+      const doctorMsg = "New appointment booked";
+      db.query(doctorNotificationSql, [doctorId, "New Appointment", doctorMsg, "appointment", appointmentId], (err) => {
+        if (err) console.log("⚠️  Could not create doctor notification:", err.message);
+        else console.log("✅ Doctor notification created");
+      });
+    }
+    
+    // Notify the patient if it's a registered patient - WITH DOCTOR NAME
+    if (patientId && patientId > 0) {
+      const patientNotificationSql = `
+        INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+        VALUES (?, ?, ?, ?, ?)
+      `;
+      
+      const patientMsg = `Successfully book appointment`;
+      
+      db.query(patientNotificationSql, [patientId, "Appointment Booked", patientMsg, "appointment", appointmentId], (err) => {
+        if (err) console.log("⚠️  Could not create patient notification:", err.message);
+        else console.log("✅ Patient notification created");
+      });
+    }
+    
+    // Notify all admins - WITH DOCTOR NAME
+    const adminNotificationSql = `
+      INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+      SELECT id, ?, ?, ?, ? FROM users WHERE role = 'admin'
+    `;
+    
+    const adminMsg = emergencyPatientName
+      ? `New emergency appointment: ${emergencyPatientName} with Dr. ${doctorName}`
+      : `Dr. ${doctorName} accepted new appointment`;
+    
+    db.query(adminNotificationSql, ["New Appointment", adminMsg, "appointment", appointmentId], (err) => {
+      if (err) console.log("⚠️  Could not create admin notifications:", err.message);
+      else console.log("✅ Admin notifications created");
+    });
+  });
+};
+
+/* HELPER FUNCTION: Generate appointment status change notifications */
+const generateAppointmentStatusNotification = (appointmentId, newStatus, doctorId, patientId, emergencyPatientName) => {
+  console.log(`\n🔔🔔🔔 GENERATEAPPOINTMENTSTATUSNOTIFICATION CALLED 🔔🔔🔔`);
+  console.log(`   Appointment ID: ${appointmentId}`);
+  console.log(`   New Status: ${newStatus}`);
+  console.log(`   Doctor ID: ${doctorId}`);
+  console.log(`   Patient ID: ${patientId} (type: ${typeof patientId}, value: ${JSON.stringify(patientId)})`);
+  console.log(`   Emergency Patient Name: ${emergencyPatientName}`);
+  
+  // Get doctor name
+  db.query("SELECT name FROM users WHERE id = ?", [doctorId], (err, doctorResults) => {
+    if (err || !doctorResults.length) {
+      console.log("⚠️  Could not fetch doctor name:", err?.message);
+      return;
+    }
+    
+    const doctorName = doctorResults[0].name;
+    console.log(`   Doctor Name: ${doctorName}`);
+    
+    let patientName = emergencyPatientName;
+    let patientNotificationTitle = "";
+    let patientNotificationMsg = "";
+    let doctorNotificationMsg = "";
+    let doctorNotificationTitle = "Appointment Updated";
+    
+    switch (newStatus) {
+      case "Confirmed":
+        doctorNotificationTitle = "Appointment Confirmed";
+        doctorNotificationMsg = `You confirmed the appointment`;
+        patientNotificationTitle = "Appointment Confirmed";
+        patientNotificationMsg = `Dr. ${doctorName} Confirmed your booking`;
+        break;
+      case "Completed":
+        doctorNotificationTitle = "Appointment Completed";
+        doctorNotificationMsg = `You marked the appointment as completed`;
+        patientNotificationTitle = "Appointment Completed";
+        patientNotificationMsg = `Your appointment with Dr. ${doctorName} has been completed`;
+        break;
+      case "Cancelled":
+        doctorNotificationTitle = "Appointment Cancelled";
+        doctorNotificationMsg = `You cancelled the appointment`;
+        patientNotificationTitle = "Booking Cancelled";
+        patientNotificationMsg = `Dr. ${doctorName} Cancelled your appointment`;
+        break;
+      default:
+        console.log(`⚠️  Unknown status: ${newStatus}`);
+        return;
+    }
+    
+    console.log(`   📌 Messages prepared:`);
+    console.log(`      Patient Title: ${patientNotificationTitle}`);
+    console.log(`      Patient Message: ${patientNotificationMsg}`);
+    console.log(`      Doctor message: ${doctorNotificationMsg}`);
+    
+    // Notify patient if registered (regular patient)
+    if (patientId && Number(patientId) > 0) {
+      const patientSql = `
+        INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+        VALUES (?, ?, ?, ?, ?)
+      `;
+      console.log(`   ✅ CREATING patient notification for patientId: ${patientId}`);
+      db.query(patientSql, [Number(patientId), patientNotificationTitle, patientNotificationMsg, "appointment_status", appointmentId], (err) => {
+        if (err) console.log("   ⚠️  ERROR creating patient notification:", err.message);
+        else console.log(`   ✅✅✅ SUCCESS! Patient ${newStatus.toLowerCase()} notification created for user ${patientId}`);
+      });
+    } else {
+      console.log(`   ⚠️  SKIPPING patient notification - Patient ID invalid: ${patientId} (type: ${typeof patientId})`);
+    }
+    
+    // Notify doctor about their own action
+    const doctorSql = `
+      INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+      VALUES (?, ?, ?, ?, ?)
+    `;
+    console.log(`   ✅ CREATING doctor notification for doctorId: ${doctorId}`);
+    db.query(doctorSql, [doctorId, doctorNotificationTitle, doctorNotificationMsg, "appointment_status", appointmentId], (err) => {
+      if (err) console.log(`   ⚠️  ERROR creating doctor notification: ${err.message}`);
+      else console.log(`   ✅✅✅ SUCCESS! Doctor ${newStatus.toLowerCase()} notification created for user ${doctorId}`);
+    });
+    
+    // Notify all admins about status change
+    const adminSql = `
+      INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+      SELECT id, ?, ?, ?, ? FROM users WHERE role = 'admin'
+    `;
+    const adminMsg = `Appointment ${newStatus.toLowerCase()}: Dr. ${doctorName}`;
+    console.log(`   ✅ CREATING admin notifications`);
+    db.query(adminSql, [`Appointment ${newStatus}`, adminMsg, "appointment_status", appointmentId], (err) => {
+      if (err) console.log("   ⚠️  ERROR creating admin notifications:", err.message);
+      else console.log(`   ✅✅✅ SUCCESS! Admin ${newStatus.toLowerCase()} notifications created`);
+    });
+  });
+};
+
+/* HELPER FUNCTION: Generate medical record notification */
+const generateMedicalRecordNotification = (recordId, patientId, doctorId, action = "created") => {
+  db.query("SELECT name FROM users WHERE id = ?", [doctorId], (err, results) => {
+    if (err || !results.length) return;
+    
+    const doctorName = results[0].name;
+    const actionTitle = action === "created" ? "Created" : "Updated";
+    const actionMessage = action === "created" ? "created a new" : "updated";
+    
+    const sql = `
+      INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+      VALUES (?, ?, ?, ?, ?)
+    `;
+    
+    const title = `Medical Record ${actionTitle}`;
+    const message = `Dr. ${doctorName} ${actionMessage} medical record for you`;
+    
+    db.query(sql, [patientId, title, message, "medical_record", recordId], (err) => {
+      if (err) console.log(`⚠️  Could not create medical record notification: ${err.message}`);
+      else console.log(`✅ Medical record ${action} notification created`);
+    });
+  });
+};
+
+/* HELPER FUNCTION: Generate profile update notification */
+const generateProfileUpdateNotification = (userId, updateType) => {
+  const title = "Profile Updated";
+  let message = "";
+  
+  switch (updateType) {
+    case "personal":
+      message = "Your profile information has been updated";
+      break;
+    case "password":
+      message = "Your password has been successfully changed";
+      break;
+    case "contact":
+      message = "Your contact information has been updated";
+      break;
+    case "medical":
+      message = "Your medical information has been updated";
+      break;
+    default:
+      message = "Your profile has been updated";
+  }
+  
+  const sql = `
+    INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+    VALUES (?, ?, ?, ?, ?)
+  `;
+  
+  db.query(sql, [userId, title, message, "profile_update", userId], (err) => {
+    if (err) console.log(`⚠️  Could not create profile update notification: ${err.message}`);
+    else console.log(`✅ Profile update ${updateType} notification created`);
+  });
+};
+
+/* HELPER FUNCTION: Generate system alert notification */
+const generateSystemAlert = (userId, title, message, alertType = "system") => {
+  const sql = `
+    INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+    VALUES (?, ?, ?, ?, ?)
+  `;
+  
+  db.query(sql, [userId, title, message, alertType, null], (err) => {
+    if (err) console.log(`⚠️  Could not create system alert: ${err.message}`);
+    else console.log(`✅ System alert notification created: ${title}`);
+  });
+};
+
+/* HELPER FUNCTION: Generate approval notification */
+const generateApprovalNotification = (userId, approverName, itemType, itemTitle) => {
+  const title = `${itemType} Approved`;
+  const message = `Dr. ${approverName} approved your ${itemType.toLowerCase()}: ${itemTitle}`;
+  
+  const sql = `
+    INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+    VALUES (?, ?, ?, ?, ?)
+  `;
+  
+  db.query(sql, [userId, title, message, "approval", null], (err) => {
+    if (err) console.log(`⚠️  Could not create approval notification: ${err.message}`);
+    else console.log(`✅ Approval notification created`);
+  });
+};
+
+/* HELPER FUNCTION: Generate appointment reminder */
+const generateAppointmentReminder = (appointmentId, patientId, doctorId, appointmentDate, appointmentTime) => {
+  db.query("SELECT name FROM users WHERE id = ?", [doctorId], (err, results) => {
+    if (err || !results.length) return;
+    
+    const doctorName = results[0].name;
+    const reminderTime = new Date(appointmentDate).toLocaleDateString() + " at " + appointmentTime;
+    
+    const sql = `
+      INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+      VALUES (?, ?, ?, ?, ?)
+    `;
+    
+    const title = "Appointment Reminder";
+    const message = `Reminder: Your appointment with Dr. ${doctorName} is scheduled for ${reminderTime}`;
+    
+    db.query(sql, [patientId, title, message, "appointment_reminder", appointmentId], (err) => {
+      if (err) console.log(`⚠️  Could not create appointment reminder: ${err.message}`);
+      else console.log(`✅ Appointment reminder notification created`);
+    });
+  });
+};
 
 /* TEST ENDPOINT */
 app.get("/test", (req, res) => {
@@ -107,7 +494,7 @@ app.get("/debug/schema", (req, res) => {
 app.post("/register", async (req, res) => {
   console.log("Register attempt headers:", req.headers["content-type"]);
   console.log("Register attempt body:", req.body);
-  const { name, email, password } = req.body;
+  const { name, email, password, role, specialty } = req.body;
 
   const trimmedName = name?.trim();
   const trimmedEmail = email?.trim();
@@ -119,11 +506,11 @@ app.post("/register", async (req, res) => {
 
   try {
     const hashedPassword = await bcrypt.hash(trimmedPassword, 10);
-    const role = "patient";
+    const userRole = role || "patient";
 
-    const sql = "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)";
+    const sql = "INSERT INTO users (name, email, password, role, specialty) VALUES (?, ?, ?, ?, ?)";
 
-    db.query(sql, [trimmedName, trimmedEmail, hashedPassword, role], (err) => {
+    db.query(sql, [trimmedName, trimmedEmail, hashedPassword, userRole, specialty || null], (err) => {
       if (err) {
         if (err.code === "ER_DUP_ENTRY") {
           return res.status(400).json({ message: "❌ Email already exists" });
@@ -366,25 +753,110 @@ app.get("/doctors", authenticateToken, (req, res) => {
 });
 
 /* CREATE APPOINTMENT */
-app.post("/appointments", authenticateToken, authorizeRoles("patient"), (req, res) => {
-  const { patientId, doctorId, date, time, type, status } = req.body;
+app.post("/appointments", authenticateToken, authorizeRoles("patient", "admin"), (req, res) => {
+  console.log("\n\n🎯🎯🎯 APPOINTMENT ENDPOINT HIT 🎯🎯🎯");
+  console.log("User role:", req.user?.role);
+  console.log("User ID:", req.user?.id);
+  console.log("\n🔵🔵🔵 FULL REQUEST BODY 🔵🔵🔵");
+  console.log("req.body:", JSON.stringify(req.body, null, 2));
   
-  if (!patientId || !doctorId || !date || !time) {
-    return res.status(400).json({ message: "❌ Please fill all required fields" });
+  let { patientId, doctorId, date, time, type, status, emergencyPatientName, emergencyPatientPhone } = req.body;
+  
+  // Ensure doctorId is a number if it's a string
+  if (typeof doctorId === 'string') {
+    doctorId = parseInt(doctorId, 10);
+  }
+  
+  console.log("\n📋 EXTRACTED FIELDS:");
+  console.log("patientId:", patientId, typeof patientId);
+  console.log("doctorId:", doctorId, typeof doctorId);
+  console.log("date:", date, typeof date);
+  console.log("time:", time, typeof time);
+  console.log("type:", type, typeof type);
+  console.log("emergencyPatientName:", emergencyPatientName, typeof emergencyPatientName);
+  console.log("emergencyPatientPhone:", emergencyPatientPhone, typeof emergencyPatientPhone);
+  
+  // Check required appointment fields - must be non-empty AND valid values
+  if (!doctorId || isNaN(doctorId) || !date || !time) {
+    console.log("❌ Missing basic appointment fields");
+    console.log("  doctorId present?", !!doctorId, "isNaN?", isNaN(doctorId));
+    console.log("  date present?", !!date);
+    console.log("  time present?", !!time);
+    return res.status(400).json({ message: "❌ Please fill all required fields: doctor, date, time" });
   }
 
-  if (req.user.role === "patient" && req.user.id !== Number(patientId)) {
+  // Either must have patientId (registered) OR emergency patient details (walk-in)
+  const hasRegisteredPatient = patientId && Number(patientId) > 0;
+  const hasEmergencyDetails = emergencyPatientName && emergencyPatientPhone;
+  
+  console.log("\n🔍 VALIDATION CHECK:");
+  console.log("  hasRegisteredPatient:", hasRegisteredPatient);
+  console.log("  hasEmergencyDetails:", hasEmergencyDetails);
+  
+  if (!hasRegisteredPatient && !hasEmergencyDetails) {
+    console.log("❌ Missing patient details - neither registered nor emergency");
+    return res.status(400).json({ message: "❌ Either select a registered patient or provide emergency patient details" });
+  }
+  
+  console.log("✅ All validations passed, proceeding to insert");
+
+  // Only patients can book for themselves, admins can book for anyone
+  if (req.user.role === "patient" && patientId && req.user.id !== Number(patientId)) {
     return res.status(403).json({ message: "Forbidden" });
   }
   
+  // First, try a simpler INSERT with just the essential columns
   const sql = "INSERT INTO appointments (patient_id, doctor_id, date, time, type, status) VALUES (?, ?, ?, ?, ?, ?)";
   
-  db.query(sql, [patientId, doctorId, date, time, type || "Consultation", status || "Pending"], (err) => {
+  const params = [
+    hasRegisteredPatient ? parseInt(patientId, 10) : null, 
+    parseInt(doctorId, 10), 
+    date, 
+    time, 
+    type || "Consultation", 
+    status || "Pending"
+  ];
+  
+  console.log("📝 SQL QUERY:", sql);
+  console.log("📝 SQL PARAMS:", params);
+  
+  db.query(sql, params, (err, result) => {
     if (err) {
-      return res.status(500).json({ message: "❌ Failed to create appointment" });
+      console.error("❌ Appointment creation SQL error:");
+      console.error("  Error code:", err.code);
+      console.error("  Error message:", err.message);
+      console.error("  SQL state:", err.sqlState);
+      return res.status(500).json({ 
+        message: "❌ Failed to create appointment",
+        error: err.message,
+        code: err.code
+      });
     }
     
-    res.json({ message: "✅ Appointment created successfully" });
+    console.log("✅ Appointment created successfully, ID:", result.insertId);
+    
+    // Now update with emergency patient details if needed
+    if ((emergencyPatientName || emergencyPatientPhone) && result.insertId) {
+      const updateSql = "UPDATE appointments SET patient_name = ?, patient_phone = ? WHERE id = ?";
+      const updateParams = [emergencyPatientName || null, emergencyPatientPhone || null, result.insertId];
+      
+      db.query(updateSql, updateParams, (updateErr) => {
+        if (updateErr) {
+          console.error("Warning: Could not update emergency patient details:", updateErr.message);
+        } else {
+          console.log("✅ Emergency patient details updated");
+        }
+        
+        // Create notifications after appointment is saved
+        generateAppointmentNotifications(result.insertId, patientId, doctorId, emergencyPatientName);
+        
+        res.json({ message: "✅ Appointment created successfully" });
+      });
+    } else {
+      // Create notifications for this appointment
+      generateAppointmentNotifications(result.insertId, patientId, doctorId, emergencyPatientName);
+      res.json({ message: "✅ Appointment created successfully" });
+    }
   });
 });
 
@@ -413,25 +885,7 @@ app.get("/appointments/:userId", authenticateToken, (req, res) => {
   });
 });
 
-/* UPDATE APPOINTMENT STATUS */
-app.put("/appointments/:appointmentId", (req, res) => {
-  const { appointmentId } = req.params;
-  const { status } = req.body;
-  
-  if (!status) {
-    return res.status(400).json({ message: "❌ Status is required" });
-  }
-  
-  const sql = "UPDATE appointments SET status = ? WHERE id = ?";
-  
-  db.query(sql, [status, appointmentId], (err) => {
-    if (err) {
-      return res.status(500).json({ message: "❌ Failed to update appointment" });
-    }
-    
-    res.json({ message: "✅ Appointment updated successfully" });
-  });
-});
+/* Note: Simple PUT endpoint removed - using authenticated version below */
 
 /* CREATE MEDICAL RECORD */
 app.post("/medical-records", (req, res) => {
@@ -491,7 +945,7 @@ app.get("/medical-records/:patientId", authenticateToken, (req, res) => {
 /* UPDATE USER PROFILE */
 app.put("/users/:userId", authenticateToken, (req, res) => {
   const { userId } = req.params;
-  const { name, email, phone, bloodGroup, age, gender, dateOfBirth, address, emergencyContact, specialization, department, yearsExperience, bio } = req.body;
+  const { name, email, phone, bloodGroup, age, gender, dateOfBirth, address, emergencyContact, specialization, department, yearsExperience, bio, condition } = req.body;
 
   console.log("Profile update request:");
   console.log("userId param:", userId);
@@ -509,7 +963,7 @@ app.put("/users/:userId", authenticateToken, (req, res) => {
 
   const parsedAge = age !== undefined && age !== null && age !== "" ? Number(age) : null;
   const parsedExperience = yearsExperience !== undefined && yearsExperience !== null && yearsExperience !== "" ? Number(yearsExperience) : null;
-  const sql = "UPDATE users SET name = ?, email = ?, phone = ?, blood_group = ?, age = ?, gender = ?, date_of_birth = ?, address = ?, emergency_contact = ?, specialty = ?, department = ?, experience = ?, bio = ? WHERE id = ?";
+  const sql = "UPDATE users SET name = ?, email = ?, phone = ?, blood_group = ?, age = ?, gender = ?, date_of_birth = ?, address = ?, emergency_contact = ?, specialty = ?, department = ?, experience = ?, bio = ?, `condition` = ? WHERE id = ?";
 
   console.log("\n📝 UPDATE PROFILE DETAILS:");
   console.log("  User ID:", userId);
@@ -535,6 +989,7 @@ app.put("/users/:userId", authenticateToken, (req, res) => {
       department || null,
       parsedExperience,
       bio || null,
+      condition || null,
       userId,
     ],
     (err, result) => {
@@ -597,24 +1052,233 @@ app.put("/users/:userId", authenticateToken, (req, res) => {
   );
 });
 
+/* CHANGE PASSWORD */
+app.put("/users/:userId/change-password", authenticateToken, async (req, res) => {
+  const { userId } = req.params;
+  const { currentPassword, newPassword, confirmPassword } = req.body;
+
+  console.log("🔐 CHANGE PASSWORD REQUEST:");
+  console.log("  User ID:", userId);
+  console.log("  Auth user ID:", req.user.id);
+  console.log("  Auth user role:", req.user.role);
+
+  // Check authorization - can only change own password, unless admin
+  if (req.user.role !== "admin" && req.user.id !== Number(userId)) {
+    console.log("❌ Unauthorized password change attempt");
+    return res.status(403).json({ message: "❌ You can only change your own password" });
+  }
+
+  // Validate required fields
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    return res.status(400).json({ message: "❌ All password fields are required" });
+  }
+
+  // Verify passwords match
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ message: "❌ Passwords do not match" });
+  }
+
+  // Verify password length
+  if (newPassword.length < 6) {
+    return res.status(400).json({ message: "❌ Password must be at least 6 characters" });
+  }
+
+  try {
+    // Get current user
+    const selectSql = "SELECT password FROM users WHERE id = ?";
+    db.query(selectSql, [userId], async (err, results) => {
+      if (err) {
+        console.error("❌ Database error:", err.message);
+        return res.status(500).json({ message: "❌ Database error" });
+      }
+
+      if (results.length === 0) {
+        return res.status(404).json({ message: "❌ User not found" });
+      }
+
+      const user = results[0];
+
+      // Verify current password
+      try {
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+        if (!isMatch) {
+          console.log("❌ Current password is incorrect");
+          return res.status(401).json({ message: "❌ Current password is incorrect" });
+        }
+
+        // Hash new password
+        const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+        // Update password
+        const updateSql = "UPDATE users SET password = ? WHERE id = ?";
+        db.query(updateSql, [hashedNewPassword, userId], (updateErr) => {
+          if (updateErr) {
+            console.error("❌ Update error:", updateErr.message);
+            return res.status(500).json({ message: "❌ Failed to update password" });
+          }
+
+          console.log("✅ Password changed successfully for user:", userId);
+          res.json({ message: "✅ Password changed successfully" });
+        });
+      } catch (hashErr) {
+        console.error("❌ Hash comparison error:", hashErr.message);
+        return res.status(500).json({ message: "❌ Error verifying password" });
+      }
+    });
+  } catch (err) {
+    console.error("❌ Error:", err.message);
+    res.status(500).json({ message: "❌ An error occurred" });
+  }
+});
+
+/* UPDATE APPOINTMENT STATUS */
+app.put("/appointments/:appointmentId", authenticateToken, (req, res) => {
+  const { appointmentId } = req.params;
+  const { status } = req.body;
+  
+  console.log("📝 UPDATE APPOINTMENT - User:", req.user.id, "Role:", req.user.role, "Appointment ID:", appointmentId, "New Status:", status);
+  
+  if (!status) {
+    return res.status(400).json({ message: "❌ Status is required" });
+  }
+
+  // Patients can only update their own appointments
+  if (req.user.role === "patient") {
+    const sql = "SELECT patient_id FROM appointments WHERE id = ?";
+    db.query(sql, [appointmentId], (err, results) => {
+      if (err) {
+        console.error("❌ Database error:", err);
+        return res.status(500).json({ message: "❌ Database error" });
+      }
+      if (results.length === 0) {
+        console.log("❌ Appointment not found");
+        return res.status(404).json({ message: "❌ Appointment not found" });
+      }
+      
+      const appointmentPatientId = Number(results[0].patient_id);
+      const userId = Number(req.user.id);
+      
+      if (appointmentPatientId !== userId) {
+        console.log("❌ Authorization failed - appointment doesn't belong to patient");
+        return res.status(403).json({ message: "❌ You can only update your own appointments" });
+      }
+      
+      // Update appointment status
+      const updateSql = "UPDATE appointments SET status = ? WHERE id = ?";
+      db.query(updateSql, [status, appointmentId], (updateErr) => {
+        if (updateErr) {
+          console.error("❌ Update error:", updateErr);
+          return res.status(500).json({ message: "❌ Failed to update appointment" });
+        }
+        console.log("✅ Appointment status updated successfully");
+        res.json({ message: "✅ Appointment status updated successfully" });
+      });
+    });
+  } else if (req.user.role === "admin" || req.user.role === "doctor") {
+    // Admins and doctors can update any appointment
+    console.log(`\n✅ CONFIRMED: Doctor/Admin updating appointment`);
+    console.log(`   👤 User: ${req.user.role} (ID: ${req.user.id})`);
+    console.log(`   📅 Appointment ID: ${appointmentId}`);
+    console.log(`   🔄 New Status: ${status}`);
+    
+    // First get appointment details to generate appropriate notifications
+    const getAppointmentSql = "SELECT patient_id, doctor_id, patient_name, date, time FROM appointments WHERE id = ?";
+    db.query(getAppointmentSql, [appointmentId], (getErr, appointmentResults) => {
+      if (getErr) {
+        console.error("❌ Query error:", getErr.message);
+        return res.status(500).json({ message: "❌ Database error", error: getErr.message });
+      }
+      
+      if (!appointmentResults || appointmentResults.length === 0) {
+        console.error("❌ Appointment not found with ID:", appointmentId);
+        return res.status(404).json({ message: "❌ Appointment not found" });
+      }
+      
+      const { patient_id, doctor_id, patient_name, date, time } = appointmentResults[0];
+      console.log(`   📋 Found appointment:`);
+      console.log(`       patient_id: ${patient_id} (type: ${typeof patient_id})`);
+      console.log(`       doctor_id: ${doctor_id} (type: ${typeof doctor_id})`);
+      console.log(`       patient_name: ${patient_name}`);
+      
+      // Update appointment status
+      const updateSql = "UPDATE appointments SET status = ? WHERE id = ?";
+      db.query(updateSql, [status, appointmentId], (err, result) => {
+        if (err) {
+          console.error("❌ Update failed:", err.message);
+          return res.status(500).json({ message: "❌ Failed to update appointment", error: err.message });
+        }
+        console.log(`   ✅ Updated! Rows affected: ${result.affectedRows}, New status: ${status}`);
+        
+        // Generate notification for confirmation/cancellation/completion
+        console.log(`   🔔 Generating notifications for ${status}...`);
+        generateAppointmentStatusNotification(appointmentId, status, doctor_id, patient_id, patient_name);
+        console.log(`   ✅ Notification generation triggered`);
+        
+        res.json({ message: "✅ Appointment status updated successfully" });
+      });
+    });
+  } else {
+    console.log("❌ Invalid role:", req.user.role);
+    return res.status(403).json({ message: "❌ Forbidden" });
+  }
+});
+
 /* DELETE APPOINTMENT */
 app.delete("/appointments/:appointmentId", authenticateToken, (req, res) => {
   const { appointmentId } = req.params;
   
-  if (req.user.role !== "admin" && req.user.role !== "doctor") {
-    return res.status(403).json({ message: "Forbidden" });
+  console.log("🗑️ DELETE APPOINTMENT - User:", req.user.id, "Role:", req.user.role, "Appointment ID:", appointmentId);
+  
+  // Patients can delete their own appointments, doctors and admins can delete any
+  if (req.user.role === "patient") {
+    // For patients, verify the appointment belongs to them
+    const sql = "SELECT patient_id FROM appointments WHERE id = ?";
+    db.query(sql, [appointmentId], (err, results) => {
+      if (err) {
+        console.error("❌ Database error:", err);
+        return res.status(500).json({ message: "❌ Database error" });
+      }
+      if (results.length === 0) {
+        console.log("❌ Appointment not found");
+        return res.status(404).json({ message: "❌ Appointment not found" });
+      }
+      
+      const appointmentPatientId = Number(results[0].patient_id);
+      const userId = Number(req.user.id);
+      
+      console.log("Checking ownership - DB patient_id:", appointmentPatientId, "User ID:", userId);
+      
+      if (appointmentPatientId !== userId) {
+        console.log("❌ Authorization failed - this appointment doesn't belong to user");
+        return res.status(403).json({ message: "❌ You can only delete your own appointments" });
+      }
+      
+      // Appointment belongs to patient, proceed with deletion
+      console.log("✅ Authorization passed - deleting appointment");
+      deleteAppointment(appointmentId, res);
+    });
+  } else if (req.user.role === "admin" || req.user.role === "doctor") {
+    // Admins and doctors can delete any appointment
+    console.log("✅ Admin/Doctor role - deleting appointment");
+    deleteAppointment(appointmentId, res);
+  } else {
+    console.log("❌ Invalid role:", req.user.role);
+    return res.status(403).json({ message: "❌ Forbidden" });
   }
-  
+});
+
+// Helper function to delete appointment
+const deleteAppointment = (appointmentId, res) => {
   const sql = "DELETE FROM appointments WHERE id = ?";
-  
   db.query(sql, [appointmentId], (err) => {
     if (err) {
+      console.error("❌ Delete error:", err);
       return res.status(500).json({ message: "❌ Failed to delete appointment" });
     }
-    
+    console.log("✅ Appointment deleted successfully");
     res.json({ message: "✅ Appointment deleted successfully" });
   });
-});
+};
 
 /* DELETE MEDICAL RECORD */
 app.delete("/medical-records/:recordId", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
@@ -1018,7 +1682,17 @@ app.get("/appointments-range/:patientId/:startDate/:endDate", (req, res) => {
 
 /* GET ALL APPOINTMENTS (ADMIN) */
 app.get("/admin/appointments", authenticateToken, authorizeRoles("admin"), (req, res) => {
-  const sql = "SELECT a.*, p.name as patient_name, p.email as patient_email, d.name as doctor_name, d.specialty FROM appointments a JOIN users p ON a.patient_id = p.id JOIN users d ON a.doctor_id = d.id ORDER BY a.date DESC";
+  // Use LEFT JOIN to include emergency appointments (those with NULL patient_id)
+  const sql = `SELECT a.*, 
+    COALESCE(p.name, a.patient_name) as patient_name, 
+    p.email as patient_email, 
+    d.name as doctor_name, 
+    d.specialty,
+    a.patient_phone as emergency_phone
+  FROM appointments a 
+  LEFT JOIN users p ON a.patient_id = p.id 
+  JOIN users d ON a.doctor_id = d.id 
+  ORDER BY a.date DESC`;
   
   db.query(sql, (err, results) => {
     if (err) {
@@ -1194,6 +1868,301 @@ app.get("/admin/stats", (req, res) => {
         });
       }
     });
+  });
+});
+
+/* NOTIFICATIONS - GET ALL NOTIFICATIONS FOR A USER */
+app.get("/notifications/:userId", authenticateToken, (req, res) => {
+  const { userId } = req.params;
+  const { limit = 10, offset = 0 } = req.query;
+  
+  // Authorization check: user can only fetch their own notifications unless they're an admin
+  if (req.user.role !== "admin" && req.user.id !== Number(userId)) {
+    return res.status(403).json({ message: "❌ Forbidden" });
+  }
+  
+  const sql = `
+    SELECT id, user_id, title, message, type, is_read, created_at, related_entity_id
+    FROM notifications
+    WHERE user_id = ?
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?
+  `;
+  
+  db.query(sql, [userId, parseInt(limit), parseInt(offset)], (err, results) => {
+    if (err) {
+      console.error("Error fetching notifications:", err);
+      return res.status(500).json({ message: "❌ Database error" });
+    }
+    
+    // Convert created_at to ISO format for proper timezone handling in frontend
+    const notificationsWithISODate = (results || []).map(notification => ({
+      ...notification,
+      created_at: notification.created_at ? new Date(notification.created_at).toISOString() : null
+    }));
+    
+    res.json({
+      message: "✅ Notifications retrieved successfully",
+      notifications: notificationsWithISODate || []
+    });
+  });
+});
+
+/* NOTIFICATIONS - GET UNREAD COUNT */
+app.get("/notifications/:userId/unread-count", authenticateToken, (req, res) => {
+  const { userId } = req.params;
+  
+  // Authorization check: user can only fetch their own unread count unless they're an admin
+  if (req.user.role !== "admin" && req.user.id !== Number(userId)) {
+    return res.status(403).json({ message: "❌ Forbidden" });
+  }
+  
+  const sql = "SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = FALSE";
+  
+  db.query(sql, [userId], (err, results) => {
+    if (err) {
+      return res.status(500).json({ message: "❌ Database error" });
+    }
+    
+    res.json({
+      message: "✅ Unread count retrieved",
+      unreadCount: results[0].count
+    });
+  });
+});
+
+/* NOTIFICATIONS - CREATE NOTIFICATION */
+app.post("/notifications", authenticateToken, authorizeRoles("admin", "doctor"), (req, res) => {
+  const { userId, title, message, type = "system", relatedEntityId = null } = req.body;
+  
+  if (!userId || !title || !message) {
+    return res.status(400).json({ message: "❌ Missing required fields: userId, title, message" });
+  }
+  
+  const sql = `
+    INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+    VALUES (?, ?, ?, ?, ?)
+  `;
+  
+  db.query(sql, [userId, title, message, type, relatedEntityId], (err, result) => {
+    if (err) {
+      console.error("Error creating notification:", err);
+      return res.status(500).json({ message: "❌ Failed to create notification" });
+    }
+    
+    res.json({
+      message: "✅ Notification created successfully",
+      notificationId: result.insertId
+    });
+  });
+});
+
+/* NOTIFICATIONS - MARK AS READ */
+app.put("/notifications/:notificationId/read", authenticateToken, (req, res) => {
+  const { notificationId } = req.params;
+  
+  const sql = "UPDATE notifications SET is_read = TRUE WHERE id = ?";
+  
+  db.query(sql, [notificationId], (err) => {
+    if (err) {
+      return res.status(500).json({ message: "❌ Failed to update notification" });
+    }
+    
+    res.json({ message: "✅ Notification marked as read" });
+  });
+});
+
+/* NOTIFICATIONS - MARK ALL AS READ */
+app.put("/notifications/:userId/mark-all-read", authenticateToken, (req, res) => {
+  const { userId } = req.params;
+  
+  const sql = "UPDATE notifications SET is_read = TRUE WHERE user_id = ?";
+  
+  db.query(sql, [userId], (err) => {
+    if (err) {
+      return res.status(500).json({ message: "❌ Failed to update notifications" });
+    }
+    
+    res.json({ message: "✅ All notifications marked as read" });
+  });
+});
+
+/* NOTIFICATIONS - DELETE NOTIFICATION */
+app.delete("/notifications/:notificationId", authenticateToken, (req, res) => {
+  const { notificationId } = req.params;
+  
+  const sql = "DELETE FROM notifications WHERE id = ?";
+  
+  db.query(sql, [notificationId], (err) => {
+    if (err) {
+      return res.status(500).json({ message: "❌ Failed to delete notification" });
+    }
+    
+    res.json({ message: "✅ Notification deleted successfully" });
+  });
+});
+
+/* NOTIFICATIONS - DELETE ALL NOTIFICATIONS FOR USER */
+app.delete("/notifications/:userId/all", authenticateToken, (req, res) => {
+  const { userId } = req.params;
+  
+  const sql = "DELETE FROM notifications WHERE user_id = ? AND is_read = TRUE";
+  
+  db.query(sql, [userId], (err) => {
+    if (err) {
+      return res.status(500).json({ message: "❌ Failed to delete notifications" });
+    }
+    
+    res.json({ message: "✅ Read notifications deleted successfully" });
+  });
+});
+
+/* NOTIFICATIONS - SEND APPROVAL NOTIFICATION */
+app.post("/notifications/send-approval", authenticateToken, authorizeRoles("admin", "doctor"), (req, res) => {
+  const { userId, approverName, itemType, itemTitle } = req.body;
+  
+  if (!userId || !approverName || !itemType || !itemTitle) {
+    return res.status(400).json({ message: "❌ Missing required fields" });
+  }
+  
+  generateApprovalNotification(userId, approverName, itemType, itemTitle);
+  
+  res.json({ message: "✅ Approval notification sent" });
+});
+
+/* NOTIFICATIONS - SEND MEDICAL RECORD NOTIFICATION */
+app.post("/notifications/medical-record", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
+  const { recordId, patientId, doctorId, action = "created" } = req.body;
+  
+  if (!recordId || !patientId || !doctorId) {
+    return res.status(400).json({ message: "❌ Missing required fields" });
+  }
+  
+  generateMedicalRecordNotification(recordId, patientId, doctorId, action);
+  
+  res.json({ message: `✅ Medical record ${action} notification sent` });
+});
+
+/* NOTIFICATIONS - SEND SYSTEM ALERT */
+app.post("/notifications/system-alert", authenticateToken, authorizeRoles("admin"), (req, res) => {
+  const { userId, title, message, alertType = "system" } = req.body;
+  
+  if (!userId || !title || !message) {
+    return res.status(400).json({ message: "❌ Missing required fields: userId, title, message" });
+  }
+  
+  generateSystemAlert(userId, title, message, alertType);
+  
+  res.json({ message: "✅ System alert sent" });
+});
+
+/* NOTIFICATIONS - SEND APPOINTMENT REMINDER */
+app.post("/notifications/appointment-reminder", authenticateToken, (req, res) => {
+  const { appointmentId, patientId, doctorId, appointmentDate, appointmentTime } = req.body;
+  
+  if (!appointmentId || !patientId || !doctorId || !appointmentDate || !appointmentTime) {
+    return res.status(400).json({ message: "❌ Missing required fields" });
+  }
+  
+  generateAppointmentReminder(appointmentId, patientId, doctorId, appointmentDate, appointmentTime);
+  
+  res.json({ message: "✅ Appointment reminder sent" });
+});
+
+/* NOTIFICATION PREFERENCES - GET USER PREFERENCES */
+app.get("/notification-preferences/:userId", authenticateToken, (req, res) => {
+  const { userId } = req.params;
+  
+  // Check if user can access this
+  if (req.user.role === "patient" && req.user.id !== Number(userId)) {
+    return res.status(403).json({ message: "❌ Forbidden" });
+  }
+  if (req.user.role === "doctor" && req.user.id !== Number(userId)) {
+    return res.status(403).json({ message: "❌ Forbidden" });
+  }
+  
+  const sql = `
+    SELECT email_notifications, sms_notifications, push_notifications
+    FROM notification_preferences
+    WHERE user_id = ?
+  `;
+  
+  db.query(sql, [userId], (err, results) => {
+    if (err) {
+      console.error("Error fetching preferences:", err);
+      return res.status(500).json({ message: "❌ Database error" });
+    }
+    
+    if (results.length === 0) {
+      // Return default preferences
+      return res.json({
+        message: "✅ Preferences retrieved",
+        preferences: {
+          email_notifications: true,
+          sms_notifications: false,
+          push_notifications: true
+        }
+      });
+    }
+    
+    res.json({
+      message: "✅ Preferences retrieved",
+      preferences: results[0]
+    });
+  });
+});
+
+/* NOTIFICATION PREFERENCES - UPDATE USER PREFERENCES */
+app.put("/notification-preferences/:userId", authenticateToken, (req, res) => {
+  const { userId } = req.params;
+  const { emailNotifications, smsNotifications, pushNotifications } = req.body;
+  
+  // Check if user can update their own preferences
+  if (req.user.role === "patient" && req.user.id !== Number(userId)) {
+    return res.status(403).json({ message: "❌ Forbidden" });
+  }
+  if (req.user.role === "doctor" && req.user.id !== Number(userId)) {
+    return res.status(403).json({ message: "❌ Forbidden" });
+  }
+  
+  // First check if preferences exist for this user
+  const checkSql = "SELECT id FROM notification_preferences WHERE user_id = ?";
+  db.query(checkSql, [userId], (err, results) => {
+    if (err) {
+      console.error("Error checking preferences:", err);
+      return res.status(500).json({ message: "❌ Database error" });
+    }
+    
+    if (results.length === 0) {
+      // Create new preferences
+      const insertSql = `
+        INSERT INTO notification_preferences (user_id, email_notifications, sms_notifications, push_notifications)
+        VALUES (?, ?, ?, ?)
+      `;
+      db.query(insertSql, [userId, emailNotifications, smsNotifications, pushNotifications], (err) => {
+        if (err) {
+          console.error("Error creating preferences:", err);
+          return res.status(500).json({ message: "❌ Failed to create preferences" });
+        }
+        
+        res.json({ message: "✅ Preferences saved successfully" });
+      });
+    } else {
+      // Update existing preferences
+      const updateSql = `
+        UPDATE notification_preferences
+        SET email_notifications = ?, sms_notifications = ?, push_notifications = ?
+        WHERE user_id = ?
+      `;
+      db.query(updateSql, [emailNotifications, smsNotifications, pushNotifications, userId], (err) => {
+        if (err) {
+          console.error("Error updating preferences:", err);
+          return res.status(500).json({ message: "❌ Failed to update preferences" });
+        }
+        
+        res.json({ message: "✅ Preferences saved successfully" });
+      });
+    }
   });
 });
 

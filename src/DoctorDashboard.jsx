@@ -35,6 +35,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notificationsList, setNotificationsList] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [patients, setPatients] = useState([]);
   const [appointments, setAppointments] = useState([]);
@@ -183,6 +185,17 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
         const prescriptionsRes = await api.get("/doctor/prescriptions");
         setPrescriptions(prescriptionsRes.data.prescriptions || []);
+
+        // Fetch notifications for the doctor
+        const notificationsRes = await api.get(`/notifications/${loggedInUser.id}`);
+        const notificationsWithUnread = (notificationsRes.data.notifications || []).map(notif => ({
+          ...notif,
+          unread: !notif.is_read
+        }));
+        setNotificationsList(notificationsWithUnread || []);
+        // Calculate unread count
+        const unread = notificationsWithUnread.filter(n => !n.is_read).length || 0;
+        setUnreadCount(unread);
       } catch (err) {
         const requestUrl = err.response?.config?.url || "unknown url";
         const statusCode = err.response?.status;
@@ -207,6 +220,94 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       setLoading(false);
     }
   }, [loggedInUser]);
+
+  const markNotificationAsRead = async (notificationId) => {
+    try {
+      await api.put(`/notifications/${notificationId}/read`);
+      // Update local state
+      setNotificationsList(prev => 
+        prev.map(n => n.id === notificationId ? { ...n, is_read: true, unread: false } : n)
+      );
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (err) {
+      console.error("Error marking notification as read:", err);
+    }
+  };
+
+  const deleteNotification = async (notificationId) => {
+    try {
+      await api.delete(`/notifications/${notificationId}`);
+      // Update local state
+      setNotificationsList(prev => prev.filter(n => n.id !== notificationId));
+      // Recalculate unread count
+      const unread = notificationsList.filter(n => n.id !== notificationId && !n.is_read).length;
+      setUnreadCount(unread);
+    } catch (err) {
+      console.error("Error deleting notification:", err);
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      await api.put(`/notifications/${loggedInUser.id}/mark-all-read`);
+      // Update local state
+      setNotificationsList(prev => prev.map(n => ({ ...n, is_read: true, unread: false })));
+      setUnreadCount(0);
+    } catch (err) {
+      console.error("Error marking all notifications as read:", err);
+    }
+  };
+
+  // Auto-complete confirmed appointments when their time passes
+  useEffect(() => {
+    const autoCompleteConfirmedAppointments = async () => {
+      const now = new Date();
+      
+      // Find all confirmed appointments that have passed
+      const confirmedToComplete = appointments.filter((apt) => {
+        if (apt.status !== "Confirmed") return false;
+        
+        try {
+          let dateStr = apt.date;
+          if (dateStr.includes('T')) {
+            dateStr = dateStr.split('T')[0];
+          }
+          const aptDateTime = new Date(`${dateStr}T${apt.time || "00:00"}`);
+          return aptDateTime < now; // Appointment time has passed
+        } catch (err) {
+          return false;
+        }
+      });
+
+      // Auto-complete each confirmed appointment that has passed
+      for (const apt of confirmedToComplete) {
+        try {
+          await api.put(`/appointments/${apt.id}`, { status: "Completed" });
+          console.log(`✅ Auto-completed appointment ${apt.id}`);
+        } catch (err) {
+          console.error(`Failed to auto-complete appointment ${apt.id}:`, err);
+        }
+      }
+
+      // Refresh appointments if any were auto-completed
+      if (confirmedToComplete.length > 0) {
+        try {
+          const appointmentsRes = await api.get(`/appointments/${loggedInUser.id}`);
+          setAppointments(appointmentsRes.data.appointments || []);
+        } catch (err) {
+          console.error("Error refreshing appointments:", err);
+        }
+      }
+    };
+
+    if (loggedInUser?.id && appointments.length > 0) {
+      autoCompleteConfirmedAppointments();
+      
+      // Check every 5 minutes
+      const interval = setInterval(autoCompleteConfirmedAppointments, 5 * 60 * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [loggedInUser?.id, appointments]);
 
   useEffect(() => {
     if (!loggedInUser) return;
@@ -233,9 +334,59 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
   const handleUpdateAppointmentStatus = async (appointmentId, status) => {
     try {
+      // Get appointment details before updating
+      const appointmentToUpdate = appointments.find((apt) => apt.id === appointmentId);
+      if (!appointmentToUpdate) {
+        console.error("Appointment not found");
+        return;
+      }
+
+      // Update appointment status
       await api.put(`/appointments/${appointmentId}`, { status });
+      
+      // Send notification to patient based on new status
+      const patientId = appointmentToUpdate.patient_id;
+      const doctorName = loggedInUser?.name || "Doctor";
+      
+      if (status === "Confirmed" && patientId) {
+        try {
+          await api.post("/notifications", {
+            userId: patientId,
+            type: "appointment_status",
+            title: "Appointment Confirmed",
+            message: `Dr. ${doctorName} Confirmed your booking`,
+            relatedId: appointmentId,
+            relatedType: "appointment",
+          });
+        } catch (err) {
+          console.error("Error sending confirmation notification:", err);
+        }
+      } else if (status === "Cancelled" && patientId) {
+        try {
+          await api.post("/notifications", {
+            userId: patientId,
+            type: "appointment_status",
+            title: "Booking Cancelled",
+            message: `Dr. ${doctorName} Cancelled your appointment`,
+            relatedId: appointmentId,
+            relatedType: "appointment",
+          });
+        } catch (err) {
+          console.error("Error sending cancellation notification:", err);
+        }
+      }
+
+      // Refresh appointments
       const appointmentsRes = await api.get(`/appointments/${loggedInUser.id}`);
       setAppointments(appointmentsRes.data.appointments || []);
+
+      // Refresh notifications
+      const notificationsRes = await api.get(`/notifications/${loggedInUser.id}`);
+      const notificationsWithUnread = (notificationsRes.data.notifications || []).map(notif => ({
+        ...notif,
+        unread: !notif.is_read
+      }));
+      setNotificationsList(notificationsWithUnread || []);
     } catch (err) {
       console.error("Error updating appointment status:", err);
     }
@@ -481,33 +632,16 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     }
   };
 
-  const notifications = [
-    {
-      id: 1,
-      title: "New appointment request",
-      message: "John Doe requested a follow-up consultation.",
-      time: "2 min ago",
-      unread: true,
-    },
-    {
-      id: 2,
-      title: "Patient record updated",
-      message: "Jane Smith's medical history has been updated.",
-      time: "15 min ago",
-      unread: true,
-    },
-    {
-      id: 3,
-      title: "Reminder",
-      message: "You have an appointment with Robert Johnson at 11:00 AM.",
-      time: "1 hour ago",
-      unread: false,
-    },
-  ];
+  // Get unique patient IDs from appointments with this doctor
+  const patientIdsWithAppointments = new Set(
+    appointments
+      .filter((apt) => apt.patient_id) // Only patients with patient_id (exclude emergency patients)
+      .map((apt) => apt.patient_id)
+  );
 
-  const unreadCount = notifications.filter((item) => item.unread).length;
-
-  const doctorPatients = patients;
+  // Filter patients to only show those who have appointments with this doctor
+  const doctorPatients = patients.filter((patient) => patientIdsWithAppointments.has(patient.id));
+  
   const filteredDoctorPatients = doctorPatients.filter((patient) => {
     const search = patientSearch.toLowerCase();
     return (
@@ -671,8 +805,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                   </div>
 
                   <div className="flex flex-col items-end justify-between">
-                    <span className={`rounded-full px-3 py-1 text-sm font-medium ${getStatusBadgeClass(apt.status)}`}>
-                      {apt.status}
+                    <span className={`rounded-full px-3 py-1 text-sm font-medium ${getStatusBadgeClass(getDisplayStatus(apt))}`}>
+                      {getDisplayStatus(apt)}
                     </span>
                     <button className="mt-2 text-sm text-teal-600 hover:underline">View History</button>
                   </div>
@@ -839,8 +973,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                           </p>
                         </div>
 
-                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusBadgeClass(status)}`}>
-                          {status}
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusBadgeClass(getDisplayStatus({...patient.appointments?.[0], status}))}`}>
+                          {getDisplayStatus({...patient.appointments?.[0], status})}
                         </span>
                       </div>
                     </div>
@@ -854,6 +988,36 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     );
   };
 
+  // Helper function to get display status based on appointment date
+  const getDisplayStatus = (apt) => {
+    try {
+      if (!apt.date) return apt.status || "Pending";
+
+      // Parse appointment date
+      let dateStr = apt.date;
+      if (dateStr.includes('T')) {
+        dateStr = dateStr.split('T')[0]; // Extract date part if ISO format
+      }
+      const aptDate = new Date(`${dateStr}T${apt.time || "00:00"}`);
+      if (isNaN(aptDate.getTime())) return apt.status || "Pending";
+
+      // Get today's date normalized
+      const today = new Date();
+      const todayNormalized = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const aptDateNormalized = new Date(aptDate.getFullYear(), aptDate.getMonth(), aptDate.getDate());
+
+      // If appointment is in the future → show "Confirmed"
+      if (aptDate > today || (aptDateNormalized.getTime() > todayNormalized.getTime())) {
+        return "Confirmed";
+      }
+
+      // If appointment is today or in the past → show the actual status
+      return apt.status || "Pending";
+    } catch (err) {
+      return apt.status || "Pending";
+    }
+  };
+
   const renderAppointmentsPage = () => {
     const filters = ["All", "Today", "Upcoming", "Pending", "Completed"];
 
@@ -863,20 +1027,38 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       try {
         if (!apt.date) return false;
         
-        const aptDate = new Date(`${apt.date}T${apt.time || "00:00"}`);
+        // Parse appointment date and time
+        let dateStr = apt.date;
+        if (dateStr.includes('T')) {
+          dateStr = dateStr.split('T')[0]; // Extract date part if ISO format
+        }
+        const aptDate = new Date(`${dateStr}T${apt.time || "00:00"}`);
         if (isNaN(aptDate.getTime())) return false;
         
+        // Get today's date and normalize it (set to midnight)
         const today = new Date();
-        const isToday = aptDate.toDateString() === today.toDateString();
+        const todayNormalized = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        
+        // Get appointment date normalized (set to midnight)
+        const aptDateNormalized = new Date(aptDate.getFullYear(), aptDate.getMonth(), aptDate.getDate());
+        
+        // Check if appointment is today
+        const isToday = aptDateNormalized.getTime() === todayNormalized.getTime();
+        
+        // Check if appointment is in the future (from now onwards)
         const isUpcoming = aptDate > today;
+        
+        // Check if appointment is in the past (already happened)
+        const isPast = aptDateNormalized.getTime() < todayNormalized.getTime();
 
-        if (appointmentFilter === "Today") return isToday;
-        if (appointmentFilter === "Upcoming") return isUpcoming;
-        if (appointmentFilter === "Pending") return apt.status === "Pending";
-        if (appointmentFilter === "Completed") return apt.status === "Completed";
+        if (appointmentFilter === "Today") return isToday && apt.status !== "Cancelled";
+        if (appointmentFilter === "Upcoming") return (isUpcoming || isToday) && apt.status !== "Cancelled";
+        if (appointmentFilter === "Pending") return apt.status === "Pending" && !isPast;
+        if (appointmentFilter === "Completed") return apt.status === "Completed" && (isToday || isPast); // Only show completed if happened
 
-        return apt.status === appointmentFilter;
+        return false;
       } catch (err) {
+        console.error("Filter error:", err);
         return false;
       }
     });
@@ -941,18 +1123,18 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                   </div>
 
                   <div className="flex flex-col items-start gap-4 lg:items-end">
-                    <span className={`rounded-full px-4 py-1 text-sm font-medium ${getStatusBadgeClass(apt.status)}`}>
-                      {apt.status}
+                    <span className={`rounded-full px-4 py-1 text-sm font-medium ${getStatusBadgeClass(getDisplayStatus(apt))}`}>
+                      {getDisplayStatus(apt)}
                     </span>
 
                     {apt.status === "Pending" ? (
                       <div className="flex gap-3">
                         <button
-                          onClick={() => handleUpdateAppointmentStatus(apt.id, "Completed")}
-                          className="flex items-center gap-2 rounded-2xl bg-teal-600 px-6 py-3 font-medium text-white hover:bg-teal-700"
+                          onClick={() => handleUpdateAppointmentStatus(apt.id, "Confirmed")}
+                          className="flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-3 font-medium text-white hover:bg-blue-700"
                         >
                           <Check size={18} />
-                          Accept
+                          Confirm
                         </button>
                         <button
                           onClick={() => handleUpdateAppointmentStatus(apt.id, "Cancelled")}
@@ -2050,33 +2232,57 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                   >
                     <div className={`flex items-center justify-between border-b px-5 py-4 ${borderSoft}`}>
                       <h3 className="text-lg font-semibold">Notifications</h3>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={() => markAllNotificationsAsRead()}
+                          className="text-xs px-2 py-1 rounded bg-blue-500 text-white hover:bg-blue-600">
+                          Mark all read
+                        </button>
+                      )}
                       <button onClick={() => setShowNotifications(false)} className={textMuted}>
                         <X size={18} />
                       </button>
                     </div>
 
                     <div className="max-h-[320px] overflow-y-auto">
-                      {notifications.map((item) => (
-                        <div
-                          key={item.id}
-                          className={`border-b px-5 py-4 ${borderSoft} ${
-                            item.unread
-                              ? darkMode
-                                ? "bg-slate-800/60"
-                                : "bg-teal-50/60"
-                              : ""
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="font-semibold">{item.title}</p>
-                              <p className={`mt-1 text-sm ${textSoft}`}>{item.message}</p>
-                              <p className={`mt-2 text-xs ${textMuted}`}>{item.time}</p>
+                      {notificationsList && notificationsList.length > 0 ? (
+                        notificationsList.map((item) => (
+                          <div
+                            key={item.id}
+                            onClick={() => !item.is_read && markNotificationAsRead(item.id)}
+                            className={`border-b px-5 py-4 cursor-pointer transition-colors ${borderSoft} ${
+                              item.unread
+                                ? darkMode
+                                  ? "bg-blue-900/60 hover:bg-blue-800/60"
+                                  : "bg-blue-50/60 hover:bg-blue-100/60"
+                                : darkMode ? "hover:bg-slate-800" : "hover:bg-slate-50"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-semibold">{item.title}</p>
+                                <p className={`mt-1 text-sm ${textSoft}`}>{item.message}</p>
+                                <p className={`mt-2 text-xs ${textMuted}`}>{new Date(item.created_at).toLocaleString()}</p>
+                              </div>
+                              <div className="flex items-center gap-2 ml-2">
+                                {item.unread && <span className="mt-1 h-2.5 w-2.5 rounded-full bg-blue-500" />}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteNotification(item.id);
+                                  }}
+                                  className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>
+                                  ✕
+                                </button>
+                              </div>
                             </div>
-                            {item.unread && <span className="mt-1 h-2.5 w-2.5 rounded-full bg-teal-500" />}
                           </div>
+                        ))
+                      ) : (
+                        <div className={`px-5 py-8 text-center ${textMuted}`}>
+                          <p className="text-sm">No notifications yet</p>
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
                 )}
@@ -2156,8 +2362,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                       <div>
                         <label className={`text-xs font-semibold uppercase ${textMuted}`}>Status</label>
                         <div className="mt-2">
-                          <span className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${getStatusBadgeClass(selectedAppointmentDetails.status)}`}>
-                            {selectedAppointmentDetails.status}
+                          <span className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${getStatusBadgeClass(getDisplayStatus(selectedAppointmentDetails))}`}>
+                            {getDisplayStatus(selectedAppointmentDetails)}
                           </span>
                         </div>
                       </div>

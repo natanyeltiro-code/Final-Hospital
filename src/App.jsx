@@ -44,7 +44,7 @@ export default function App() {
   const [loggedInUser, setLoggedInUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem("authToken") || "");
   const [activePage, setActivePage] = useState("dashboard");
-  const [adminPage, setAdminPage] = useState("patients");
+  const [adminPage, setAdminPage] = useState("dashboard");
   const [patientSidebarCollapsed, setPatientSidebarCollapsed] = useState(true);
   const [adminSidebarCollapsed, setAdminSidebarCollapsed] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
@@ -61,6 +61,7 @@ export default function App() {
   const [adminDoctorsPage, setAdminDoctorsPage] = useState(1);
   const [doctorSearchFilter, setDoctorSearchFilter] = useState("");
   const [editingDoctorId, setEditingDoctorId] = useState(null);
+  const [editingPatientId, setEditingPatientId] = useState(null);
   const [adminAppointments, setAdminAppointments] = useState([]);
   const [adminMedicalRecords, setAdminMedicalRecords] = useState([]);
   const [appointmentFilter, setAppointmentFilter] = useState("All");
@@ -86,6 +87,17 @@ export default function App() {
     phone: "",
     role: "patient",
     specialty: "",
+    age: "",
+    gender: "",
+    blood_group: "",
+    condition: "",
+    date_of_birth: "",
+    address: "",
+    emergency_contact: "",
+    patientType: "registered",
+    selectedPatientId: "",
+    emergencyPatientName: "",
+    emergencyPatientPhone: "",
   });
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [showRecordModal, setShowRecordModal] = useState(false);
@@ -122,6 +134,14 @@ export default function App() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [passwordError, setPasswordError] = useState(false);
+  const [loadingPassword, setLoadingPassword] = useState(false);
+
+  // Notifications state
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
 
   const [registerData, setRegisterData] = useState({
     name: "",
@@ -140,10 +160,14 @@ export default function App() {
     confirmPassword: "",
   });
 
-  const notifications = [
-    { id: 1, title: "Appointment Confirmed", message: "Your appointment with the doctor has been confirmed.", time: "5 min ago", unread: true },
-    { id: 2, title: "Medical Record Updated", message: "A new medical record has been added to your file.", time: "2 hours ago", unread: false },
-  ];
+  // Debug modal state
+  useEffect(() => {
+    console.log("Modal State Debug:", {
+      showAppointmentDetails,
+      selectedDetail: selectedDetail ? `ID ${selectedDetail.id}` : null,
+      selectedDetailType,
+    });
+  }, [showAppointmentDetails, selectedDetail, selectedDetailType]);
 
   useEffect(() => {
     const savedToken = localStorage.getItem("authToken");
@@ -190,6 +214,21 @@ export default function App() {
     };
   }, [showNotifications, showAppointmentDetails]);
 
+  // Auto-refresh notifications every 15 seconds
+  useEffect(() => {
+    if (!loggedInUser || !loggedInUser.id) return;
+
+    // Fetch notifications immediately
+    fetchNotifications(loggedInUser.id);
+
+    // Set up interval to refresh
+    const interval = setInterval(() => {
+      fetchNotifications(loggedInUser.id);
+    }, 15000); // Refresh every 15 seconds
+
+    return () => clearInterval(interval);
+  }, [loggedInUser?.id]);
+
   useEffect(() => {
     if (loggedInUser && loggedInUser.role === "patient") {
       fetchPatientData();
@@ -230,12 +269,93 @@ export default function App() {
     try {
       const res = await api.get("/me");
       setLoggedInUser(res.data.user);
+      // Fetch notifications for this user
+      if (res.data.user && res.data.user.id) {
+        fetchNotifications(res.data.user.id);
+      }
     } catch (err) {
       console.error("Error fetching current user:", err);
       setToken("");
       setAuthToken("");
     }
   };
+
+  const fetchNotifications = async (userId) => {
+    try {
+      setLoadingNotifications(true);
+      const res = await api.get(`/notifications/${userId}?limit=10`);
+      setNotifications(res.data.notifications || []);
+      
+      // Calculate unread count
+      const unread = res.data.notifications?.filter(n => !n.is_read).length || 0;
+      setUnreadCount(unread);
+    } catch (err) {
+      console.error("Error fetching notifications:", err);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  };
+
+  const markNotificationAsRead = async (notificationId) => {
+    try {
+      await api.put(`/notifications/${notificationId}/read`);
+      // Update local state
+      setNotifications(prev => 
+        prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
+      );
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (err) {
+      console.error("Error marking notification as read:", err);
+    }
+  };
+
+  const deleteNotification = async (notificationId) => {
+    try {
+      await api.delete(`/notifications/${notificationId}`);
+      // Update local state
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      // Recalculate unread count
+      const unread = notifications.filter(n => n.id !== notificationId && !n.is_read).length;
+      setUnreadCount(unread);
+    } catch (err) {
+      console.error("Error deleting notification:", err);
+    }
+  };
+
+  const markAllNotificationsAsRead = async (userId) => {
+    try {
+      await api.put(`/notifications/${userId}/mark-all-read`);
+      // Update local state
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+      setUnreadCount(0);
+    } catch (err) {
+      console.error("Error marking all notifications as read:", err);
+    }
+  };
+
+  const fetchNotificationPreferences = async (userId) => {
+    try {
+      const res = await api.get(`/notification-preferences/${userId}`);
+      if (res.data.preferences) {
+        setEmailNotifications(res.data.preferences.email_notifications !== false);
+        setSmsNotifications(res.data.preferences.sms_notifications === true);
+        setPushNotifications(res.data.preferences.push_notifications !== false);
+      }
+    } catch (err) {
+      console.error("Error fetching notification preferences:", err);
+      // Use defaults if error
+      setEmailNotifications(true);
+      setSmsNotifications(false);
+      setPushNotifications(true);
+    }
+  };
+
+  // Load notification preferences when admin opens settings page
+  useEffect(() => {
+    if (loggedInUser && loggedInUser.id && (adminPage === "settings" || adminPage === "profile")) {
+      fetchNotificationPreferences(loggedInUser.id);
+    }
+  }, [adminPage, loggedInUser?.id]);
 
   const fetchAdminData = async () => {
     try {
@@ -335,11 +455,36 @@ export default function App() {
         type: bookingData.type,
         status: "Pending",
       });
+      
+      // Notify the doctor about new appointment booking
+      const doctorId = parseInt(bookingData.doctorId, 10);
+      const patientName = loggedInUser?.name || "Patient";
+      const doctor = doctors.find((d) => d.id === doctorId);
+      
+      if (doctor) {
+        try {
+          await api.post("/notifications", {
+            userId: doctorId,
+            type: "appointment_booked",
+            title: "New Appointment Booking",
+            message: `${patientName} has booked an appointment with you on ${bookingData.date} at ${bookingData.time}`,
+            relatedId: res.data.appointmentId,
+            relatedType: "appointment",
+          });
+        } catch (err) {
+          console.error("Error sending booking notification to doctor:", err);
+        }
+      }
+      
       setIsError(false);
       setMessage(res.data.message || "✅ Appointment booked successfully!");
       setShowBookingModal(false);
       setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
       fetchPatientData();
+      // Refresh notifications immediately after booking
+      if (loggedInUser && loggedInUser.id) {
+        fetchNotifications(loggedInUser.id);
+      }
     } catch (err) {
       setIsError(true);
       setMessage(err.response?.data?.message || "❌ Failed to book appointment");
@@ -350,10 +495,14 @@ export default function App() {
     if (!window.confirm("Are you sure you want to cancel this appointment?")) return;
 
     try {
-      const res = await api.delete(`/appointments/${appointmentId}`);
+      const res = await api.put(`/appointments/${appointmentId}`, { status: "Cancelled" });
       setIsError(false);
       setMessage(res.data.message || "✅ Appointment cancelled successfully!");
       fetchPatientData();
+      // Refresh notifications after status change
+      if (loggedInUser && loggedInUser.id) {
+        fetchNotifications(loggedInUser.id);
+      }
     } catch (err) {
       setIsError(true);
       setMessage(err.response?.data?.message || "❌ Failed to cancel appointment");
@@ -422,6 +571,176 @@ export default function App() {
     window.URL.revokeObjectURL(url);
   };
 
+  const downloadAllRecords = () => {
+    if (medicalRecords.length === 0) {
+      alert("No medical records to download");
+      return;
+    }
+
+    let content = "COMPLETE MEDICAL RECORDS\n";
+    content += `Patient: ${loggedInUser.name}\n`;
+    content += `Downloaded on: ${new Date().toLocaleDateString()}\n`;
+    content += `Total Records: ${medicalRecords.length}\n`;
+    content += "=" .repeat(60) + "\n\n";
+
+    medicalRecords.forEach((record, index) => {
+      content += `RECORD ${index + 1}\n`;
+      content += `Title: ${record.title || "N/A"}\n`;
+      content += `Diagnosis: ${record.diagnosis || "N/A"}\n`;
+      content += `Treatment: ${record.treatment || "N/A"}\n`;
+      content += `Doctor: Dr. ${doctors.find((doc) => doc.id === record.doctor_id)?.name || `ID ${record.doctor_id}`}\n`;
+      content += `Date: ${record.record_date || "N/A"}\n`;
+      content += `Status: ${record.status || "N/A"}\n`;
+      content += "-".repeat(60) + "\n\n";
+    });
+
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `medical-records-${new Date().toISOString().split("T")[0]}.txt`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const getLastUpdatedDate = () => {
+    if (medicalRecords.length === 0) return "N/A";
+    const dates = medicalRecords
+      .map((r) => new Date(r.record_date || ""))
+      .filter((d) => !isNaN(d.getTime()));
+    if (dates.length === 0) return "N/A";
+    const mostRecentDate = new Date(Math.max(...dates.map((d) => d.getTime())));
+    return mostRecentDate.toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
+
+  const generateAdminReport = () => {
+    const now = new Date();
+    const reportDate = now.toLocaleString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+
+    let report = "MEDICARE PORTAL - COMPREHENSIVE ADMIN REPORT\n";
+    report += "=" .repeat(70) + "\n\n";
+    report += `Generated on: ${reportDate}\n`;
+    report += `Report Type: Healthcare System Operations Summary\n`;
+    report += "\n" + "=" .repeat(70) + "\n";
+
+    // 1. Executive Summary
+    report += "\n1. EXECUTIVE SUMMARY\n";
+    report += "-".repeat(70) + "\n";
+    report += `Total Patients: ${adminPatients.length}\n`;
+    report += `Total Doctors: ${doctors.length}\n`;
+    report += `Total Appointments: ${adminAppointments.length}\n`;
+    report += `Total Medical Records: ${medicalRecords.length}\n`;
+    report += `Pending Appointments: ${adminAppointments.filter(a => a.status === 'Pending').length}\n`;
+    report += `Completed Appointments: ${adminAppointments.filter(a => a.status === 'Completed').length}\n`;
+    report += `Cancelled Appointments: ${adminAppointments.filter(a => a.status === 'Cancelled').length}\n`;
+
+    // 2. Appointment Statistics
+    report += "\n" + "=" .repeat(70) + "\n";
+    report += "\n2. APPOINTMENT STATISTICS\n";
+    report += "-".repeat(70) + "\n";
+    const appointmentsByType = {};
+    adminAppointments.forEach(apt => {
+      const type = apt.type || "Consultation";
+      appointmentsByType[type] = (appointmentsByType[type] || 0) + 1;
+    });
+    Object.entries(appointmentsByType).forEach(([type, count]) => {
+      report += `${type}: ${count} appointments\n`;
+    });
+
+    // 3. Patient Demographics
+    report += "\n" + "=" .repeat(70) + "\n";
+    report += "\n3. PATIENT DEMOGRAPHICS\n";
+    report += "-".repeat(70) + "\n";
+    const conditionCounts = {};
+    adminPatients.forEach(patient => {
+      const condition = patient.condition || 'No Condition';
+      conditionCounts[condition] = (conditionCounts[condition] || 0) + 1;
+    });
+    const topConditions = Object.entries(conditionCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10);
+    topConditions.forEach(([condition, count]) => {
+      const percentage = ((count / adminPatients.length) * 100).toFixed(1);
+      report += `${condition}: ${count} patients (${percentage}%)\n`;
+    });
+
+    // 4. Doctor Statistics
+    report += "\n" + "=" .repeat(70) + "\n";
+    report += "\n4. DOCTOR STATISTICS\n";
+    report += "-".repeat(70) + "\n";
+    doctors.forEach(doctor => {
+      const appointmentCount = adminAppointments.filter(a => a.doctor_id === doctor.id).length;
+      const avgRating = doctor.rating ? parseFloat(doctor.rating).toFixed(1) : "N/A";
+      report += `Dr. ${doctor.name} (${doctor.specialty || "N/A"})\n`;
+      report += `  - Department: ${doctor.department || "N/A"}\n`;
+      report += `  - Rating: ${avgRating}/5\n`;
+      report += `  - Experience: ${doctor.experience || "N/A"} years\n`;
+      report += `  - Appointments: ${appointmentCount}\n\n`;
+    });
+
+    // 5. Recent Appointments
+    report += "=" .repeat(70) + "\n";
+    report += "\n5. RECENT APPOINTMENTS (Last 10)\n";
+    report += "-".repeat(70) + "\n";
+    const recentAppointments = adminAppointments.slice(-10).reverse();
+    recentAppointments.forEach((apt, index) => {
+      const patient = adminPatients.find(p => p.id === apt.patient_id);
+      const doctor = doctors.find(d => d.id === apt.doctor_id);
+      report += `\n${index + 1}. ${patient?.name || "Unknown Patient"} → Dr. ${doctor?.name || "Unknown Doctor"}\n`;
+      report += `   Date: ${apt.date || "N/A"} | Time: ${apt.time || "N/A"}\n`;
+      report += `   Type: ${apt.type || "Consultation"} | Status: ${apt.status}\n`;
+    });
+
+    // 6. Active Medical Records
+    report += "\n" + "=" .repeat(70) + "\n";
+    report += "\n6. ACTIVE MEDICAL CONDITIONS\n";
+    report += "-".repeat(70) + "\n";
+    const activeMedicalRecords = medicalRecords.filter(r => r.status === 'Active').slice(-10);
+    activeMedicalRecords.forEach((record, index) => {
+      const patient = adminPatients.find(p => p.id === record.patient_id);
+      const doctor = doctors.find(d => d.id === record.doctor_id);
+      report += `\n${index + 1}. ${record.title}\n`;
+      report += `   Patient: ${patient?.name || "Unknown"}\n`;
+      report += `   Doctor: Dr. ${doctor?.name || "Unknown"}\n`;
+      report += `   Diagnosis: ${record.diagnosis || "N/A"}\n`;
+      report += `   Treatment: ${record.treatment || "N/A"}\n`;
+      report += `   Date: ${record.record_date || "N/A"}\n`;
+    });
+
+    // 7. System Summary
+    report += "\n" + "=" .repeat(70) + "\n";
+    report += "\n7. SYSTEM SUMMARY\n";
+    report += "-".repeat(70) + "\n";
+    report += `Report Generated: ${reportDate}\n`;
+    report += `Total Healthcare Users: ${adminPatients.length + doctors.length}\n`;
+    report += `System Health: Operational\n`;
+    report += "\n" + "=" .repeat(70) + "\n";
+    report += "END OF REPORT\n";
+
+    // Download report
+    const blob = new Blob([report], { type: "text/plain" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `admin-report-${new Date().toISOString().split("T")[0]}.txt`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
   const handleRegisterChange = (e) => {
     const { name, value } = e.target;
     setRegisterData((prev) => ({ ...prev, [name]: value }));
@@ -483,7 +802,7 @@ export default function App() {
       setToken(res.data.token);
       setLoggedInUser(res.data.user);
       setActivePage("dashboard");
-      setAdminPage("patients");
+      setAdminPage("dashboard");
       setIsError(false);
       setMessage(res.data.message || "✅ Login successful!");
     } catch (err) {
@@ -591,7 +910,48 @@ export default function App() {
 
   const handleUpdateAppointmentStatus = async (appointmentId, status) => {
     try {
+      // Get appointment details before updating
+      const appointmentToUpdate = adminAppointments.find((apt) => apt.id === appointmentId);
+      if (!appointmentToUpdate) {
+        console.error("Appointment not found");
+        return;
+      }
+
       await api.put(`/appointments/${appointmentId}`, { status });
+      
+      // Send notification to patient if appointment is confirmed or cancelled
+      const patientId = appointmentToUpdate.patient_id;
+      const doctorName = `Dr. ${appointmentToUpdate.doctor_name || "Your Doctor"}`;
+      const patient = adminPatients.find((p) => p.id === patientId);
+      
+      if (status === "Confirmed" && patientId && patient) {
+        try {
+          await api.post("/notifications", {
+            userId: patientId,
+            type: "appointment_confirmation",
+            title: "Appointment Confirmed",
+            message: `${doctorName} successfully confirmed your appointment booking`,
+            relatedId: appointmentId,
+            relatedType: "appointment",
+          });
+        } catch (err) {
+          console.error("Error sending confirmation notification:", err);
+        }
+      } else if (status === "Cancelled" && patientId && patient) {
+        try {
+          await api.post("/notifications", {
+            userId: patientId,
+            type: "appointment_cancelled",
+            title: "Appointment Cancelled",
+            message: `${doctorName} cancelled your appointment booking`,
+            relatedId: appointmentId,
+            relatedType: "appointment",
+          });
+        } catch (err) {
+          console.error("Error sending cancellation notification:", err);
+        }
+      }
+      
       setMessage("Appointment status updated successfully");
       fetchAdminData();
     } catch (err) {
@@ -600,15 +960,150 @@ export default function App() {
     }
   };
 
+  const handleBookAdminAppointment = async () => {
+    // Validate required fields
+    console.log("=== BOOKING APPOINTMENT ===");
+    console.log("Booking data:", bookingData);
+    console.log("New user data:", newUserData);
+    console.log("Patient type:", newUserData.patientType);
+    console.log("Selected patient ID:", newUserData.selectedPatientId);
+    console.log("Emergency patient name:", newUserData.emergencyPatientName);
+    console.log("Emergency patient phone:", newUserData.emergencyPatientPhone);
+    
+    // EXTRA SAFETY CHECKS
+    console.log("🔍 SAFETY CHECK - bookingData values:");
+    console.log("  doctorId:", bookingData.doctorId, "type:", typeof bookingData.doctorId, "truthy?", !!bookingData.doctorId);
+    console.log("  date:", bookingData.date, "type:", typeof bookingData.date, "truthy?", !!bookingData.date);
+    console.log("  time:", bookingData.time, "type:", typeof bookingData.time, "truthy?", !!bookingData.time);
+    
+    if (!bookingData.doctorId) {
+      console.warn("❌ Doctor ID missing");
+      setMessage("❌ Please select a doctor", true);
+      setIsError(true);
+      return;
+    }
+    
+    if (!bookingData.date) {
+      console.warn("❌ Date missing");
+      setMessage("❌ Please select a date", true);
+      setIsError(true);
+      return;
+    }
+    
+    if (!bookingData.time) {
+      console.warn("❌ Time missing");
+      setMessage("❌ Please select a time", true);
+      setIsError(true);
+      return;
+    }
+
+    if (newUserData.patientType === "registered" && !newUserData.selectedPatientId) {
+      console.warn("Selected patient ID missing");
+      setMessage("❌ Please select a patient", true);
+      setIsError(true);
+      return;
+    }
+
+    if (newUserData.patientType === "emergency" && (!newUserData.emergencyPatientName || !newUserData.emergencyPatientPhone)) {
+      console.warn("Emergency patient details missing");
+      setMessage("❌ Please enter emergency patient details (Name and Phone)", true);
+      setIsError(true);
+      return;
+    }
+
+    try {
+      const patientId = newUserData.patientType === "registered" ? newUserData.selectedPatientId : null;
+      const patientName = newUserData.patientType === "emergency" ? newUserData.emergencyPatientName : null;
+      const patientPhone = newUserData.patientType === "emergency" ? newUserData.emergencyPatientPhone : null;
+
+      const appointmentPayload = {
+        patientId: patientId ? parseInt(patientId, 10) : null,
+        emergencyPatientName: patientName,
+        emergencyPatientPhone: patientPhone,
+        doctorId: parseInt(bookingData.doctorId, 10),
+        date: bookingData.date,
+        time: bookingData.time,
+        type: bookingData.type,
+        status: "Pending",
+      };
+
+      console.log("Sending appointment payload:", appointmentPayload);
+
+      const response = await api.post("/appointments", appointmentPayload);
+
+      console.log("Appointment response:", response);
+      
+      // Send notification to doctor about new appointment
+      const doctorId = parseInt(bookingData.doctorId, 10);
+      const displayPatientName = newUserData.patientType === "emergency" ? newUserData.emergencyPatientName : (adminPatients.find((p) => p.id === parseInt(newUserData.selectedPatientId, 10))?.name || "Patient");
+      const doctor = doctors.find((d) => d.id === doctorId);
+      
+      if (doctor) {
+        try {
+          await api.post("/notifications", {
+            userId: doctorId,
+            type: "appointment_booked",
+            title: "New Appointment Booking",
+            message: `${displayPatientName} has booked an appointment with you on ${bookingData.date} at ${bookingData.time}`,
+            relatedId: response.data.appointmentId,
+            relatedType: "appointment",
+          });
+        } catch (err) {
+          console.error("Error sending booking notification to doctor:", err);
+        }
+      }
+      
+      // If registered patient, notify the patient as well
+      if (newUserData.patientType === "registered" && newUserData.selectedPatientId) {
+        const patientId = parseInt(newUserData.selectedPatientId, 10);
+        const doctorName = doctor?.name || "Doctor";
+        try {
+          await api.post("/notifications", {
+            userId: patientId,
+            type: "appointment_booked",
+            title: "Appointment Booked",
+            message: `Your appointment with Dr. ${doctorName} has been booked for ${bookingData.date} at ${bookingData.time}`,
+            relatedId: response.data.appointmentId,
+            relatedType: "appointment",
+          });
+        } catch (err) {
+          console.error("Error sending booking notification to patient:", err);
+        }
+      }
+      
+      setMessage("✅ Appointment booked successfully!");
+      setIsError(false);
+      setShowAddModal(false);
+      setAddModalType("");
+      setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "", age: "", gender: "", blood_group: "", condition: "", date_of_birth: "", address: "", emergency_contact: "", patientType: "registered", selectedPatientId: "", emergencyPatientName: "", emergencyPatientPhone: "" });
+      setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
+      fetchAdminData();
+      // Refresh notifications immediately
+      if (loggedInUser && loggedInUser.id) {
+        fetchNotifications(loggedInUser.id);
+      }
+    } catch (err) {
+      console.error("Error booking appointment:", err);
+      const errorMsg = err.response?.data?.message || err.message || "❌ Failed to book appointment";
+      console.error("Error message:", errorMsg);
+      setIsError(true);
+      setMessage(errorMsg);
+    }
+  };
+
   const handleAddUser = async () => {
+    console.log("❌ handleAddUser called! addModalType=", addModalType);
+    console.log("newUserData.name=", newUserData.name);
+    console.log("newUserData.email=", newUserData.email);
     if (!newUserData.name || !newUserData.email) {
+      console.warn("Name or email missing in handleAddUser");
       setMessage("Please fill all required fields", true);
       setIsError(true);
       return;
     }
 
     // For new users (not editing), password is required
-    if (!editingDoctorId && !newUserData.password) {
+    if (!editingDoctorId && !editingPatientId && !newUserData.password) {
       setMessage("Please fill all required fields", true);
       setIsError(true);
       return;
@@ -625,18 +1120,33 @@ export default function App() {
         });
         setMessage("Doctor updated successfully");
         setEditingDoctorId(null);
+      } else if (editingPatientId) {
+        // Update existing patient
+        await api.put(`/users/${editingPatientId}`, {
+          name: newUserData.name,
+          email: newUserData.email,
+          phone: newUserData.phone,
+          age: newUserData.age,
+          gender: newUserData.gender,
+          bloodGroup: newUserData.blood_group,
+          condition: newUserData.condition,
+        });
+        setMessage("Patient updated successfully");
+        setEditingPatientId(null);
       } else {
         // Create new user
         await api.post("/register", {
           name: newUserData.name,
           email: newUserData.email,
           password: newUserData.password,
+          role: newUserData.role,
+          specialty: addModalType === "doctor" ? newUserData.specialty : undefined,
         });
         setMessage(`${addModalType.charAt(0).toUpperCase() + addModalType.slice(1)} added successfully`);
       }
       setIsError(false);
       setShowAddModal(false);
-      setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "" });
+      setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "", age: "", gender: "", blood_group: "", condition: "", date_of_birth: "", address: "", emergency_contact: "" });
       fetchAdminData();
     } catch (err) {
       setMessage(err.response?.data?.message || "Error", true);
@@ -649,7 +1159,7 @@ export default function App() {
     setToken("");
     setLoggedInUser(null);
     setActivePage("dashboard");
-    setAdminPage("patients");
+    setAdminPage("dashboard");
     setLoginData({ email: "", password: "" });
     setIsError(false);
     setMessage("✅ Logged out successfully.");
@@ -657,6 +1167,11 @@ export default function App() {
 
   const renderPatientDashboard = () => {
     const upcomingAppointments = appointments.filter((appointment) => {
+      // Filter for appointments that have a Pending status (not Completed or Cancelled)
+      if (appointment.status === "Completed" || appointment.status === "Cancelled") {
+        return false;
+      }
+      
       // Handle both date formats: ISO datetime string or date-only string
       let dateStr = appointment.date;
       if (dateStr.includes('T')) {
@@ -664,6 +1179,7 @@ export default function App() {
         dateStr = dateStr.split('T')[0];
       }
       const appointmentDate = new Date(`${dateStr}T${appointment.time || '00:00'}`);
+      // Include both today and future appointments
       return appointmentDate >= new Date();
     });
 
@@ -678,19 +1194,21 @@ export default function App() {
       return appointmentDate < new Date();
     });
 
-    const nextAppointment = upcomingAppointments.sort((a, b) => {
-      let aDateStr = a.date;
-      if (aDateStr.includes('T')) {
-        aDateStr = aDateStr.split('T')[0];
-      }
-      let bDateStr = b.date;
-      if (bDateStr.includes('T')) {
-        bDateStr = bDateStr.split('T')[0];
-      }
-      const aDate = new Date(`${aDateStr}T${a.time || '00:00'}`);
-      const bDate = new Date(`${bDateStr}T${b.time || '00:00'}`);
-      return aDate - bDate;
-    })[0];
+    const nextAppointment = upcomingAppointments.length > 0 
+      ? upcomingAppointments.sort((a, b) => {
+          let aDateStr = a.date;
+          if (aDateStr.includes('T')) {
+            aDateStr = aDateStr.split('T')[0];
+          }
+          let bDateStr = b.date;
+          if (bDateStr.includes('T')) {
+            bDateStr = bDateStr.split('T')[0];
+          }
+          const aDate = new Date(`${aDateStr}T${a.time || '00:00'}`);
+          const bDate = new Date(`${bDateStr}T${b.time || '00:00'}`);
+          return aDate - bDate;
+        })[0]
+      : null;
 
     return (
       <div className="p-9">
@@ -719,13 +1237,29 @@ export default function App() {
               }`}>Next Appointment</span>
 
               <h3 className="mt-6 text-[34px] font-bold">
-                {nextAppointment ? new Date(nextAppointment.date.includes('T') ? nextAppointment.date.split('T')[0] : nextAppointment.date).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : 'No upcoming appointments'}
+                {nextAppointment ? new Date(nextAppointment.date).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }) : 'No upcoming appointments'}
               </h3>
 
               {nextAppointment ? (
                 <div className="mt-4 flex items-center gap-3 text-white text-opacity-90">
                   <Clock3 size={24} />
-                  <p className="text-[28px]">{nextAppointment.time || 'TBD'}</p>
+                  <p className="text-[28px]">
+                    {(() => {
+                      try {
+                        if (nextAppointment.time) {
+                          const [hours, minutes] = nextAppointment.time.split(':');
+                          const hour = parseInt(hours, 10);
+                          const min = parseInt(minutes, 10);
+                          const ampm = hour >= 12 ? 'PM' : 'AM';
+                          const displayHour = hour % 12 || 12;
+                          return `${displayHour}:${String(min).padStart(2, '0')} ${ampm}`;
+                        }
+                        return 'TBD';
+                      } catch (e) {
+                        return nextAppointment.time || 'TBD';
+                      }
+                    })()}
+                  </p>
                 </div>
               ) : null}
             </div>
@@ -822,7 +1356,18 @@ export default function App() {
                       <span>Dr. {doctors.find((doc) => doc.id === medicalRecords[0].doctor_id)?.name || `Doctor ${medicalRecords[0].doctor_id}`}</span>
                     </div>
                   </div>
-                  <p className="text-[16px] text-slate-400">{medicalRecords[0].record_date}</p>
+                  <p className="text-[16px] text-slate-400">
+                    {medicalRecords[0].record_date
+                      ? new Date(medicalRecords[0].record_date).toLocaleString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: true,
+                        })
+                      : "N/A"}
+                  </p>
                 </div>
               </div>
             )}
@@ -930,7 +1475,7 @@ export default function App() {
           appointments.map((appointment) => (
             <div
               key={appointment.id}
-              className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm"
+              className="pointer-events-auto rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm"
             >
               <div className="flex flex-col gap-6 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex items-start gap-5">
@@ -961,6 +1506,8 @@ export default function App() {
                     className={`rounded-full px-4 py-1 text-sm font-medium ${
                       appointment.status === "Pending"
                         ? "bg-amber-100 text-amber-700"
+                        : appointment.status === "Cancelled"
+                        ? "bg-red-100 text-red-700"
                         : "bg-emerald-100 text-emerald-700"
                     }`}
                   >
@@ -970,21 +1517,26 @@ export default function App() {
                   <div className="flex flex-wrap gap-3">
                     {appointment.status === "Pending" && (
                       <button 
+                        type="button"
                         onClick={() => handleCancelAppointment(appointment.id)}
-                        className="rounded-2xl border border-red-200 px-7 py-3 text-[18px] text-red-500 hover:bg-red-50">
+                        className="pointer-events-auto cursor-pointer rounded-2xl border border-red-200 bg-white px-7 py-3 text-[18px] text-red-500 transition hover:bg-red-50 active:bg-red-100">
                         Cancel
                       </button>
                     )}
 
-                    <button 
-                      onClick={() => {
-                        setSelectedDetail(appointment);
-                        setSelectedDetailType("appointment");
-                        setShowAppointmentDetails(true);
-                      }}
-                      className="rounded-2xl border border-slate-200 px-7 py-3 text-[18px] text-slate-700 hover:bg-slate-50">
-                      View Details
-                    </button>
+                    {appointment.status !== "Cancelled" && (
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          console.log("View Details - Setting modal state");
+                          setSelectedDetail(appointment);
+                          setSelectedDetailType("appointment");
+                          setShowAppointmentDetails(true);
+                        }}
+                        className="pointer-events-auto cursor-pointer rounded-2xl border border-slate-200 bg-white px-7 py-3 text-[18px] text-slate-700 transition hover:bg-slate-50 active:bg-slate-100">
+                        View Details
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1005,7 +1557,9 @@ export default function App() {
           </p>
         </div>
 
-        <button className="flex items-center gap-3 rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700">
+        <button 
+          onClick={downloadAllRecords}
+          className="flex items-center gap-3 rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700 transition">
           <FileText size={20} />
           <span>Download Records</span>
         </button>
@@ -1040,7 +1594,7 @@ export default function App() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[20px] text-slate-500">Last Updated</p>
-              <p className="mt-3 text-[24px] font-bold">{medicalRecords.length > 0 ? medicalRecords[0].record_date : 'N/A'}</p>
+              <p className="mt-3 text-[24px] font-bold">{getLastUpdatedDate()}</p>
             </div>
             <div className="rounded-2xl bg-blue-50 p-4 text-blue-600">
               <Clock3 size={28} />
@@ -1081,7 +1635,18 @@ export default function App() {
 
                       <div className="flex items-center gap-2">
                         <CalendarDays size={18} />
-                        <span>{record.record_date}</span>
+                        <span>
+                          {record.record_date
+                            ? new Date(record.record_date).toLocaleString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                hour12: true,
+                              })
+                            : "N/A"}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1428,21 +1993,13 @@ export default function App() {
 
     return (
     <div className="p-9">
-      <div className="mb-8 flex items-start justify-between">
+      <div className="mb-8">
         <div>
           <h2 className="text-[28px] font-bold">Manage Patients</h2>
           <p className="mt-2 text-[18px] text-slate-500">
             View and manage all registered patients.
           </p>
         </div>
-
-        <button
-          onClick={() => { setAddModalType("patient"); setShowAddModal(true); setNewUserData({...newUserData, role: "patient"}); }}
-          className="flex items-center gap-3 rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700"
-        >
-          <Users size={20} />
-          <span>Add Patient</span>
-        </button>
       </div>
 
       <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
@@ -1502,17 +2059,46 @@ export default function App() {
             <div className="truncate text-[17px] text-slate-700">{patient.phone || 'N/A'}</div>
 
             <div className="flex items-center justify-end gap-4">
-              <button className="text-blue-600 hover:opacity-70">
+              <button 
+                onClick={() => { 
+                  setAddModalType("patient"); 
+                  setShowAddModal(true); 
+                  setEditingPatientId(patient.id);
+                  setNewUserData({
+                    name: patient.name,
+                    email: patient.email,
+                    password: "",
+                    phone: patient.phone || "",
+                    role: "patient",
+                    specialty: "",
+                    age: patient.age || "",
+                    gender: patient.gender || "",
+                    blood_group: patient.blood_group || "",
+                    condition: patient.condition || "",
+                    date_of_birth: patient.date_of_birth || "",
+                    address: patient.address || "",
+                    emergency_contact: patient.emergency_contact || "",
+                  }); 
+                }}
+                className="text-blue-600 hover:opacity-70"
+              >
                 <Pencil size={18} />
+              </button>
+              <button 
+                onClick={() => { 
+                  setSelectedDetailType("patient"); 
+                  setSelectedDetail(patient); 
+                  setShowAppointmentDetails(true); 
+                }}
+                className="text-blue-600 hover:opacity-70"
+              >
+                <Eye size={18} />
               </button>
               <button
                 onClick={() => handleDeleteUser(patient.id, "patient")}
                 className="text-red-500 hover:opacity-70"
               >
                 <Trash2 size={18} />
-              </button>
-              <button className="text-slate-500 hover:opacity-70">
-                <MoreVertical size={18} />
               </button>
             </div>
           </div>
@@ -1582,7 +2168,9 @@ export default function App() {
           <h2 className="text-[28px] font-bold">Admin Dashboard</h2>
           <p className="mt-2 text-[18px] text-slate-500">Overview of hospital operations and statistics.</p>
         </div>
-        <button className="flex items-center gap-2 rounded-2xl bg-teal-600 px-6 py-3 text-white shadow-md hover:bg-teal-700">
+        <button 
+          onClick={generateAdminReport}
+          className="flex items-center gap-2 rounded-2xl bg-teal-600 px-6 py-3 text-white shadow-md hover:bg-teal-700 transition">
           <BarChart3 size={20} />
           <span>Generate Report</span>
         </button>
@@ -1724,8 +2312,8 @@ export default function App() {
             {adminAppointments.slice(0, 5).map((apt, idx) => {
               const statusColors = {
                 'Pending': 'bg-orange-100 text-orange-700',
-                'Confirmed': 'bg-yellow-100 text-yellow-700',
-                'Completed': 'bg-teal-100 text-teal-700',
+                'Confirmed': 'bg-blue-100 text-blue-700',
+                'Completed': 'bg-emerald-100 text-emerald-700',
                 'Cancelled': 'bg-red-100 text-red-700'
               };
               
@@ -1940,14 +2528,21 @@ export default function App() {
                 >
                   <Pencil size={18} />
                 </button>
+                <button 
+                  onClick={() => { 
+                    setSelectedDetailType("doctor"); 
+                    setSelectedDetail(doctor); 
+                    setShowAppointmentDetails(true); 
+                  }}
+                  className="text-blue-600 hover:opacity-70"
+                >
+                  <Eye size={18} />
+                </button>
                 <button
                   onClick={() => handleDeleteUser(doctor.id, "doctor")}
                   className="text-red-500 hover:opacity-70"
                 >
                   <Trash2 size={18} />
-                </button>
-                <button className="text-slate-500 hover:opacity-70">
-                  <MoreVertical size={18} />
                 </button>
               </div>
             </div>
@@ -2031,7 +2626,7 @@ export default function App() {
           return "bg-emerald-100 text-emerald-700";
         case "Confirmed":
         case "Scheduled":
-          return "bg-yellow-100 text-yellow-700";
+          return "bg-blue-100 text-blue-700";
         case "Pending":
           return "bg-amber-100 text-amber-700";
         case "Cancelled":
@@ -2047,16 +2642,24 @@ export default function App() {
           <div>
             <h2 className="text-[28px] font-bold">All Appointments</h2>
             <p className="mt-2 text-[18px] text-slate-500">
-              View and manage all hospital appointments.
+              View and manage all hospital appointments. Book appointments for registered patients or emergency walk-in patients.
             </p>
           </div>
 
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={() => {
+              console.log("🎬 Opening Book Appointment modal");
+              console.log("Available doctors:", doctors);
+              console.log("Admin patients:", adminPatients);
+              setShowAddModal(true);
+              setAddModalType("appointment");
+              setNewUserData({ ...newUserData, patientType: "registered", selectedPatientId: "", emergencyPatientName: "", emergencyPatientPhone: "" });
+              setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
+            }}
             className="flex items-center gap-3 rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700"
           >
             <CalendarPlus size={20} />
-            <span>Schedule Appointment</span>
+            <span>Book Appointment</span>
           </button>
         </div>
 
@@ -2178,25 +2781,24 @@ export default function App() {
                 {/* Actions */}
                 <div className="flex items-center justify-end gap-3">
                   <button
+                    type="button"
                     onClick={() => {
                       setSelectedDetailType("appointment");
                       setSelectedDetail(apt);
                       setShowAppointmentDetails(true);
                     }}
-                    className="text-blue-600 hover:opacity-70 transition-opacity"
+                    className="text-blue-600 hover:opacity-70 transition-opacity cursor-pointer"
                     title="View"
                   >
                     <Eye size={18} />
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleDeleteAppointment(apt.id)}
-                    className="text-red-500 hover:opacity-70 transition-opacity"
+                    className="text-red-500 hover:opacity-70 transition-opacity cursor-pointer"
                     title="Delete"
                   >
                     <Trash2 size={18} />
-                  </button>
-                  <button className="text-slate-500 hover:opacity-70 transition-opacity">
-                    <MoreVertical size={18} />
                   </button>
                 </div>
               </div>
@@ -2612,15 +3214,64 @@ export default function App() {
   };
 
   const renderAdminSettingsPage = () => {
-    const handleUpdatePassword = () => {
-      if (newPassword !== confirmPassword) {
-        alert("Passwords don't match");
+    const handleUpdatePassword = async () => {
+      setPasswordMessage("");
+      setPasswordError(false);
+
+      // Validate fields
+      if (!currentPassword || !newPassword || !confirmPassword) {
+        setPasswordMessage("❌ Please fill all password fields");
+        setPasswordError(true);
         return;
       }
-      alert("Password updated successfully");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
+
+      if (newPassword !== confirmPassword) {
+        setPasswordMessage("❌ Passwords don't match");
+        setPasswordError(true);
+        return;
+      }
+
+      if (newPassword.length < 6) {
+        setPasswordMessage("❌ Password must be at least 6 characters");
+        setPasswordError(true);
+        return;
+      }
+
+      setLoadingPassword(true);
+      try {
+        const response = await api.put(`/users/${loggedInUser.id}/change-password`, {
+          currentPassword,
+          newPassword,
+          confirmPassword,
+        });
+        setPasswordMessage(response.data.message || "✅ Password changed successfully!");
+        setPasswordError(false);
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+      } catch (err) {
+        const errorMsg = err.response?.data?.message || "❌ Failed to change password";
+        setPasswordMessage(errorMsg);
+        setPasswordError(true);
+      } finally {
+        setLoadingPassword(false);
+      }
+    };
+
+    const handleSaveAllChanges = async () => {
+      try {
+        // Save notification preferences to backend
+        await api.put(`/notification-preferences/${loggedInUser.id}`, {
+          emailNotifications,
+          smsNotifications,
+          pushNotifications,
+        });
+        setMessage("✅ All changes saved successfully!");
+        setIsError(false);
+      } catch (err) {
+        setMessage("❌ Failed to save changes");
+        setIsError(true);
+      }
     };
 
     return (
@@ -2713,11 +3364,18 @@ export default function App() {
               </div>
             </div>
 
+            {passwordMessage && (
+              <div className={`p-3 rounded-lg text-sm ${passwordError ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                {passwordMessage}
+              </div>
+            )}
+
             <button
               onClick={handleUpdatePassword}
-              className="mt-4 px-6 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors"
+              disabled={loadingPassword}
+              className="mt-4 px-6 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Update Password
+              {loadingPassword ? "Updating..." : "Update Password"}
             </button>
           </div>
         </div>
@@ -2751,7 +3409,9 @@ export default function App() {
 
         {/* Save Button */}
         <div className="flex justify-end">
-          <button className="px-6 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors">
+          <button 
+            onClick={handleSaveAllChanges}
+            className="px-6 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 transition-colors">
             Save All Changes
           </button>
         </div>
@@ -2882,36 +3542,104 @@ export default function App() {
                     onClick={() => setShowNotifications(!showNotifications)}
                     className={`relative rounded-lg p-2 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-700' : 'text-slate-600 hover:bg-slate-100'}`}>
                     <Bell size={20} />
-                    {notifications.some(n => n.unread) && (
-                      <span className="absolute right-0 top-0 h-2 w-2 bg-red-500 rounded-full" />
+                    {unreadCount > 0 && (
+                      <span className="absolute right-0 top-0 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs text-white font-bold">
+                        {unreadCount}
+                      </span>
                     )}
                   </button>
 
                   {showNotifications && (
                     <div className={`absolute right-0 top-12 z-50 w-80 rounded-2xl border shadow-lg ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
-                      <div className={`border-b p-4 ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                      <div className={`border-b p-4 flex items-center justify-between ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
                         <h3 className={`text-[18px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Notifications</h3>
+                        {unreadCount > 0 && (
+                          <button
+                            onClick={() => loggedInUser && markAllNotificationsAsRead(loggedInUser.id)}
+                            className="text-xs px-2 py-1 rounded bg-blue-500 text-white hover:bg-blue-600">
+                            Mark all read
+                          </button>
+                        )}
                       </div>
                       <div className="max-h-96 overflow-y-auto">
-                        {notifications.length > 0 ? (
-                          notifications.map(notif => (
-                            <div 
-                              key={notif.id}
-                              className={`cursor-pointer border-b p-4 transition-colors ${
-                                notif.unread ? (darkMode ? 'bg-blue-900' : 'bg-blue-50') : (darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-50')
-                              } ${darkMode ? 'border-slate-700' : 'border-slate-100'}`}>
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <p className={`text-sm font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{notif.title}</p>
-                                  <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{notif.message}</p>
-                                  <p className={`mt-2 text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{notif.time}</p>
+                        {loadingNotifications ? (
+                          <div className={`p-8 text-center ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                            Loading notifications...
+                          </div>
+                        ) : notifications.length > 0 ? (
+                          notifications.map(notif => {
+                            // Get notification styling based on type
+                            let notificationIcon = "📌";
+                            let bgColor = darkMode ? 'bg-blue-900' : 'bg-blue-50';
+                            let borderColor = darkMode ? 'border-slate-700' : 'border-slate-100';
+                            
+                            switch (notif.type) {
+                              case "appointment_status":
+                                notificationIcon = "✅";
+                                bgColor = darkMode ? "bg-green-900/60" : "bg-green-50/60";
+                                borderColor = darkMode ? "border-green-700" : "border-green-100";
+                                break;
+                              case "medical_record":
+                                notificationIcon = "📋";
+                                bgColor = darkMode ? "bg-blue-900/60" : "bg-blue-50/60";
+                                borderColor = darkMode ? "border-blue-700" : "border-blue-100";
+                                break;
+                              case "approval":
+                                notificationIcon = "👍";
+                                bgColor = darkMode ? "bg-purple-900/60" : "bg-purple-50/60";
+                                borderColor = darkMode ? "border-purple-700" : "border-purple-100";
+                                break;
+                              case "appointment_reminder":
+                                notificationIcon = "⏰";
+                                bgColor = darkMode ? "bg-yellow-900/60" : "bg-yellow-50/60";
+                                borderColor = darkMode ? "border-yellow-700" : "border-yellow-100";
+                                break;
+                              case "profile_update":
+                                notificationIcon = "👤";
+                                bgColor = darkMode ? "bg-cyan-900/60" : "bg-cyan-50/60";
+                                borderColor = darkMode ? "border-cyan-700" : "border-cyan-100";
+                                break;
+                              case "system":
+                                notificationIcon = "⚙️";
+                                bgColor = darkMode ? "bg-slate-800/60" : "bg-slate-50/60";
+                                borderColor = darkMode ? "border-slate-700" : "border-slate-100";
+                                break;
+                              default:
+                                notificationIcon = "🔔";
+                            }
+                            
+                            return (
+                              <div 
+                                key={notif.id}
+                                onClick={() => !notif.is_read && markNotificationAsRead(notif.id)}
+                                className={`cursor-pointer border-b p-4 transition-colors ${
+                                  !notif.is_read ? (`${bgColor} hover:opacity-80`) : (darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-50')
+                                } ${borderColor}`}>
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <p className={`text-sm font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{notif.title}</p>
+                                    <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{notif.message}</p>
+                                    <p className={`mt-2 text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                                      {new Date(notif.created_at).toLocaleString()}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-2 ml-2">
+                                    {!notif.is_read && (
+                                      <div className="mt-1 h-2 w-2 rounded-full bg-blue-500" />
+                                    )}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteNotification(notif.id);
+                                      }}
+                                      className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>
+                                      ✕
+                                    </button>
+                                  </div>
                                 </div>
-                                {notif.unread && (
-                                  <div className="ml-2 mt-1 h-2 w-2 rounded-full bg-blue-500" />
-                                )}
                               </div>
-                            </div>
-                          ))
+                            );
+                          })
                         ) : (
                           <div className={`p-8 text-center ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                             No notifications
@@ -2951,6 +3679,395 @@ export default function App() {
             </div>
           </main>
         </div>
+
+        {/* Appointment Details Modal */}
+        {showAppointmentDetails && selectedDetailType === "appointment" && selectedDetail && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+            <div
+              ref={detailsRef}
+              className={`w-full max-w-2xl rounded-2xl border ${darkMode ? 'border-slate-700' : 'border-slate-200'} ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl flex flex-col max-h-[90vh]`}
+            >
+              <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Appointment Details</h3>
+                <button 
+                  onClick={() => setShowAppointmentDetails(false)} 
+                  className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                {/* Appointment Basic Information */}
+                <div>
+                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Appointment Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Doctor</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {doctors.find((doc) => doc.id === selectedDetail.doctor_id)?.name || `ID ${selectedDetail.doctor_id}`}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Specialization</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {doctors.find((doc) => doc.id === selectedDetail.doctor_id)?.specialty || "N/A"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Appointment Date</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {selectedDetail.date
+                          ? new Date(selectedDetail.date).toLocaleDateString("en-US", {
+                              month: "long",
+                              day: "numeric",
+                              year: "numeric",
+                            })
+                          : "N/A"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Time</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.time || "N/A"}</p>
+                    </div>
+
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Appointment Type</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.type || "Consultation"}</p>
+                    </div>
+
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Status</label>
+                      <div className="mt-2">
+                        <span className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${
+                          selectedDetail.status === "Pending"
+                            ? darkMode ? "bg-amber-900 text-amber-200" : "bg-amber-100 text-amber-700"
+                            : selectedDetail.status === "Cancelled"
+                            ? darkMode ? "bg-red-900 text-red-200" : "bg-red-100 text-red-700"
+                            : darkMode ? "bg-emerald-900 text-emerald-200" : "bg-emerald-100 text-emerald-700"
+                        }`}>
+                          {selectedDetail.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Notes / Description */}
+                {selectedDetail.notes && (
+                  <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} pt-6`}>
+                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Notes</label>
+                    <p className={`text-base mt-3 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>{selectedDetail.notes}</p>
+                  </div>
+                )}
+
+                {/* Additional Details */}
+                <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} pt-6`}>
+                  <h4 className={`text-[16px] font-bold mb-4 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Appointment ID</h4>
+                  <p className={`text-base font-mono ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{selectedDetail.id}</p>
+                </div>
+              </div>
+
+              <div className={`flex flex-shrink-0 gap-3 border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`flex-1 rounded-lg px-4 py-3 font-medium transition ${
+                    darkMode
+                      ? 'bg-slate-700 text-slate-100 hover:bg-slate-600'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Medical Records Details Modal */}
+        {showAppointmentDetails && selectedDetailType === "record" && selectedDetail && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+            <div
+              ref={detailsRef}
+              className={`w-full max-w-2xl rounded-2xl border ${darkMode ? 'border-slate-700' : 'border-slate-200'} ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl flex flex-col max-h-[90vh]`}
+            >
+              <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Medical Record Details</h3>
+                <button 
+                  onClick={() => setShowAppointmentDetails(false)} 
+                  className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                {/* Record Title and Status */}
+                <div>
+                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Record Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Title</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {selectedDetail.title || "N/A"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Status</label>
+                      <div className="mt-2">
+                        <span className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${
+                          selectedDetail.status === "Active"
+                            ? darkMode ? "bg-amber-900 text-amber-200" : "bg-amber-100 text-amber-700"
+                            : selectedDetail.status === "Completed"
+                            ? darkMode ? "bg-emerald-900 text-emerald-200" : "bg-emerald-100 text-emerald-700"
+                            : darkMode ? "bg-blue-900 text-blue-200" : "bg-blue-100 text-blue-700"
+                        }`}>
+                          {selectedDetail.status}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Doctor</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        Dr. {doctors.find((doc) => doc.id === selectedDetail.doctor_id)?.name || `ID ${selectedDetail.doctor_id}`}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Record Date</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {selectedDetail.record_date
+                          ? new Date(selectedDetail.record_date).toLocaleDateString("en-US", {
+                              month: "long",
+                              day: "numeric",
+                              year: "numeric",
+                            })
+                          : "N/A"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Diagnosis */}
+                {selectedDetail.diagnosis && (
+                  <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} pt-6`}>
+                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Diagnosis</label>
+                    <p className={`text-base mt-3 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>{selectedDetail.diagnosis}</p>
+                  </div>
+                )}
+
+                {/* Treatment */}
+                {selectedDetail.treatment && (
+                  <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} pt-6`}>
+                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Treatment</label>
+                    <p className={`text-base mt-3 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>{selectedDetail.treatment}</p>
+                  </div>
+                )}
+
+                {/* Record ID */}
+                <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} pt-6`}>
+                  <h4 className={`text-[16px] font-bold mb-4 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Record ID</h4>
+                  <p className={`text-base font-mono ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{selectedDetail.id}</p>
+                </div>
+              </div>
+
+              <div className={`flex flex-shrink-0 gap-3 border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <button
+                  onClick={() => downloadMedicalRecord(selectedDetail)}
+                  className={`flex-1 rounded-lg px-4 py-3 font-medium transition flex items-center justify-center gap-2 ${
+                    darkMode
+                      ? 'bg-teal-900/30 text-teal-200 hover:bg-teal-900/50'
+                      : 'bg-teal-50 text-teal-700 hover:bg-teal-100'
+                  }`}
+                >
+                  <FileText size={18} />
+                  Download Record
+                </button>
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`flex-1 rounded-lg px-4 py-3 font-medium transition ${
+                    darkMode
+                      ? 'bg-slate-700 text-slate-100 hover:bg-slate-600'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Patient Details Modal - Admin View */}
+        {showAppointmentDetails && selectedDetailType === "patient" && selectedDetail && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+            <div
+              ref={detailsRef}
+              className={`w-full max-w-2xl rounded-2xl border ${darkMode ? 'border-slate-700' : 'border-slate-200'} ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl flex flex-col max-h-[90vh]`}
+            >
+              <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Patient Details</h3>
+                <button 
+                  onClick={() => setShowAppointmentDetails(false)} 
+                  className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                <div>
+                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Basic Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Full Name</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.name || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Email</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.email || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Phone</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.phone || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Age</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.age || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Gender</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.gender || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Blood Group</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.blood_group || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Medical Condition</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.condition || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Date of Birth</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.date_of_birth?.split('T')[0] || "N/A"}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Contact Information</h4>
+                  <div>
+                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Address</label>
+                    <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.address || "N/A"}</p>
+                  </div>
+                  <div className="mt-4">
+                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Emergency Contact</label>
+                    <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.emergency_contact || "N/A"}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`flex flex-shrink-0 gap-4 border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`flex-1 rounded-lg px-4 py-3 font-medium transition ${
+                    darkMode
+                      ? 'bg-slate-700 text-slate-100 hover:bg-slate-600'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Doctor Details Modal - Admin View */}
+        {showAppointmentDetails && selectedDetailType === "doctor" && selectedDetail && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+            <div
+              ref={detailsRef}
+              className={`w-full max-w-2xl rounded-2xl border ${darkMode ? 'border-slate-700' : 'border-slate-200'} ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl flex flex-col max-h-[90vh]`}
+            >
+              <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Doctor Details</h3>
+                <button 
+                  onClick={() => setShowAppointmentDetails(false)} 
+                  className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                <div>
+                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Professional Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Full Name</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.name || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Email</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.email || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Specialization</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.specialty || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Department</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.department || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Experience</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.experience ? `${selectedDetail.experience} years` : "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Rating</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        <span className="text-yellow-400">★</span> {selectedDetail.rating ? parseFloat(selectedDetail.rating).toFixed(1) : "N/A"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Contact Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Phone</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.phone || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Bio</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.bio || "N/A"}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`flex flex-shrink-0 gap-4 border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`flex-1 rounded-lg px-4 py-3 font-medium transition ${
+                    darkMode
+                      ? 'bg-slate-700 text-slate-100 hover:bg-slate-600'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </>
     );
   }
@@ -3089,38 +4206,106 @@ export default function App() {
                     onClick={() => setShowNotifications(!showNotifications)}
                     className={`relative rounded-lg p-2 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-700' : 'text-slate-600 hover:bg-slate-100'}`}>
                     <Bell size={20} />
-                    {notifications.some(n => n.unread) && (
-                      <span className="absolute right-0 top-0 h-2 w-2 bg-red-500 rounded-full" />
+                    {unreadCount > 0 && (
+                      <span className="absolute right-0 top-0 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs text-white font-bold">
+                        {unreadCount}
+                      </span>
                     )}
                   </button>
 
                   {showNotifications && (
-                    <div className="absolute right-0 top-12 z-50 w-80 rounded-2xl border border-slate-200 bg-white shadow-lg">
-                      <div className="border-b border-slate-200 p-4">
-                        <h3 className="text-[18px] font-bold">Notifications</h3>
+                    <div className={`absolute right-0 top-12 z-50 w-80 rounded-2xl border shadow-lg ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
+                      <div className={`border-b p-4 flex items-center justify-between ${darkMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                        <h3 className={`text-[18px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Notifications</h3>
+                        {unreadCount > 0 && (
+                          <button
+                            onClick={() => loggedInUser && markAllNotificationsAsRead(loggedInUser.id)}
+                            className="text-xs px-2 py-1 rounded bg-blue-500 text-white hover:bg-blue-600">
+                            Mark all read
+                          </button>
+                        )}
                       </div>
                       <div className="max-h-96 overflow-y-auto">
-                        {notifications.length > 0 ? (
-                          notifications.map(notif => (
-                            <div 
-                              key={notif.id}
-                              className={`cursor-pointer border-b border-slate-100 p-4 transition-colors hover:bg-slate-50 ${
-                                notif.unread ? 'bg-blue-50' : ''
-                              }`}>
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <p className="text-sm font-semibold">{notif.title}</p>
-                                  <p className="mt-1 text-sm text-slate-600">{notif.message}</p>
-                                  <p className="mt-2 text-xs text-slate-400">{notif.time}</p>
+                        {loadingNotifications ? (
+                          <div className={`p-8 text-center ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                            Loading notifications...
+                          </div>
+                        ) : notifications.length > 0 ? (
+                          notifications.map(notif => {
+                            // Get notification styling based on type
+                            let notificationIcon = "📌";
+                            let bgColor = darkMode ? 'bg-blue-900' : 'bg-blue-50';
+                            let borderColor = darkMode ? 'border-slate-700' : 'border-slate-100';
+                            
+                            switch (notif.type) {
+                              case "appointment_status":
+                                notificationIcon = "✅";
+                                bgColor = darkMode ? "bg-green-900/60" : "bg-green-50/60";
+                                borderColor = darkMode ? "border-green-700" : "border-green-100";
+                                break;
+                              case "medical_record":
+                                notificationIcon = "📋";
+                                bgColor = darkMode ? "bg-blue-900/60" : "bg-blue-50/60";
+                                borderColor = darkMode ? "border-blue-700" : "border-blue-100";
+                                break;
+                              case "approval":
+                                notificationIcon = "👍";
+                                bgColor = darkMode ? "bg-purple-900/60" : "bg-purple-50/60";
+                                borderColor = darkMode ? "border-purple-700" : "border-purple-100";
+                                break;
+                              case "appointment_reminder":
+                                notificationIcon = "⏰";
+                                bgColor = darkMode ? "bg-yellow-900/60" : "bg-yellow-50/60";
+                                borderColor = darkMode ? "border-yellow-700" : "border-yellow-100";
+                                break;
+                              case "profile_update":
+                                notificationIcon = "👤";
+                                bgColor = darkMode ? "bg-cyan-900/60" : "bg-cyan-50/60";
+                                borderColor = darkMode ? "border-cyan-700" : "border-cyan-100";
+                                break;
+                              case "system":
+                                notificationIcon = "⚙️";
+                                bgColor = darkMode ? "bg-slate-800/60" : "bg-slate-50/60";
+                                borderColor = darkMode ? "border-slate-700" : "border-slate-100";
+                                break;
+                              default:
+                                notificationIcon = "🔔";
+                            }
+                            
+                            return (
+                              <div 
+                                key={notif.id}
+                                onClick={() => !notif.is_read && markNotificationAsRead(notif.id)}
+                                className={`cursor-pointer border-b p-4 transition-colors ${
+                                  !notif.is_read ? (`${bgColor} hover:opacity-80`) : (darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-50')
+                                } ${borderColor}`}>
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <p className={`text-sm font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{notif.title}</p>
+                                    <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{notif.message}</p>
+                                    <p className={`mt-2 text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                                      {new Date(notif.created_at).toLocaleString()}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-2 ml-2">
+                                    {!notif.is_read && (
+                                      <div className="mt-1 h-2 w-2 rounded-full bg-blue-500" />
+                                    )}
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteNotification(notif.id);
+                                      }}
+                                      className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>
+                                      ✕
+                                    </button>
+                                  </div>
                                 </div>
-                                {notif.unread && (
-                                  <div className="ml-2 mt-1 h-2 w-2 rounded-full bg-blue-500" />
-                                )}
                               </div>
-                            </div>
-                          ))
+                            );
+                          })
                         ) : (
-                          <div className="p-8 text-center text-slate-500">
+                          <div className={`p-8 text-center ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                             No notifications
                           </div>
                         )}
@@ -3180,114 +4365,122 @@ export default function App() {
           </main>
         </div>
 
-        {showAppointmentDetails && selectedDetail && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowAppointmentDetails(false);
-              setSelectedDetail(null);
-              setSelectedDetailType("");
-            }
-          }}>
-            <div ref={detailsRef} className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-lg">
-              <div className="mb-6 flex items-start justify-between">
-                <h2 className="text-[24px] font-bold">
-                  {selectedDetailType === "record" ? "Medical Record Details" : "Appointment Details"}
-                </h2>
-                <button
-                  onClick={() => {
-                    setShowAppointmentDetails(false);
-                    setSelectedDetail(null);
-                    setSelectedDetailType("");
-                  }}
-                  className="text-slate-400 hover:text-slate-600">
-                  ✕
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                {selectedDetailType === "record" ? (
-                  <>
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Title</p>
-                      <p className="mt-2 text-[18px] font-medium">{selectedDetail.title}</p>
-                    </div>
-
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Diagnosis</p>
-                      <p className="mt-2 text-[18px] font-medium">{selectedDetail.diagnosis || "Not specified"}</p>
-                    </div>
-
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Treatment</p>
-                      <p className="mt-2 text-[18px] font-medium">{selectedDetail.treatment || "Not specified"}</p>
-                    </div>
-
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Doctor</p>
-                      <p className="mt-2 text-[18px] font-medium">{doctors.find((doc) => doc.id === selectedDetail.doctor_id)?.name || `ID ${selectedDetail.doctor_id}`}</p>
-                    </div>
-
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Date</p>
-                      <p className="mt-2 text-[18px] font-medium">{selectedDetail.record_date}</p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Doctor</p>
-                      <p className="mt-2 text-[18px] font-medium">{doctors.find((doc) => doc.id === selectedDetail.doctor_id)?.name || `ID ${selectedDetail.doctor_id}`}</p>
-                    </div>
-
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Date</p>
-                      <p className="mt-2 text-[18px] font-medium">{selectedDetail.date}</p>
-                    </div>
-
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Time</p>
-                      <p className="mt-2 text-[18px] font-medium">{selectedDetail.time}</p>
-                    </div>
-
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Type</p>
-                      <p className="mt-2 text-[18px] font-medium">{selectedDetail.type}</p>
-                    </div>
-
-                    <div className="rounded-2xl bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Status</p>
-                      <p className={`mt-2 text-[18px] font-medium ${
-                        selectedDetail.status === 'Confirmed' ? 'text-emerald-600' : 'text-amber-600'
-                      }`}>
-                        {selectedDetail.status}
-                      </p>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <button
-                onClick={() => {
-                  setShowAppointmentDetails(false);
-                  setSelectedDetail(null);
-                  setSelectedDetailType("");
-                }}
-                className="mt-6 w-full rounded-2xl bg-slate-100 px-6 py-3 font-medium text-slate-700 hover:bg-slate-200">
-                Close
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Add User Modal */}
         {showAddModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-            <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-lg">
+            <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-lg max-h-[90vh] overflow-y-auto">
               <h2 className="mb-6 text-[24px] font-bold">
-                {editingDoctorId ? "Edit Doctor" : `Add ${addModalType.charAt(0).toUpperCase() + addModalType.slice(1)}`}
+                {addModalType === "appointment" ? "Book Appointment" : editingDoctorId ? "Edit Doctor" : editingPatientId ? "Edit Patient" : `Add ${addModalType.charAt(0).toUpperCase() + addModalType.slice(1)}`}
               </h2>
               
               <div className="space-y-4">
+                {addModalType === "appointment" ? (
+                  <>
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold">Patient Type</label>
+                      <select 
+                        value={newUserData.patientType || "registered"}
+                        onChange={(e) => setNewUserData({...newUserData, patientType: e.target.value})}
+                        className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                      >
+                        <option value="registered">Registered Patient</option>
+                        <option value="emergency">Emergency / Walk-in Patient</option>
+                      </select>
+                    </div>
+
+                    {newUserData.patientType === "registered" ? (
+                      <div>
+                        <label className="mb-2 block text-sm font-semibold">Select Patient</label>
+                        <select 
+                          value={newUserData.selectedPatientId || ""}
+                          onChange={(e) => setNewUserData({...newUserData, selectedPatientId: e.target.value})}
+                          className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                          required
+                        >
+                          <option value="">Choose a patient...</option>
+                          {adminPatients.map(patient => (
+                            <option key={patient.id} value={patient.id}>{patient.name} ({patient.email})</option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <>
+                        <input
+                          type="text"
+                          placeholder="Patient Full Name"
+                          value={newUserData.emergencyPatientName || ""}
+                          onChange={(e) => setNewUserData({...newUserData, emergencyPatientName: e.target.value})}
+                          className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                          required
+                        />
+                        <input
+                          type="tel"
+                          placeholder="Patient Phone"
+                          value={newUserData.emergencyPatientPhone || ""}
+                          onChange={(e) => setNewUserData({...newUserData, emergencyPatientPhone: e.target.value})}
+                          className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                          required
+                        />
+                      </>
+                    )}
+
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold">Select Doctor</label>
+                      <select 
+                        value={bookingData.doctorId}
+                        onChange={(e) => {
+                          console.log("🏥 Doctor selected:", e.target.value);
+                          console.log("Doctor option object:", doctors.find(d => d.id == e.target.value));
+                          setBookingData({...bookingData, doctorId: e.target.value});
+                        }}
+                        className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                        required
+                      >
+                        <option value="">Choose a doctor...</option>
+                        {doctors.map(doc => (
+                          <option key={doc.id} value={doc.id}>{doc.name} ({doc.specialty})</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold">Appointment Date</label>
+                      <input 
+                        type="date" 
+                        value={bookingData.date}
+                        onChange={(e) => setBookingData({...bookingData, date: e.target.value})}
+                        className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                        required 
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold">Appointment Time</label>
+                      <input 
+                        type="time" 
+                        value={bookingData.time}
+                        onChange={(e) => setBookingData({...bookingData, time: e.target.value})}
+                        className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                        required 
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold">Appointment Type</label>
+                      <select 
+                        value={bookingData.type}
+                        onChange={(e) => setBookingData({...bookingData, type: e.target.value})}
+                        className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                      >
+                        <option value="Consultation">Consultation</option>
+                        <option value="Follow-up">Follow-up</option>
+                        <option value="Checkup">Checkup</option>
+                        <option value="Emergency">Emergency</option>
+                      </select>
+                    </div>
+                  </>
+) : (
+                  <>
                 <input
                   type="text"
                   placeholder="Full Name"
@@ -3302,7 +4495,7 @@ export default function App() {
                   onChange={(e) => setNewUserData({...newUserData, email: e.target.value})}
                   className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
                 />
-                {!editingDoctorId && (
+                {!editingDoctorId && !editingPatientId && (
                   <input
                     type="password"
                     placeholder="Password"
@@ -3313,12 +4506,57 @@ export default function App() {
                 )}
                 <input
                   type="tel"
-                  placeholder="Phone (Optional)"
+                  placeholder="Phone"
                   value={newUserData.phone}
                   onChange={(e) => setNewUserData({...newUserData, phone: e.target.value})}
                   className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
                 />
-                {addModalType === "doctor" && (
+                {(editingPatientId || addModalType === "patient") && (
+                  <>
+                    <input
+                      type="number"
+                      placeholder="Age"
+                      value={newUserData.age}
+                      onChange={(e) => setNewUserData({...newUserData, age: e.target.value})}
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                      min="0"
+                      max="150"
+                    />
+                    <select
+                      value={newUserData.gender}
+                      onChange={(e) => setNewUserData({...newUserData, gender: e.target.value})}
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                    >
+                      <option value="">Select Gender</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                    <select
+                      value={newUserData.blood_group}
+                      onChange={(e) => setNewUserData({...newUserData, blood_group: e.target.value})}
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                    >
+                      <option value="">Select Blood Group</option>
+                      <option value="O+">O+</option>
+                      <option value="O-">O-</option>
+                      <option value="A+">A+</option>
+                      <option value="A-">A-</option>
+                      <option value="B+">B+</option>
+                      <option value="B-">B-</option>
+                      <option value="AB+">AB+</option>
+                      <option value="AB-">AB-</option>
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Medical Condition"
+                      value={newUserData.condition}
+                      onChange={(e) => setNewUserData({...newUserData, condition: e.target.value})}
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                    />
+                  </>
+                )}
+                {addModalType === "doctor" && !editingPatientId && (
                   <input
                     type="text"
                     placeholder="Specialty"
@@ -3327,24 +4565,203 @@ export default function App() {
                     className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
                   />
                 )}
+                  </>
+                )}
               </div>
 
               <div className="mt-8 flex gap-3">
                 <button
                   onClick={() => {
                     setShowAddModal(false);
+                    setAddModalType("");
                     setEditingDoctorId(null);
-                    setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "" });
+                    setEditingPatientId(null);
+                    setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "", age: "", gender: "", blood_group: "", condition: "", date_of_birth: "", address: "", emergency_contact: "", patientType: "registered", selectedPatientId: "", emergencyPatientName: "", emergencyPatientPhone: "" });
+                    setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
                   }}
                   className="flex-1 rounded-lg border border-slate-200 px-4 py-3 font-medium text-slate-700 hover:bg-slate-50"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleAddUser}
+                  onClick={() => {
+                    console.log("📌 Modal button clicked. addModalType =", addModalType);
+                    console.log("Will call:", addModalType === "appointment" ? "handleBookAdminAppointment" : "handleAddUser");
+                    if (addModalType === "appointment") {
+                      handleBookAdminAppointment();
+                    } else {
+                      handleAddUser();
+                    }
+                  }}
                   className="flex-1 rounded-lg bg-teal-600 px-4 py-3 font-medium text-white hover:bg-teal-700"
                 >
-                  Add {addModalType.charAt(0).toUpperCase() + addModalType.slice(1)}
+                  {addModalType === "appointment" ? "Book Appointment" : editingPatientId ? "Save" : addModalType === "patient" ? "Save" : `Add ${addModalType.charAt(0).toUpperCase() + addModalType.slice(1)}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Patient Details Modal - Admin View */}
+        {showAppointmentDetails && selectedDetailType === "patient" && selectedDetail && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+            <div
+              ref={detailsRef}
+              className={`w-full max-w-2xl rounded-2xl border ${darkMode ? 'border-slate-700' : 'border-slate-200'} ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl flex flex-col max-h-[90vh]`}
+            >
+              <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Patient Details</h3>
+                <button 
+                  onClick={() => setShowAppointmentDetails(false)} 
+                  className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                <div>
+                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Basic Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Full Name</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.name || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Email</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.email || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Phone</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.phone || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Age</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.age || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Gender</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.gender || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Blood Group</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.blood_group || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Medical Condition</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.condition || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Date of Birth</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.date_of_birth?.split('T')[0] || "N/A"}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Contact Information</h4>
+                  <div>
+                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Address</label>
+                    <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.address || "N/A"}</p>
+                  </div>
+                  <div className="mt-4">
+                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Emergency Contact</label>
+                    <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.emergency_contact || "N/A"}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`flex flex-shrink-0 gap-4 border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`flex-1 rounded-lg px-4 py-3 font-medium transition ${
+                    darkMode
+                      ? 'bg-slate-700 text-slate-100 hover:bg-slate-600'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Doctor Details Modal - Admin View */}
+        {showAppointmentDetails && selectedDetailType === "doctor" && selectedDetail && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+            <div
+              ref={detailsRef}
+              className={`w-full max-w-2xl rounded-2xl border ${darkMode ? 'border-slate-700' : 'border-slate-200'} ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl flex flex-col max-h-[90vh]`}
+            >
+              <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Doctor Details</h3>
+                <button 
+                  onClick={() => setShowAppointmentDetails(false)} 
+                  className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                <div>
+                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Professional Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Full Name</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.name || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Email</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.email || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Specialization</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.specialty || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Department</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.department || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Experience</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.experience ? `${selectedDetail.experience} years` : "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Rating</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        <span className="text-yellow-400">★</span> {selectedDetail.rating ? parseFloat(selectedDetail.rating).toFixed(1) : "N/A"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Contact Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Phone</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.phone || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Bio</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.bio || "N/A"}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`flex flex-shrink-0 gap-4 border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`flex-1 rounded-lg px-4 py-3 font-medium transition ${
+                    darkMode
+                      ? 'bg-slate-700 text-slate-100 hover:bg-slate-600'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  Close
                 </button>
               </div>
             </div>
