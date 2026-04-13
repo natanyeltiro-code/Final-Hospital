@@ -805,58 +805,73 @@ app.post("/appointments", authenticateToken, authorizeRoles("patient", "admin"),
     return res.status(403).json({ message: "Forbidden" });
   }
   
-  // First, try a simpler INSERT with just the essential columns
-  const sql = "INSERT INTO appointments (patient_id, doctor_id, date, time, type, status) VALUES (?, ?, ?, ?, ?, ?)";
-  
-  const params = [
-    hasRegisteredPatient ? parseInt(patientId, 10) : null, 
-    parseInt(doctorId, 10), 
-    date, 
-    time, 
-    type || "Consultation", 
-    status || "Pending"
-  ];
-  
-  console.log("📝 SQL QUERY:", sql);
-  console.log("📝 SQL PARAMS:", params);
-  
-  db.query(sql, params, (err, result) => {
-    if (err) {
-      console.error("❌ Appointment creation SQL error:");
-      console.error("  Error code:", err.code);
-      console.error("  Error message:", err.message);
-      console.error("  SQL state:", err.sqlState);
-      return res.status(500).json({ 
-        message: "❌ Failed to create appointment",
-        error: err.message,
-        code: err.code
-      });
+  // Check if doctor is available on the requested date
+  const availabilityCheckSql = "SELECT id FROM doctor_availability WHERE doctor_id = ? AND unavailable_date = ?";
+  db.query(availabilityCheckSql, [parseInt(doctorId, 10), date], (availErr, availResults) => {
+    if (availErr) {
+      console.error("Error checking doctor availability:", availErr);
+      return res.status(500).json({ message: "❌ Error checking doctor availability" });
     }
     
-    console.log("✅ Appointment created successfully, ID:", result.insertId);
+    if (availResults && availResults.length > 0) {
+      console.log("❌ Doctor is not available on this date");
+      return res.status(409).json({ message: "❌ Doctor is not available on this date" });
+    }
     
-    // Now update with emergency patient details if needed
-    if ((emergencyPatientName || emergencyPatientPhone) && result.insertId) {
-      const updateSql = "UPDATE appointments SET patient_name = ?, patient_phone = ? WHERE id = ?";
-      const updateParams = [emergencyPatientName || null, emergencyPatientPhone || null, result.insertId];
+    // Proceed with appointment creation
+    // First, try a simpler INSERT with just the essential columns
+    const sql = "INSERT INTO appointments (patient_id, doctor_id, date, time, type, status) VALUES (?, ?, ?, ?, ?, ?)";
+    
+    const params = [
+      hasRegisteredPatient ? parseInt(patientId, 10) : null, 
+      parseInt(doctorId, 10), 
+      date, 
+      time, 
+      type || "Consultation", 
+      status || "Pending"
+    ];
+    
+    console.log("📝 SQL QUERY:", sql);
+    console.log("📝 SQL PARAMS:", params);
+    
+    db.query(sql, params, (err, result) => {
+      if (err) {
+        console.error("❌ Appointment creation SQL error:");
+        console.error("  Error code:", err.code);
+        console.error("  Error message:", err.message);
+        console.error("  SQL state:", err.sqlState);
+        return res.status(500).json({ 
+          message: "❌ Failed to create appointment",
+          error: err.message,
+          code: err.code
+        });
+      }
       
-      db.query(updateSql, updateParams, (updateErr) => {
-        if (updateErr) {
-          console.error("Warning: Could not update emergency patient details:", updateErr.message);
-        } else {
-          console.log("✅ Emergency patient details updated");
-        }
+      console.log("✅ Appointment created successfully, ID:", result.insertId);
+      
+      // Now update with emergency patient details if needed
+      if ((emergencyPatientName || emergencyPatientPhone) && result.insertId) {
+        const updateSql = "UPDATE appointments SET patient_name = ?, patient_phone = ? WHERE id = ?";
+        const updateParams = [emergencyPatientName || null, emergencyPatientPhone || null, result.insertId];
         
-        // Create notifications after appointment is saved
+        db.query(updateSql, updateParams, (updateErr) => {
+          if (updateErr) {
+            console.error("Warning: Could not update emergency patient details:", updateErr.message);
+          } else {
+            console.log("✅ Emergency patient details updated");
+          }
+          
+          // Create notifications after appointment is saved
+          generateAppointmentNotifications(result.insertId, patientId, doctorId, emergencyPatientName);
+          
+          res.json({ message: "✅ Appointment created successfully" });
+        });
+      } else {
+        // Create notifications for this appointment
         generateAppointmentNotifications(result.insertId, patientId, doctorId, emergencyPatientName);
-        
         res.json({ message: "✅ Appointment created successfully" });
-      });
-    } else {
-      // Create notifications for this appointment
-      generateAppointmentNotifications(result.insertId, patientId, doctorId, emergencyPatientName);
-      res.json({ message: "✅ Appointment created successfully" });
-    }
+      }
+    });
   });
 });
 
@@ -1389,6 +1404,24 @@ app.get("/appointments", (req, res) => {
     
     res.json({ 
       message: "✅ All appointments retrieved successfully",
+      appointments: results
+    });
+  });
+});
+
+/* GET APPOINTMENTS FOR A SPECIFIC DOCTOR */
+app.get("/appointments/doctor/:doctorId", (req, res) => {
+  const { doctorId } = req.params;
+  
+  const sql = "SELECT id, doctor_id, patient_id, patient_name, DATE_FORMAT(date, '%Y-%m-%d') as date, time, status FROM appointments WHERE doctor_id = ? AND status IN ('Pending', 'Confirmed') ORDER BY date DESC";
+  
+  db.query(sql, [doctorId], (err, results) => {
+    if (err) {
+      return res.status(500).json({ message: "❌ Database error" });
+    }
+    
+    res.json({ 
+      message: "✅ Doctor appointments retrieved successfully",
       appointments: results
     });
   });
@@ -2163,6 +2196,68 @@ app.put("/notification-preferences/:userId", authenticateToken, (req, res) => {
         res.json({ message: "✅ Preferences saved successfully" });
       });
     }
+  });
+});
+
+/* DOCTOR AVAILABILITY */
+// Get doctor availability
+app.get("/doctor/:doctorId/availability", (req, res) => {
+  const { doctorId } = req.params;
+  
+  const sql = "SELECT unavailable_date, reason FROM doctor_availability WHERE doctor_id = ? ORDER BY unavailable_date";
+  db.query(sql, [doctorId], (err, results) => {
+    if (err) {
+      console.error("Error fetching doctor availability:", err);
+      return res.status(500).json({ message: "❌ Database error" });
+    }
+    
+    res.json({
+      message: "✅ Doctor availability retrieved",
+      unavailable_dates: results || []
+    });
+  });
+});
+
+// Add unavailable date for doctor (doctor only)
+app.post("/doctor/availability", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
+  const { unavailable_date, reason } = req.body;
+  const doctor_id = req.user.id; // Doctor setting their own availability
+  
+  if (!unavailable_date) {
+    return res.status(400).json({ message: "❌ Unavailable date is required" });
+  }
+  
+  const sql = "INSERT INTO doctor_availability (doctor_id, unavailable_date, reason) VALUES (?, ?, ?)";
+  db.query(sql, [doctor_id, unavailable_date, reason || null], (err) => {
+    if (err) {
+      if (err.code === 'ER_DUP_ENTRY') {
+        return res.status(409).json({ message: "⚠️  Doctor is already marked unavailable on this date" });
+      }
+      console.error("Error adding unavailable date:", err);
+      return res.status(500).json({ message: "❌ Database error" });
+    }
+    
+    res.json({ message: "✅ Doctor marked as unavailable on this date" });
+  });
+});
+
+// Remove unavailable date for doctor
+app.delete("/doctor/availability/:dateId", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
+  const { dateId } = req.params;
+  const doctor_id = req.user.id;
+  
+  const sql = "DELETE FROM doctor_availability WHERE id = ? AND doctor_id = ?";
+  db.query(sql, [dateId, doctor_id], (err, results) => {
+    if (err) {
+      console.error("Error removing unavailable date:", err);
+      return res.status(500).json({ message: "❌ Database error" });
+    }
+    
+    if (results.affectedRows === 0) {
+      return res.status(404).json({ message: "❌ Availability record not found" });
+    }
+    
+    res.json({ message: "✅ Doctor availability removed" });
   });
 });
 

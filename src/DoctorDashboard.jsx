@@ -2040,6 +2040,64 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           </button>
         </div>
       </div>
+
+      <div className={`mt-8 rounded-2xl border ${borderSoft} ${panelBg} p-8 shadow-sm`}>
+        <h3 className="mb-8 text-[24px] font-bold">Manage Availability</h3>
+        <p className={`mb-6 text-[16px] ${textSoft}`}>Mark dates when you are not available for appointments.</p>
+        
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div>
+            <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Unavailable Date</label>
+            <input
+              type="date"
+              id="unavailableDate"
+              className={inputClasses}
+            />
+          </div>
+          <div>
+            <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Reason (Optional)</label>
+            <input
+              type="text"
+              id="unavailableReason"
+              placeholder="e.g., On leave, Conference"
+              className={inputClasses}
+            />
+          </div>
+        </div>
+
+        <div className="mt-6 flex gap-3">
+          <button
+            onClick={() => {
+              const dateInput = document.getElementById('unavailableDate');
+              const reasonInput = document.getElementById('unavailableReason');
+              const date = dateInput.value;
+              
+              if (!date) {
+                alert("Please select a date");
+                return;
+              }
+              
+              api.post("/doctor/availability", {
+                unavailable_date: date,
+                reason: reasonInput.value || null
+              })
+              .then(() => {
+                alert("✅ Date marked as unavailable");
+                dateInput.value = "";
+                reasonInput.value = "";
+                // Reload to show updated availability
+                window.location.reload();
+              })
+              .catch(err => {
+                alert("Error: " + (err.response?.data?.message || err.message));
+              });
+            }}
+            className="rounded-lg bg-teal-600 px-6 py-2 font-semibold text-white hover:bg-teal-700"
+          >
+            Mark Unavailable
+          </button>
+        </div>
+      </div>
     </div>
   );
 

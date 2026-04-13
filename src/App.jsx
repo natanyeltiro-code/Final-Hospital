@@ -108,6 +108,8 @@ export default function App() {
     time: "",
     type: "Consultation",
   });
+  const [doctorUnavailableDates, setDoctorUnavailableDates] = useState([]);
+  const [calendarMonth, setCalendarMonth] = useState(new Date()); // For calendar navigation
   const [forgotStep, setForgotStep] = useState("request");
   const [resetToken, setResetToken] = useState("");
   const [selectedDetail, setSelectedDetail] = useState(null);
@@ -443,6 +445,13 @@ export default function App() {
     if (!bookingData.doctorId || !bookingData.date || !bookingData.time) {
       setIsError(true);
       setMessage("❌ Please fill all appointment fields");
+      return;
+    }
+
+    // Check if doctor is available on selected date
+    if (doctorUnavailableDates.includes(bookingData.date)) {
+      setIsError(true);
+      setMessage("❌ Doctor is not available on this date");
       return;
     }
 
@@ -1422,48 +1431,169 @@ export default function App() {
       </div>
 
       {showBookingModal && (
-        <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="mb-4 text-[22px] font-bold">Book New Appointment</h3>
-          <form onSubmit={handleBookAppointment} className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+          <h3 className="mb-6 text-[24px] font-bold text-slate-900">Book New Appointment</h3>
+          <form onSubmit={handleBookAppointment} className="grid grid-cols-1 gap-5 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-semibold">Select Doctor</label>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Select Doctor</label>
               <select 
                 value={bookingData.doctorId}
-                onChange={(e) => setBookingData({...bookingData, doctorId: e.target.value})}
-                className="w-full rounded-lg border border-slate-200 px-4 py-2" required>
+                onChange={async (e) => {
+                  const selectedDoctorId = e.target.value;
+                  setBookingData({...bookingData, doctorId: selectedDoctorId});
+                  setCalendarMonth(new Date()); // Reset to current month
+                  
+                  // Fetch doctor's existing booked dates (appointments)
+                  if (selectedDoctorId) {
+                    try {
+                      // Fetch appointments for this doctor
+                      const apptRes = await api.get(`/appointments/doctor/${selectedDoctorId}`);
+                      const doctorAppointments = apptRes.data.appointments || [];
+                      
+                      // Extract dates from appointments (only pending and confirmed appointments)
+                      const bookedDates = doctorAppointments
+                        .filter(apt => apt.status !== 'Cancelled' && apt.status !== 'Completed')
+                        .map(apt => apt.date);
+                      
+                      setDoctorUnavailableDates(bookedDates);
+                    } catch (err) {
+                      console.error("Error fetching doctor's appointments:", err);
+                      setDoctorUnavailableDates([]);
+                    }
+                  } else {
+                    setDoctorUnavailableDates([]);
+                  }
+                }}
+                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none" required>
                 <option value="">Choose a doctor...</option>
                 {doctors.map(doc => (
                   <option key={doc.id} value={doc.id}>{doc.name}</option>
                 ))}
               </select>
             </div>
+
             <div>
-              <label className="mb-2 block text-sm font-semibold">Date</label>
-              <input type="date" 
-                value={bookingData.date}
-                onChange={(e) => setBookingData({...bookingData, date: e.target.value})}
-                className="w-full rounded-lg border border-slate-200 px-4 py-2" required />
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Date</label>
+              {bookingData.doctorId ? (
+                <div className="rounded-lg border border-slate-200 p-3 bg-white">
+                  {/* Month Navigation */}
+                  <div className="flex items-center justify-between mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}
+                      className="px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded"
+                    >
+                      ← Prev
+                    </button>
+                    <span className="text-xs font-semibold text-slate-700">
+                      {calendarMonth.toLocaleString('default', { month: 'short', year: 'numeric' })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}
+                      className="px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded"
+                    >
+                      Next →
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-7 gap-1">
+                    {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
+                      <div key={day} className="text-center text-xs font-semibold text-slate-600 py-1">
+                        {day}
+                      </div>
+                    ))}
+                    
+                    {(() => {
+                      const today = new Date();
+                      const displayMonth = calendarMonth.getMonth();
+                      const displayYear = calendarMonth.getFullYear();
+                      const firstDay = new Date(displayYear, displayMonth, 1);
+                      const lastDay = new Date(displayYear, displayMonth + 1, 0);
+                      const daysInMonth = lastDay.getDate();
+                      const startingDayOfWeek = firstDay.getDay();
+                      
+                      const days = [];
+                      
+                      // Empty cells
+                      for (let i = 0; i < startingDayOfWeek; i++) {
+                        days.push(<div key={`empty-${i}`}></div>);
+                      }
+                      
+                      // Days of month
+                      for (let day = 1; day <= daysInMonth; day++) {
+                        const dateString = `${displayYear}-${String(displayMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        const isSelected = bookingData.date === dateString;
+                        const isUnavailable = doctorUnavailableDates.includes(dateString);
+                        const isToday = day === today.getDate() && today.getMonth() === displayMonth && today.getFullYear() === displayYear;
+                        
+                        days.push(
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() => {
+                              if (!isUnavailable) {
+                                setBookingData({...bookingData, date: dateString});
+                              }
+                            }}
+                            disabled={isUnavailable}
+                            className={`relative h-7 rounded text-xs font-medium transition ${
+                              isUnavailable
+                                ? 'bg-red-100 text-red-500 cursor-not-allowed'
+                                : isSelected
+                                ? 'bg-teal-600 text-white'
+                                : isToday
+                                ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                                : 'bg-slate-50 text-slate-700 hover:bg-slate-200'
+                            }`}
+                          >
+                            {day}
+                            {isUnavailable && (
+                              <span className="absolute inset-0 flex items-center justify-center text-red-600 text-sm leading-none font-bold">✕</span>
+                            )}
+                          </button>
+                        );
+                      }
+                      
+                      return days;
+                    })()}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-slate-300 p-4 bg-slate-50 text-center">
+                  <p className="text-sm text-slate-500">Select a doctor first to view available dates</p>
+                </div>
+              )}
+              {doctorUnavailableDates.includes(bookingData.date) && (
+                <p className="mt-2 text-xs text-red-600">❌ This date has a booked appointment</p>
+              )}
             </div>
+
             <div>
-              <label className="mb-2 block text-sm font-semibold">Time</label>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Time</label>
               <input type="time" 
                 value={bookingData.time}
                 onChange={(e) => setBookingData({...bookingData, time: e.target.value})}
-                className="w-full rounded-lg border border-slate-200 px-4 py-2" required />
+                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none" required />
             </div>
+
             <div>
-              <label className="mb-2 block text-sm font-semibold">Appointment Type</label>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Appointment Type</label>
               <select 
                 value={bookingData.type}
                 onChange={(e) => setBookingData({...bookingData, type: e.target.value})}
-                className="w-full rounded-lg border border-slate-200 px-4 py-2">
+                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none">
                 <option>Consultation</option>
                 <option>Follow-up</option>
                 <option>Checkup</option>
               </select>
             </div>
-            <button type="submit" className="col-span-1 rounded-lg bg-teal-600 px-4 py-2 text-white hover:bg-teal-700 md:col-span-2">Book Appointment</button>
-            <button type="button" onClick={() => setShowBookingModal(false)} className="col-span-1 rounded-lg border border-slate-200 px-4 py-2 hover:bg-slate-50 md:col-span-2">Cancel</button>
+
+            {/* Buttons - Full width */}
+            <div className="flex gap-3 pt-2 md:col-span-2">
+              <button type="submit" className="flex-1 rounded-lg bg-teal-600 px-4 py-3 text-white font-semibold hover:bg-teal-700 transition">Book Appointment</button>
+              <button type="button" onClick={() => setShowBookingModal(false)} className="flex-1 rounded-lg border border-slate-200 px-4 py-3 text-slate-700 hover:bg-slate-50 transition">Cancel</button>
+            </div>
           </form>
         </div>
       )}

@@ -212,6 +212,29 @@ function createTables() {
           process.exit(1);
         }
         console.log("✅ Prescriptions table created/exists");
+        createDoctorAvailabilityTable();
+      });
+    }
+
+    function createDoctorAvailabilityTable() {
+      const doctorAvailabilityTableQuery = `
+        CREATE TABLE IF NOT EXISTS doctor_availability (
+          id INT PRIMARY KEY AUTO_INCREMENT,
+          doctor_id INT NOT NULL,
+          unavailable_date DATE NOT NULL,
+          reason VARCHAR(255),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY unique_doctor_date (doctor_id, unavailable_date),
+          FOREIGN KEY (doctor_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+      `;
+
+      db.query(doctorAvailabilityTableQuery, (err) => {
+        if (err) {
+          console.error("Failed to create doctor_availability table:", err);
+          process.exit(1);
+        }
+        console.log("✅ Doctor availability table created/exists");
         seedDatabase();
       });
     }
