@@ -158,6 +158,119 @@ const initializeSchema = () => {
         resolve();
       });
     });
+
+    // Add columns to users table for availability system
+    const availabilityColumns = [
+      { name: "status", type: "ENUM('Available', 'Busy', 'Off-duty') DEFAULT 'Available'" },
+      { name: "last_status_update", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" },
+      { name: "work_start_time", type: "TIME DEFAULT '09:00:00'" },
+      { name: "work_end_time", type: "TIME DEFAULT '18:00:00'" },
+    ];
+
+    for (const column of availabilityColumns) {
+      await new Promise((resolve) => {
+        const sql = `ALTER TABLE users ADD COLUMN \`${column.name}\` ${column.type}`;
+        db.query(sql, (err) => {
+          if (err) {
+            if (err.message.includes("Duplicate column") || err.message.includes("already exists")) {
+              console.log(`  ℹ️  Column ${column.name} already exists`);
+            } else {
+              console.log(`  ⚠️  Column ${column.name}: ${err.message.substring(0, 60)}`);
+            }
+          } else {
+            console.log(`  ✅ Column ${column.name} added to users table`);
+          }
+          resolve();
+        });
+      });
+    }
+
+    // Create doctor_schedule table
+    await new Promise((resolve) => {
+      console.log("  🔧 Creating doctor_schedule table...");
+      const createScheduleSQL = `
+        CREATE TABLE IF NOT EXISTS doctor_schedule (
+          id INT PRIMARY KEY AUTO_INCREMENT,
+          doctor_id INT NOT NULL,
+          schedule_date DATE NOT NULL,
+          schedule_type ENUM('Available', 'Leave', 'Off') DEFAULT 'Available',
+          reason VARCHAR(255),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (doctor_id) REFERENCES users(id) ON DELETE CASCADE,
+          UNIQUE KEY unique_schedule (doctor_id, schedule_date),
+          INDEX idx_doctor_date (doctor_id, schedule_date)
+        )
+      `;
+      db.query(createScheduleSQL, (err) => {
+        if (err) {
+          if (err.message.includes("already exists")) {
+            console.log(`  ℹ️  doctor_schedule table already exists`);
+          } else {
+            console.log(`  ⚠️  doctor_schedule table: ${err.message.substring(0, 60)}`);
+          }
+        } else {
+          console.log(`  ✅ doctor_schedule table created`);
+        }
+        resolve();
+      });
+    });
+
+    // Add columns to appointments table for availability system
+    const appointmentColumns = [
+      { name: "slot_id", type: "INT" },
+      { name: "appointment_duration", type: "INT DEFAULT 30" },
+    ];
+
+    for (const column of appointmentColumns) {
+      await new Promise((resolve) => {
+        const sql = `ALTER TABLE appointments ADD COLUMN \`${column.name}\` ${column.type}`;
+        db.query(sql, (err) => {
+          if (err) {
+            if (err.message.includes("Duplicate column") || err.message.includes("already exists")) {
+              console.log(`  ℹ️  Column ${column.name} already exists in appointments`);
+            } else {
+              console.log(`  ⚠️  Column ${column.name}: ${err.message.substring(0, 60)}`);
+            }
+          } else {
+            console.log(`  ✅ Column ${column.name} added to appointments table`);
+          }
+          resolve();
+        });
+      });
+    }
+
+    // Create available_slots table
+    await new Promise((resolve) => {
+      console.log("  🔧 Creating available_slots table...");
+      const createSlotsSQL = `
+        CREATE TABLE IF NOT EXISTS available_slots (
+          id INT PRIMARY KEY AUTO_INCREMENT,
+          doctor_id INT NOT NULL,
+          slot_date DATE NOT NULL,
+          slot_time TIME NOT NULL,
+          duration_minutes INT DEFAULT 30,
+          is_available BOOLEAN DEFAULT TRUE,
+          appointment_id INT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (doctor_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE SET NULL,
+          UNIQUE KEY unique_slot (doctor_id, slot_date, slot_time),
+          INDEX idx_doctor_available (doctor_id, is_available)
+        )
+      `;
+      db.query(createSlotsSQL, (err) => {
+        if (err) {
+          if (err.message.includes("already exists")) {
+            console.log(`  ℹ️  available_slots table already exists`);
+          } else {
+            console.log(`  ⚠️  available_slots table: ${err.message.substring(0, 60)}`);
+          }
+        } else {
+          console.log(`  ✅ available_slots table created`);
+        }
+        resolve();
+      });
+    });
     
     console.log("✅ Database schema initialization complete!\n");
   };
@@ -262,14 +375,13 @@ const generateAppointmentNotifications = (appointmentId, patientId, doctorId, em
 
 /* HELPER FUNCTION: Generate appointment status change notifications */
 const generateAppointmentStatusNotification = (appointmentId, newStatus, doctorId, patientId, emergencyPatientName) => {
-  console.log(`\n🔔🔔🔔 GENERATEAPPOINTMENTSTATUSNOTIFICATION CALLED 🔔🔔🔔`);
-  console.log(`   Appointment ID: ${appointmentId}`);
-  console.log(`   New Status: ${newStatus}`);
+  console.log(`\n🔔 GENERATING STATUS NOTIFICATION for appointment ${appointmentId}`);
+  console.log(`   Status: ${newStatus}`);
   console.log(`   Doctor ID: ${doctorId}`);
   console.log(`   Patient ID: ${patientId} (type: ${typeof patientId}, value: ${JSON.stringify(patientId)})`);
   console.log(`   Emergency Patient Name: ${emergencyPatientName}`);
   
-  // Get doctor name
+  // Get doctor and patient names
   db.query("SELECT name FROM users WHERE id = ?", [doctorId], (err, doctorResults) => {
     if (err || !doctorResults.length) {
       console.log("⚠️  Could not fetch doctor name:", err?.message);
@@ -277,8 +389,6 @@ const generateAppointmentStatusNotification = (appointmentId, newStatus, doctorI
     }
     
     const doctorName = doctorResults[0].name;
-    console.log(`   Doctor Name: ${doctorName}`);
-    
     let patientName = emergencyPatientName;
     let patientNotificationTitle = "";
     let patientNotificationMsg = "";
@@ -309,24 +419,22 @@ const generateAppointmentStatusNotification = (appointmentId, newStatus, doctorI
         return;
     }
     
-    console.log(`   📌 Messages prepared:`);
-    console.log(`      Patient Title: ${patientNotificationTitle}`);
-    console.log(`      Patient Message: ${patientNotificationMsg}`);
-    console.log(`      Doctor message: ${doctorNotificationMsg}`);
+    console.log(`   Patient Notification Title: ${patientNotificationTitle}`);
+    console.log(`   Patient Notification Message: ${patientNotificationMsg}`);
     
     // Notify patient if registered (regular patient)
-    if (patientId && Number(patientId) > 0) {
+    if (patientId && patientId > 0) {
       const patientSql = `
         INSERT INTO notifications (user_id, title, message, type, related_entity_id)
         VALUES (?, ?, ?, ?, ?)
       `;
-      console.log(`   ✅ CREATING patient notification for patientId: ${patientId}`);
-      db.query(patientSql, [Number(patientId), patientNotificationTitle, patientNotificationMsg, "appointment_status", appointmentId], (err) => {
-        if (err) console.log("   ⚠️  ERROR creating patient notification:", err.message);
-        else console.log(`   ✅✅✅ SUCCESS! Patient ${newStatus.toLowerCase()} notification created for user ${patientId}`);
+      console.log(`   ✅ Creating patient notification (patientId: ${patientId})`);
+      db.query(patientSql, [patientId, patientNotificationTitle, patientNotificationMsg, "appointment_status", appointmentId], (err) => {
+        if (err) console.log("   ⚠️  Could not create patient status notification:", err.message);
+        else console.log(`   ✅ Patient ${newStatus.toLowerCase()} notification created`);
       });
     } else {
-      console.log(`   ⚠️  SKIPPING patient notification - Patient ID invalid: ${patientId} (type: ${typeof patientId})`);
+      console.log(`   ⚠️  Skipping patient notification - Patient ID invalid: ${patientId}`);
     }
     
     // Notify doctor about their own action
@@ -334,10 +442,9 @@ const generateAppointmentStatusNotification = (appointmentId, newStatus, doctorI
       INSERT INTO notifications (user_id, title, message, type, related_entity_id)
       VALUES (?, ?, ?, ?, ?)
     `;
-    console.log(`   ✅ CREATING doctor notification for doctorId: ${doctorId}`);
     db.query(doctorSql, [doctorId, doctorNotificationTitle, doctorNotificationMsg, "appointment_status", appointmentId], (err) => {
-      if (err) console.log(`   ⚠️  ERROR creating doctor notification: ${err.message}`);
-      else console.log(`   ✅✅✅ SUCCESS! Doctor ${newStatus.toLowerCase()} notification created for user ${doctorId}`);
+      if (err) console.log(`⚠️  Could not create doctor status notification: ${err.message}`);
+      else console.log(`✅ Doctor ${newStatus.toLowerCase()} notification created`);
     });
     
     // Notify all admins about status change
@@ -346,10 +453,9 @@ const generateAppointmentStatusNotification = (appointmentId, newStatus, doctorI
       SELECT id, ?, ?, ?, ? FROM users WHERE role = 'admin'
     `;
     const adminMsg = `Appointment ${newStatus.toLowerCase()}: Dr. ${doctorName}`;
-    console.log(`   ✅ CREATING admin notifications`);
     db.query(adminSql, [`Appointment ${newStatus}`, adminMsg, "appointment_status", appointmentId], (err) => {
-      if (err) console.log("   ⚠️  ERROR creating admin notifications:", err.message);
-      else console.log(`   ✅✅✅ SUCCESS! Admin ${newStatus.toLowerCase()} notifications created`);
+      if (err) console.log("⚠️  Could not create admin status notifications:", err.message);
+      else console.log(`✅ Admin ${newStatus.toLowerCase()} notifications created`);
     });
   });
 };
@@ -728,10 +834,42 @@ app.get("/patients", authenticateToken, authorizeRoles("doctor", "admin"), (req,
 });
 
 /* GET ALL DOCTORS */
-app.get("/doctors", authenticateToken, (req, res) => {
-  const sql = "SELECT id, name, email, role, specialty, department, phone, rating, experience FROM users WHERE role = 'doctor'";
+/* GET ALL DEPARTMENTS */
+app.get("/departments", authenticateToken, (req, res) => {
+  const sql = "SELECT DISTINCT department FROM users WHERE role = 'doctor' AND department IS NOT NULL ORDER BY department ASC";
   
   db.query(sql, (err, results) => {
+    if (err) {
+      console.error("Get departments DB error:", err.message);
+      return res.status(500).json({ message: "Database error" });
+    }
+    
+    const departments = results.map(r => r.department).filter(d => d && d.trim() !== '');
+    console.log(`✅ Retrieved ${departments.length} departments:`, departments);
+    
+    res.json({ 
+      message: "Departments retrieved successfully",
+      departments: departments
+    });
+  });
+});
+
+/* GET DOCTORS - Optional department filter */
+app.get("/doctors", authenticateToken, (req, res) => {
+  const { department } = req.query;
+  
+  let sql = "SELECT id, name, email, role, specialty, department, phone, rating, experience FROM users WHERE role = 'doctor'";
+  const params = [];
+  
+  // Filter by department if provided
+  if (department && department.trim() !== '') {
+    sql += " AND department = ?";
+    params.push(department);
+  }
+  
+  const finalSql = sql + " ORDER BY name ASC";
+  
+  db.query(finalSql, params, (err, results) => {
     if (err) {
       console.error("Get doctors DB error:", err.message);
       return res.status(500).json({ message: "Database error" });
@@ -744,7 +882,9 @@ app.get("/doctors", authenticateToken, (req, res) => {
       experience: doc.experience !== null ? parseInt(doc.experience) : null
     }));
     
-    console.log("Doctors query results:", doctorsWithTypes);
+    const filterMsg = department ? ` in ${department}` : '';
+    console.log(`✅ Retrieved ${doctorsWithTypes.length} doctors${filterMsg}:`, doctorsWithTypes.map(d => d.name));
+    
     res.json({ 
       message: "Doctors retrieved successfully",
       doctors: doctorsWithTypes
@@ -805,21 +945,38 @@ app.post("/appointments", authenticateToken, authorizeRoles("patient", "admin"),
     return res.status(403).json({ message: "Forbidden" });
   }
   
-  // Check if doctor is available on the requested date
-  const availabilityCheckSql = "SELECT id FROM doctor_availability WHERE doctor_id = ? AND unavailable_date = ?";
-  db.query(availabilityCheckSql, [parseInt(doctorId, 10), date], (availErr, availResults) => {
-    if (availErr) {
-      console.error("Error checking doctor availability:", availErr);
-      return res.status(500).json({ message: "❌ Error checking doctor availability" });
+  // ⭐ DOUBLE BOOKING PREVENTION: Check if doctor already has appointment at this time
+  console.log("\n🔐 DOUBLE BOOKING CHECK:");
+  console.log(`  Checking for existing appointments: doctor=${doctorId}, date=${date}, time=${time}`);
+  
+  const doubleBookingCheckSql = `
+    SELECT id, patient_id, time 
+    FROM appointments 
+    WHERE doctor_id = ? 
+      AND date = ? 
+      AND time = ?
+      AND status IN ('Pending', 'Confirmed')
+  `;
+  
+  db.query(doubleBookingCheckSql, [parseInt(doctorId, 10), date, time], (doubleErr, doubleResults) => {
+    if (doubleErr) {
+      console.error("❌ Error checking for double booking:", doubleErr);
+      return res.status(500).json({ message: "❌ Error checking appointment availability" });
     }
     
-    if (availResults && availResults.length > 0) {
-      console.log("❌ Doctor is not available on this date");
-      return res.status(409).json({ message: "❌ Doctor is not available on this date" });
+    if (doubleResults && doubleResults.length > 0) {
+      console.log(`❌ DOUBLE BOOKING PREVENTED! Found ${doubleResults.length} existing appointment(s) at this time.`);
+      console.log(`   Existing appointment ID: ${doubleResults[0].id}, time: ${doubleResults[0].time}`);
+      return res.status(409).json({ 
+        message: `❌ This time slot is already booked! The doctor is not available at ${time} on ${date}. Please select a different time.`,
+        available: false,
+        conflictingAppointmentId: doubleResults[0].id
+      });
     }
+    
+    console.log("✅ No conflicts found - time slot is available!");
     
     // Proceed with appointment creation
-    // First, try a simpler INSERT with just the essential columns
     const sql = "INSERT INTO appointments (patient_id, doctor_id, date, time, type, status) VALUES (?, ?, ?, ?, ?, ?)";
     
     const params = [
@@ -864,12 +1021,12 @@ app.post("/appointments", authenticateToken, authorizeRoles("patient", "admin"),
           // Create notifications after appointment is saved
           generateAppointmentNotifications(result.insertId, patientId, doctorId, emergencyPatientName);
           
-          res.json({ message: "✅ Appointment created successfully" });
+          res.json({ message: "✅ Appointment created successfully", appointmentId: result.insertId });
         });
       } else {
         // Create notifications for this appointment
         generateAppointmentNotifications(result.insertId, patientId, doctorId, emergencyPatientName);
-        res.json({ message: "✅ Appointment created successfully" });
+        res.json({ message: "✅ Appointment created successfully", appointmentId: result.insertId });
       }
     });
   });
@@ -900,7 +1057,232 @@ app.get("/appointments/:userId", authenticateToken, (req, res) => {
   });
 });
 
-/* Note: Simple PUT endpoint removed - using authenticated version below */
+/* ⭐ CHECK IF TIME SLOT IS AVAILABLE (Double-booking prevention) */
+app.get("/appointments/check-slot/:doctorId/:date/:time", (req, res) => {
+  const { doctorId, date, time } = req.params;
+  
+  console.log(`\n✅ CHECK SLOT API CALLED`);
+  console.log(`   Doctor: ${doctorId}, Date: ${date}, Time: ${time}`);
+  
+  if (!doctorId || !date || !time) {
+    return res.status(400).json({ 
+      message: "Doctor ID, date, and time are required",
+      available: false 
+    });
+  }
+  
+  // Query for conflicting appointments
+  const sql = `
+    SELECT id, doctor_id, date, time, patient_id, status
+    FROM appointments 
+    WHERE doctor_id = ? 
+      AND date = ? 
+      AND time = ?
+      AND status IN ('Pending', 'Confirmed')
+  `;
+  
+  db.query(sql, [parseInt(doctorId), date, time], (err, results) => {
+    if (err) {
+      console.error("❌ Slot check error:", err.message);
+      return res.status(500).json({ 
+        message: "Error checking slot availability",
+        available: false,
+        error: err.message
+      });
+    }
+    
+    if (results && results.length > 0) {
+      console.log(`❌ SLOT TAKEN - Found ${results.length} appointment(s)`);
+      return res.status(409).json({ 
+        message: `Time slot at ${time} on ${date} is already booked`,
+        available: false,
+        conflictCount: results.length,
+        conflictingAppointments: results
+      });
+    }
+    
+    console.log(`✅ SLOT AVAILABLE`);
+    res.json({ 
+      message: "Time slot is available",
+      available: true,
+      doctorId: parseInt(doctorId),
+      date,
+      time
+    });
+  });
+});
+
+/* ⭐ GET ALL BOOKED SLOTS FOR A DOCTOR ON A DATE */
+app.get("/appointments/booked-slots/:doctorId/:date", (req, res) => {
+  const { doctorId, date } = req.params;
+  
+  console.log(`\n📋 GET BOOKED SLOTS API CALLED`);
+  console.log(`   Doctor: ${doctorId}, Date: ${date}`);
+  
+  if (!doctorId || !date) {
+    return res.status(400).json({ 
+      message: "Doctor ID and date are required",
+      bookedSlots: []
+    });
+  }
+  
+  const sql = `
+    SELECT DISTINCT 
+      TIME_FORMAT(time, '%H:%i') as slot_time,
+      COUNT(*) as appointment_count,
+      status
+    FROM appointments 
+    WHERE doctor_id = ? 
+      AND date = ?
+      AND status IN ('Pending', 'Confirmed')
+    GROUP BY TIME_FORMAT(time, '%H:%i'), status
+    ORDER BY slot_time ASC
+  `;
+  
+  db.query(sql, [parseInt(doctorId), date], (err, results) => {
+    if (err) {
+      console.error("❌ Error fetching booked slots:", err.message);
+      return res.status(500).json({ 
+        message: "Error fetching booked slots",
+        bookedSlots: [],
+        error: err.message
+      });
+    }
+    
+    const bookedTimes = results.map(r => r.slot_time);
+    console.log(`✅ Found ${bookedTimes.length} booked time slots:`, bookedTimes);
+    
+    res.json({ 
+      message: "Booked slots retrieved successfully",
+      bookedSlots: bookedTimes,
+      bookedDetails: results,
+      count: bookedTimes.length,
+      doctorId: parseInt(doctorId),
+      date
+    });
+  });
+});
+
+/* ⭐ GET AVAILABLE TIME SLOTS FOR A DOCTOR */
+app.get("/available-slots/:doctorId/:date", (req, res) => {
+  const { doctorId, date } = req.params;
+  const workStartTime = req.query.startTime || "09:00";
+  const workEndTime = req.query.endTime || "18:00";
+  const slotDuration = parseInt(req.query.slotDuration) || 30; // minutes
+  
+  console.log(`\n📅 AVAILABLE SLOTS API CALLED`);
+  console.log(`   Doctor: ${doctorId}, Date: ${date}`);
+  console.log(`   Working Hours: ${workStartTime} - ${workEndTime}, Slot Duration: ${slotDuration}min`);
+  
+  if (!doctorId || !date) {
+    return res.status(400).json({ 
+      message: "Doctor ID and date are required",
+      availableSlots: []
+    });
+  }
+  
+  // Get doctor's working hours from users table
+  const getDoctorHoursSql = `
+    SELECT work_start_time, work_end_time 
+    FROM users 
+    WHERE id = ? AND role = 'doctor'
+  `;
+  
+  db.query(getDoctorHoursSql, [parseInt(doctorId)], (hours_err, hours_results) => {
+    if (hours_err || !hours_results || hours_results.length === 0) {
+      console.log("ℹ️  Using default working hours");
+    }
+    
+    // Use doctor's custom hours if available, otherwise defaults
+    const docWorkStart = (hours_results && hours_results[0]?.work_start_time) ? 
+      hours_results[0].work_start_time.substring(0, 5) : workStartTime;
+    const docWorkEnd = (hours_results && hours_results[0]?.work_end_time) ? 
+      hours_results[0].work_end_time.substring(0, 5) : workEndTime;
+    
+    // Get all booked appointments for this doctor on this date
+    const bookedSql = `
+      SELECT TIME_FORMAT(time, '%H:%i') as slot_time
+      FROM appointments 
+      WHERE doctor_id = ? 
+        AND date = ?
+        AND status IN ('Pending', 'Confirmed')
+      ORDER BY slot_time ASC
+    `;
+    
+    db.query(bookedSql, [parseInt(doctorId), date], (booked_err, booked_results) => {
+      if (booked_err) {
+        console.error("❌ Error fetching booked times:", booked_err.message);
+        return res.status(500).json({ 
+          message: "Error fetching available slots",
+          availableSlots: []
+        });
+      }
+      
+      const bookedTimes = (booked_results || []).map(r => r.slot_time);
+      console.log(`Found ${bookedTimes.length} booked slots:`, bookedTimes);
+      
+      // Generate all possible time slots
+      const generateTimeSlots = (startTime, endTime, durationMinutes) => {
+        const slots = [];
+        const [startHour, startMin] = startTime.split(":").map(Number);
+        const [endHour, endMin] = endTime.split(":").map(Number);
+        
+        let currentTime = new Date(2000, 0, 1, startHour, startMin);
+        const endDateTime = new Date(2000, 0, 1, endHour, endMin);
+        
+        while (currentTime < endDateTime) {
+          const hours = String(currentTime.getHours()).padStart(2, "0");
+          const minutes = String(currentTime.getMinutes()).padStart(2, "0");
+          slots.push(`${hours}:${minutes}`);
+          
+          currentTime = new Date(currentTime.getTime() + durationMinutes * 60 * 1000);
+        }
+        
+        return slots;
+      };
+      
+      const allSlots = generateTimeSlots(docWorkStart, docWorkEnd, slotDuration);
+      const availableSlots = allSlots.filter(slot => !bookedTimes.includes(slot));
+      
+      console.log(`✅ Generated ${allSlots.length} total slots, ${availableSlots.length} available`);
+      
+      res.json({ 
+        message: "Available slots retrieved successfully",
+        availableSlots,
+        bookedSlots: bookedTimes,
+        doctorId: parseInt(doctorId),
+        date,
+        workingHours: {
+          start: docWorkStart,
+          end: docWorkEnd
+        },
+        slotDuration,
+        totalSlots: allSlots.length,
+        availableCount: availableSlots.length
+      });
+    });
+  });
+});
+
+/* UPDATE APPOINTMENT STATUS */
+app.put("/appointments/:appointmentId", (req, res) => {
+  const { appointmentId } = req.params;
+  const { status } = req.body;
+  
+  if (!status) {
+    return res.status(400).json({ message: "❌ Status is required" });
+  }
+  
+  const sql = "UPDATE appointments SET status = ? WHERE id = ?";
+  
+  db.query(sql, [status, appointmentId], (err) => {
+    if (err) {
+      return res.status(500).json({ message: "❌ Failed to update appointment" });
+    }
+    
+    res.json({ message: "✅ Appointment updated successfully" });
+  });
+});
 
 /* CREATE MEDICAL RECORD */
 app.post("/medical-records", (req, res) => {
@@ -1191,43 +1573,34 @@ app.put("/appointments/:appointmentId", authenticateToken, (req, res) => {
     });
   } else if (req.user.role === "admin" || req.user.role === "doctor") {
     // Admins and doctors can update any appointment
-    console.log(`\n✅ CONFIRMED: Doctor/Admin updating appointment`);
-    console.log(`   👤 User: ${req.user.role} (ID: ${req.user.id})`);
-    console.log(`   📅 Appointment ID: ${appointmentId}`);
-    console.log(`   🔄 New Status: ${status}`);
+    console.log(`\n🎯 APPOINTMENT STATUS UPDATE ENDPOINT HIT`);
+    console.log(`   User: ${req.user.role} (ID: ${req.user.id})`);
+    console.log(`   Appointment ID: ${appointmentId}`);
+    console.log(`   New Status: ${status}`);
     
     // First get appointment details to generate appropriate notifications
     const getAppointmentSql = "SELECT patient_id, doctor_id, patient_name, date, time FROM appointments WHERE id = ?";
     db.query(getAppointmentSql, [appointmentId], (getErr, appointmentResults) => {
-      if (getErr) {
-        console.error("❌ Query error:", getErr.message);
-        return res.status(500).json({ message: "❌ Database error", error: getErr.message });
-      }
-      
-      if (!appointmentResults || appointmentResults.length === 0) {
-        console.error("❌ Appointment not found with ID:", appointmentId);
-        return res.status(404).json({ message: "❌ Appointment not found" });
+      if (getErr || !appointmentResults.length) {
+        console.error("❌ Could not fetch appointment details:", getErr);
+        return res.status(500).json({ message: "❌ Failed to fetch appointment details" });
       }
       
       const { patient_id, doctor_id, patient_name, date, time } = appointmentResults[0];
-      console.log(`   📋 Found appointment:`);
-      console.log(`       patient_id: ${patient_id} (type: ${typeof patient_id})`);
-      console.log(`       doctor_id: ${doctor_id} (type: ${typeof doctor_id})`);
-      console.log(`       patient_name: ${patient_name}`);
+      console.log(`   Retrieved appointment details:`, {patient_id, doctor_id, patient_name, date, time});
       
       // Update appointment status
       const updateSql = "UPDATE appointments SET status = ? WHERE id = ?";
-      db.query(updateSql, [status, appointmentId], (err, result) => {
+      db.query(updateSql, [status, appointmentId], (err) => {
         if (err) {
-          console.error("❌ Update failed:", err.message);
-          return res.status(500).json({ message: "❌ Failed to update appointment", error: err.message });
+          console.error("❌ Update error:", err);
+          return res.status(500).json({ message: "❌ Failed to update appointment" });
         }
-        console.log(`   ✅ Updated! Rows affected: ${result.affectedRows}, New status: ${status}`);
+        console.log("✅ Appointment status updated in database");
         
-        // Generate notification for confirmation/cancellation/completion
-        console.log(`   🔔 Generating notifications for ${status}...`);
+        // Generate appropriate notification based on status
+        console.log(`   Calling generateAppointmentStatusNotification with:`, {appointmentId, status, doctor_id, patient_id, patient_name});
         generateAppointmentStatusNotification(appointmentId, status, doctor_id, patient_id, patient_name);
-        console.log(`   ✅ Notification generation triggered`);
         
         res.json({ message: "✅ Appointment status updated successfully" });
       });
@@ -1965,7 +2338,7 @@ app.get("/notifications/:userId/unread-count", authenticateToken, (req, res) => 
 });
 
 /* NOTIFICATIONS - CREATE NOTIFICATION */
-app.post("/notifications", authenticateToken, authorizeRoles("admin", "doctor"), (req, res) => {
+app.post("/notifications", authenticateToken, authorizeRoles("admin"), (req, res) => {
   const { userId, title, message, type = "system", relatedEntityId = null } = req.body;
   
   if (!userId || !title || !message) {
@@ -2260,6 +2633,10 @@ app.delete("/doctor/availability/:dateId", authenticateToken, authorizeRoles("do
     res.json({ message: "✅ Doctor availability removed" });
   });
 });
+
+/* ========== DOCTOR AVAILABILITY SYSTEM ========== */
+const availabilityRoutes = require('./routes/availability');
+app.use('/api', availabilityRoutes);
 
 /* SERVER */
 const PORT = process.env.PORT || 3000;

@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import api, { setAuthToken } from "./api";
 import {
   Mail,
   Lock,
   Activity,
-  ArrowRight,
+  ArrowRight, 
   User,
   LayoutDashboard,
   CalendarDays,
@@ -35,6 +35,10 @@ import {
   Info,
 } from "lucide-react";
 import DoctorDashboard from "./DoctorDashboard";
+import AvailableDoctorsList from "./AvailableDoctorsList";
+import SimpleDoctorList from "./SimpleDoctorList";
+import AvailableSlotsSelector from "./AvailableSlotsSelector";
+import SimpleAppointmentBooking from "./SimpleAppointmentBooking";
 
 export default function App() {
   const [isLogin, setIsLogin] = useState(true);
@@ -110,6 +114,8 @@ export default function App() {
   });
   const [doctorUnavailableDates, setDoctorUnavailableDates] = useState([]);
   const [calendarMonth, setCalendarMonth] = useState(new Date()); // For calendar navigation
+  const [selectedSlot, setSelectedSlot] = useState(null); // For availability system
+  const [bookingSpecialty, setBookingSpecialty] = useState(""); // For availability system
   const [forgotStep, setForgotStep] = useState("request");
   const [resetToken, setResetToken] = useState("");
   const [selectedDetail, setSelectedDetail] = useState(null);
@@ -486,7 +492,7 @@ export default function App() {
       }
       
       setIsError(false);
-      setMessage(res.data.message || "✅ Appointment booked successfully!");
+      setMessage(res.data.message || "?� Appointment booked successfully!");
       setShowBookingModal(false);
       setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
       fetchPatientData();
@@ -506,7 +512,7 @@ export default function App() {
     try {
       const res = await api.put(`/appointments/${appointmentId}`, { status: "Cancelled" });
       setIsError(false);
-      setMessage(res.data.message || "✅ Appointment cancelled successfully!");
+      setMessage(res.data.message || "?� Appointment cancelled successfully!");
       fetchPatientData();
       // Refresh notifications after status change
       if (loggedInUser && loggedInUser.id) {
@@ -558,7 +564,7 @@ export default function App() {
     try {
       const res = await api.put(`/users/${loggedInUser.id}`, updateData);
       setIsError(false);
-      setMessage(res.data.message || "✅ Profile updated successfully!");
+      setMessage(res.data.message || "?� Profile updated successfully!");
       setLoggedInUser({ ...loggedInUser, ...updateData });
       setEditingProfile(false);
       setTimeout(() => setMessage(""), 3000);
@@ -782,7 +788,7 @@ export default function App() {
     try {
       const res = await api.post("/register", { name: trimmedName, email: trimmedEmail, password: trimmedPassword });
       setIsError(false);
-      setMessage(res.data.message || "✅ Registration successful!");
+      setMessage(res.data.message || "?� Registration successful!");
       setRegisterData({ name: "", email: "", password: "" });
       setIsLogin(true);
       setShowForgotPassword(false);
@@ -813,7 +819,7 @@ export default function App() {
       setActivePage("dashboard");
       setAdminPage("dashboard");
       setIsError(false);
-      setMessage(res.data.message || "✅ Login successful!");
+      setMessage(res.data.message || "?� Login successful!");
     } catch (err) {
       setIsError(true);
       setMessage(err.response?.data?.message || "❌ Login failed");
@@ -836,7 +842,7 @@ export default function App() {
       try {
         const res = await api.post("/forgot-password/request", { email });
         setIsError(false);
-        setMessage(res.data.message || "✅ Password reset token generated.");
+        setMessage(res.data.message || "?� Password reset token generated.");
         if (res.data.resetToken) {
           setResetToken(res.data.resetToken);
         }
@@ -866,7 +872,7 @@ export default function App() {
         newPassword,
       });
       setIsError(false);
-      setMessage(res.data.message || "✅ Password reset successfully.");
+      setMessage(res.data.message || "?� Password reset successfully.");
       setForgotData({ email: "", newPassword: "", confirmPassword: "" });
       setResetToken("");
       setShowForgotPassword(false);
@@ -1080,7 +1086,7 @@ export default function App() {
         }
       }
       
-      setMessage("✅ Appointment booked successfully!");
+      setMessage("?� Appointment booked successfully!");
       setIsError(false);
       setShowAddModal(false);
       setAddModalType("");
@@ -1171,7 +1177,7 @@ export default function App() {
     setAdminPage("dashboard");
     setLoginData({ email: "", password: "" });
     setIsError(false);
-    setMessage("✅ Logged out successfully.");
+    setMessage(" Logged out successfully.");
   };
 
   const renderPatientDashboard = () => {
@@ -1433,150 +1439,84 @@ export default function App() {
       {showBookingModal && (
         <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
           <h3 className="mb-6 text-[24px] font-bold text-slate-900">Book New Appointment</h3>
-          <form onSubmit={handleBookAppointment} className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          
+          {message && (
+            <div className={`mb-6 p-4 rounded-lg ${isError ? "bg-red-50 text-red-800 border border-red-200" : "bg-green-50 text-green-800 border border-green-200"}`}>
+              {message}
+            </div>
+          )}
+          
+          <div className="grid grid-cols-1 gap-8 md:grid-cols-2 mb-6">
+            {/* Left: Department Selection & Available Doctors */}
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">Select Doctor</label>
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Select Department</label>
               <select 
-                value={bookingData.doctorId}
-                onChange={async (e) => {
-                  const selectedDoctorId = e.target.value;
-                  setBookingData({...bookingData, doctorId: selectedDoctorId});
-                  setCalendarMonth(new Date()); // Reset to current month
-                  
-                  // Fetch doctor's existing booked dates (appointments)
-                  if (selectedDoctorId) {
-                    try {
-                      // Fetch appointments for this doctor
-                      const apptRes = await api.get(`/appointments/doctor/${selectedDoctorId}`);
-                      const doctorAppointments = apptRes.data.appointments || [];
-                      
-                      // Extract dates from appointments (only pending and confirmed appointments)
-                      const bookedDates = doctorAppointments
-                        .filter(apt => apt.status !== 'Cancelled' && apt.status !== 'Completed')
-                        .map(apt => apt.date);
-                      
-                      setDoctorUnavailableDates(bookedDates);
-                    } catch (err) {
-                      console.error("Error fetching doctor's appointments:", err);
-                      setDoctorUnavailableDates([]);
-                    }
-                  } else {
-                    setDoctorUnavailableDates([]);
-                  }
+                value={bookingSpecialty}
+                onChange={(e) => {
+                  setBookingSpecialty(e.target.value);
+                  setBookingData({...bookingData, doctorId: ""});
+                  setSelectedSlot(null);
                 }}
-                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none" required>
-                <option value="">Choose a doctor...</option>
-                {doctors.map(doc => (
-                  <option key={doc.id} value={doc.id}>{doc.name}</option>
-                ))}
+                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none mb-4">
+                <option value="">Choose a department...</option>
+                <option value="Cardiology">Cardiology</option>
+                <option value="Neurology">Neurology</option>
+                <option value="Orthopedics">Orthopedics</option>
+                <option value="Pediatrics">Pediatrics</option>
+                <option value="Dermatology">Dermatology</option>
+                <option value="Psychiatry">Psychiatry</option>
               </select>
+
+              {bookingSpecialty && (
+                <div>
+                  <p className="text-sm font-semibold text-slate-700 mb-3">Available Doctors</p>
+                  <SimpleDoctorList 
+                    selectedSpecialty={bookingSpecialty}
+                    darkMode={false}
+                    onDoctorSelect={(doctor) => {
+                      setBookingData({...bookingData, doctorId: doctor.id.toString()});
+                      setSelectedSlot(null);
+                    }}
+                  />
+                </div>
+              )}
             </div>
 
+            {/* Right: Date & Time Selection */}
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">Date</label>
               {bookingData.doctorId ? (
-                <div className="rounded-lg border border-slate-200 p-3 bg-white">
-                  {/* Month Navigation */}
-                  <div className="flex items-center justify-between mb-2">
-                    <button
-                      type="button"
-                      onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}
-                      className="px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded"
-                    >
-                      ← Prev
-                    </button>
-                    <span className="text-xs font-semibold text-slate-700">
-                      {calendarMonth.toLocaleString('default', { month: 'short', year: 'numeric' })}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}
-                      className="px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded"
-                    >
-                      Next →
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-7 gap-1">
-                    {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
-                      <div key={day} className="text-center text-xs font-semibold text-slate-600 py-1">
-                        {day}
-                      </div>
-                    ))}
-                    
-                    {(() => {
-                      const today = new Date();
-                      const displayMonth = calendarMonth.getMonth();
-                      const displayYear = calendarMonth.getFullYear();
-                      const firstDay = new Date(displayYear, displayMonth, 1);
-                      const lastDay = new Date(displayYear, displayMonth + 1, 0);
-                      const daysInMonth = lastDay.getDate();
-                      const startingDayOfWeek = firstDay.getDay();
-                      
-                      const days = [];
-                      
-                      // Empty cells
-                      for (let i = 0; i < startingDayOfWeek; i++) {
-                        days.push(<div key={`empty-${i}`}></div>);
-                      }
-                      
-                      // Days of month
-                      for (let day = 1; day <= daysInMonth; day++) {
-                        const dateString = `${displayYear}-${String(displayMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                        const isSelected = bookingData.date === dateString;
-                        const isUnavailable = doctorUnavailableDates.includes(dateString);
-                        const isToday = day === today.getDate() && today.getMonth() === displayMonth && today.getFullYear() === displayYear;
-                        
-                        days.push(
-                          <button
-                            key={day}
-                            type="button"
-                            onClick={() => {
-                              if (!isUnavailable) {
-                                setBookingData({...bookingData, date: dateString});
-                              }
-                            }}
-                            disabled={isUnavailable}
-                            className={`relative h-7 rounded text-xs font-medium transition ${
-                              isUnavailable
-                                ? 'bg-red-100 text-red-500 cursor-not-allowed'
-                                : isSelected
-                                ? 'bg-teal-600 text-white'
-                                : isToday
-                                ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                                : 'bg-slate-50 text-slate-700 hover:bg-slate-200'
-                            }`}
-                          >
-                            {day}
-                            {isUnavailable && (
-                              <span className="absolute inset-0 flex items-center justify-center text-red-600 text-sm leading-none font-bold">✕</span>
-                            )}
-                          </button>
-                        );
-                      }
-                      
-                      return days;
-                    })()}
-                  </div>
-                </div>
+                <>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">Select Date</label>
+                  <input 
+                    type="date"
+                    value={bookingData.date}
+                    onChange={(e) => {
+                      setBookingData({...bookingData, date: e.target.value});
+                    }}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none mb-4"
+                  />
+                  
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">Select Time</label>
+                  <input 
+                    type="time"
+                    value={bookingData.time}
+                    onChange={(e) => {
+                      setBookingData({...bookingData, time: e.target.value});
+                    }}
+                    className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none"
+                  />
+                </>
               ) : (
-                <div className="rounded-lg border border-dashed border-slate-300 p-4 bg-slate-50 text-center">
-                  <p className="text-sm text-slate-500">Select a doctor first to view available dates</p>
+                <div className="rounded-lg border border-dashed border-slate-300 p-4 bg-slate-50 text-center h-full flex items-center justify-center">
+                  <p className="text-sm text-slate-500">Select a doctor first</p>
                 </div>
               )}
-              {doctorUnavailableDates.includes(bookingData.date) && (
-                <p className="mt-2 text-xs text-red-600">❌ This date has a booked appointment</p>
-              )}
             </div>
+          </div>
 
-            <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">Time</label>
-              <input type="time" 
-                value={bookingData.time}
-                onChange={(e) => setBookingData({...bookingData, time: e.target.value})}
-                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none" required />
-            </div>
-
+          {/* Appointment Type and Submit */}
+          <form onSubmit={handleBookAppointment} className="space-y-4">
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-700">Appointment Type</label>
               <select 
@@ -1589,10 +1529,25 @@ export default function App() {
               </select>
             </div>
 
-            {/* Buttons - Full width */}
-            <div className="flex gap-3 pt-2 md:col-span-2">
-              <button type="submit" className="flex-1 rounded-lg bg-teal-600 px-4 py-3 text-white font-semibold hover:bg-teal-700 transition">Book Appointment</button>
-              <button type="button" onClick={() => setShowBookingModal(false)} className="flex-1 rounded-lg border border-slate-200 px-4 py-3 text-slate-700 hover:bg-slate-50 transition">Cancel</button>
+            {/* Selected Doctor & Time Summary */}
+            {bookingData.doctorId && bookingData.date && bookingData.time && (
+              <div className="p-4 rounded-lg bg-teal-50 border border-teal-200">
+                <p className="text-sm text-teal-800">
+                  <strong>✓ Ready to book:</strong> {bookingData.date} at {bookingData.time}
+                </p>
+              </div>
+            )}
+
+            {/* Buttons */}
+            <div className="flex gap-3 pt-2">
+              <button type="submit" disabled={!bookingData.doctorId || !bookingData.date || !bookingData.time} className="flex-1 rounded-lg bg-teal-600 px-4 py-3 text-white font-semibold hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed">Book Appointment</button>
+              <button type="button" onClick={() => {
+                setShowBookingModal(false);
+                setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
+                setSelectedSlot(null);
+                setBookingSpecialty("");
+                setMessage("");
+              }} className="flex-1 rounded-lg border border-slate-200 px-4 py-3 text-slate-700 hover:bg-slate-50 transition">Cancel</button>
             </div>
           </form>
         </div>
@@ -3374,7 +3329,7 @@ export default function App() {
           newPassword,
           confirmPassword,
         });
-        setPasswordMessage(response.data.message || "✅ Password changed successfully!");
+        setPasswordMessage(response.data.message || " Password changed successfully!");
         setPasswordError(false);
         setCurrentPassword("");
         setNewPassword("");
@@ -3396,7 +3351,7 @@ export default function App() {
           smsNotifications,
           pushNotifications,
         });
-        setMessage("✅ All changes saved successfully!");
+        setMessage("  All changes saved successfully!");
         setIsError(false);
       } catch (err) {
         setMessage("❌ Failed to save changes");
@@ -3626,8 +3581,8 @@ export default function App() {
                       : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
                   }`}
                 >
-                  <FileText size={22} />
-                  {!patientSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Medical Records</span>}
+                  <FileHeart size={22} />
+                  {!patientSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Medical History</span>}
                 </button>
 
                 <button
@@ -3705,7 +3660,7 @@ export default function App() {
                             
                             switch (notif.type) {
                               case "appointment_status":
-                                notificationIcon = "✅";
+                                notificationIcon = "?�";
                                 bgColor = darkMode ? "bg-green-900/60" : "bg-green-50/60";
                                 borderColor = darkMode ? "border-green-700" : "border-green-100";
                                 break;
@@ -3763,7 +3718,7 @@ export default function App() {
                                         deleteNotification(notif.id);
                                       }}
                                       className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>
-                                      ✕
+                                      ?
                                     </button>
                                   </div>
                                 </div>
@@ -3803,6 +3758,18 @@ export default function App() {
 
             <div className={`transition-colors ${darkMode ? 'bg-slate-900 text-white' : 'bg-white'}`}>
               {activePage === "dashboard" && renderPatientDashboard()}
+              {activePage === "book-appointment" && (
+                <div className="p-6">
+                  <SimpleAppointmentBooking 
+                    darkMode={darkMode}
+                    loggedInUser={loggedInUser}
+                    onBookingSuccess={() => {
+                      setActivePage("appointments");
+                      // Refresh appointments
+                    }}
+                  />
+                </div>
+              )}
               {activePage === "appointments" && renderAppointmentsPage()}
               {activePage === "records" && renderMedicalRecordsPage()}
               {activePage === "profile" && renderProfilePage()}
@@ -3823,7 +3790,7 @@ export default function App() {
                   onClick={() => setShowAppointmentDetails(false)} 
                   className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
                 >
-                  ✕
+                  ?
                 </button>
               </div>
 
@@ -3930,7 +3897,7 @@ export default function App() {
                   onClick={() => setShowAppointmentDetails(false)} 
                   className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
                 >
-                  ✕
+                  ?
                 </button>
               </div>
 
@@ -4046,7 +4013,7 @@ export default function App() {
                   onClick={() => setShowAppointmentDetails(false)} 
                   className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
                 >
-                  ✕
+                  ?
                 </button>
               </div>
 
@@ -4131,7 +4098,7 @@ export default function App() {
                   onClick={() => setShowAppointmentDetails(false)} 
                   className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
                 >
-                  ✕
+                  ?
                 </button>
               </div>
 
@@ -4369,7 +4336,7 @@ export default function App() {
                             
                             switch (notif.type) {
                               case "appointment_status":
-                                notificationIcon = "✅";
+                                notificationIcon = "?�";
                                 bgColor = darkMode ? "bg-green-900/60" : "bg-green-50/60";
                                 borderColor = darkMode ? "border-green-700" : "border-green-100";
                                 break;
@@ -4427,7 +4394,7 @@ export default function App() {
                                         deleteNotification(notif.id);
                                       }}
                                       className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>
-                                      ✕
+                                      ?
                                     </button>
                                   </div>
                                 </div>
@@ -4745,7 +4712,7 @@ export default function App() {
                   onClick={() => setShowAppointmentDetails(false)} 
                   className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
                 >
-                  ✕
+                  ?
                 </button>
               </div>
 
@@ -4830,7 +4797,7 @@ export default function App() {
                   onClick={() => setShowAppointmentDetails(false)} 
                   className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
                 >
-                  ✕
+                  ?
                 </button>
               </div>
 
@@ -5063,10 +5030,7 @@ export default function App() {
             </button>
           </form>
         ) : isLogin ? (
-          <form onSubmit={handleLogin} className="mt-6">
-            <p className="mb-5 text-sm text-gray-600">
-              Signing in will use the account role assigned by the server.
-            </p>
+          <form onSubmit={handleLogin} className="mt-6">          
             <div className="mt-5">
               <label className="mb-2 block text-sm font-medium text-gray-800">
                 Email Address
@@ -5125,11 +5089,7 @@ export default function App() {
             </button>
           </form>
         ) : (
-          <form onSubmit={handleRegister} className="mt-6">
-            <p className="mb-5 text-sm text-gray-600">
-              Registration creates only a patient account. Admin and doctor accounts must be provisioned securely.
-            </p>
-
+          <form onSubmit={handleRegister} className="mt-6">           
             <div className="mt-5">
               <label className="mb-2 block text-sm font-medium text-gray-800">
                 Full Name
@@ -5194,3 +5154,4 @@ export default function App() {
     </div>
   );
 }
+
