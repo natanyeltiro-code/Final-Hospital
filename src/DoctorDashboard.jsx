@@ -28,11 +28,13 @@ import {
   Sun,
   Eye,
 } from "lucide-react";
-import DoctorAvailabilityStatus from "./DoctorAvailabilityStatus";
 
 const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const [activePage, setActivePage] = useState("dashboard");
   const [appointmentFilter, setAppointmentFilter] = useState("All");
+  const [appointmentSearch, setAppointmentSearch] = useState("");
+  const [prescriptionSearch, setPrescriptionSearch] = useState("");
+  const [recordSearch, setRecordSearch] = useState("");
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -44,8 +46,10 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const [records, setRecords] = useState([]);
   const [showAddRecordModal, setShowAddRecordModal] = useState(false);
   const [showAddPrescriptionModal, setShowAddPrescriptionModal] = useState(false);
+  const [showEditPrescriptionModal, setShowEditPrescriptionModal] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [selectedPrescription, setSelectedPrescription] = useState(null);
+  const [editingPrescription, setEditingPrescription] = useState(null);
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [openActionsId, setOpenActionsId] = useState(null);
   const [patientSearch, setPatientSearch] = useState("");
@@ -60,6 +64,14 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const [prescriptionForm, setPrescriptionForm] = useState({
     appointmentId: "",
     patientId: "",
+    medication: "",
+    dosageAmount: "",
+    dosageUnit: "mg",
+    frequency: "",
+    duration: "",
+    instructions: "",
+  });
+  const [editPrescriptionForm, setEditPrescriptionForm] = useState({
     medication: "",
     dosageAmount: "",
     dosageUnit: "mg",
@@ -88,6 +100,21 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       ...record,
       patientName: record.patientName || record.patient_name || "Unknown Patient",
     }));
+
+  const parseDosage = (dosage = "") => {
+    const parts = String(dosage).trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return {
+        dosageAmount: parts[0],
+        dosageUnit: parts.slice(1).join(" "),
+      };
+    }
+
+    return {
+      dosageAmount: dosage || "",
+      dosageUnit: "mg",
+    };
+  };
 
   const appClasses = darkMode
     ? "min-h-screen bg-slate-950 text-slate-100"
@@ -355,7 +382,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
             userId: patientId,
             type: "appointment_status",
             title: "Appointment Confirmed",
-            message: `Dr. ${doctorName} Confirmed your booking`,
+            message: `Dr. ${doctorName} confirmed your booking.`,
             relatedId: appointmentId,
             relatedType: "appointment",
           });
@@ -367,8 +394,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           await api.post("/notifications", {
             userId: patientId,
             type: "appointment_status",
-            title: "Booking Cancelled",
-            message: `Dr. ${doctorName} Cancelled your appointment`,
+            title: "Appointment Rejected",
+            message: `Dr. ${doctorName} rejected your booking.`,
             relatedId: appointmentId,
             relatedType: "appointment",
           });
@@ -529,6 +556,65 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     } catch (err) {
       console.error("Error deleting prescription:", err);
       alert("Failed to delete prescription.");
+    }
+  };
+
+  const handleOpenEditPrescription = (prescription) => {
+    const parsedDosage = parseDosage(prescription.dosage);
+    setSelectedPrescription(null);
+    setEditingPrescription(prescription);
+    setEditPrescriptionForm({
+      medication: prescription.medication || "",
+      dosageAmount: parsedDosage.dosageAmount || "",
+      dosageUnit: parsedDosage.dosageUnit || "mg",
+      frequency: prescription.frequency || "",
+      duration: prescription.duration || "",
+      instructions: prescription.instructions || "",
+    });
+    setShowEditPrescriptionModal(true);
+    setOpenActionsId(null);
+  };
+
+  const handleUpdatePrescription = async (e) => {
+    e.preventDefault();
+
+    if (
+      !editingPrescription?.id ||
+      !editPrescriptionForm.medication ||
+      !editPrescriptionForm.dosageAmount ||
+      !editPrescriptionForm.dosageUnit ||
+      !editPrescriptionForm.frequency ||
+      !editPrescriptionForm.duration
+    ) {
+      alert("Please fill all required fields for the prescription.");
+      return;
+    }
+
+    try {
+      await api.patch(`/prescriptions/${editingPrescription.id}`, {
+        medication: editPrescriptionForm.medication,
+        dosage: `${editPrescriptionForm.dosageAmount} ${editPrescriptionForm.dosageUnit}`,
+        frequency: editPrescriptionForm.frequency,
+        duration: editPrescriptionForm.duration,
+        instructions: editPrescriptionForm.instructions,
+      });
+
+      const prescriptionsRes = await api.get("/doctor/prescriptions");
+      const updatedPrescriptions = prescriptionsRes.data.prescriptions || [];
+      setPrescriptions(updatedPrescriptions);
+
+      const refreshedSelected = updatedPrescriptions.find(
+        (prescription) => prescription.id === editingPrescription.id
+      );
+      if (refreshedSelected) {
+        setSelectedPrescription(refreshedSelected);
+      }
+
+      setShowEditPrescriptionModal(false);
+      setEditingPrescription(null);
+    } catch (err) {
+      console.error("Error updating prescription:", err);
+      alert("Failed to update prescription.");
     }
   };
 
@@ -701,10 +787,22 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     status: apt.status || "Pending",
   }));
 
+  const getLocalDateKey = (dateValue) => {
+    if (!dateValue) return "";
+
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) return "";
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   const todayAppointments = doctorAppointments.filter((apt) => {
-    const aptDate = new Date(`${apt.date}T${apt.time || "00:00"}`);
-    const today = new Date();
-    return aptDate.toDateString() === today.toDateString();
+    const dateStr = getLocalDateKey(apt.date);
+    const today = getLocalDateKey(new Date());
+    return dateStr === today && apt.status !== "Cancelled";
   });
 
   const pendingAppointments = doctorAppointments.filter((apt) => apt.status === "Pending");
@@ -720,14 +818,6 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           Welcome back, <span className="text-teal-600">Dr. {loggedInUser?.name || 'Doctor'}</span>
         </h2>
         <p className={`mt-2 text-[18px] ${textMuted}`}>Here's your schedule for today.</p>
-      </div>
-
-      {/* Doctor Availability Status Widget */}
-      <div className="mb-8">
-        <DoctorAvailabilityStatus 
-          doctorId={loggedInUser?.id} 
-          darkMode={darkMode} 
-        />
       </div>
 
       <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-3">
@@ -758,8 +848,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
             <div
               className={
                 darkMode
-                  ? "rounded-xl bg-blue-500/15 p-3 text-blue-300"
-                  : "rounded-xl bg-blue-50 p-3 text-blue-600"
+                  ? "rounded-xl bg-emerald-500/15 p-3 text-emerald-300"
+                  : "rounded-xl bg-emerald-50 p-3 text-emerald-600"
               }
             >
               <Users size={24} />
@@ -776,8 +866,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
             <div
               className={
                 darkMode
-                  ? "rounded-xl bg-amber-500/15 p-3 text-amber-300"
-                  : "rounded-xl bg-amber-50 p-3 text-amber-600"
+                  ? "rounded-xl bg-cyan-500/15 p-3 text-cyan-300"
+                  : "rounded-xl bg-cyan-50 p-3 text-cyan-600"
               }
             >
               <Clock3 size={24} />
@@ -814,10 +904,9 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                   </div>
 
                   <div className="flex flex-col items-end justify-between">
-                    <span className={`rounded-full px-3 py-1 text-sm font-medium ${getStatusBadgeClass(getDisplayStatus(apt))}`}>
-                      {getDisplayStatus(apt)}
+                    <span className={`rounded-full px-3 py-1 text-sm font-medium ${getStatusBadgeClass(apt.status || "Pending")}`}>
+                      {apt.status || "Pending"}
                     </span>
-                    <button className="mt-2 text-sm text-teal-600 hover:underline">View History</button>
                   </div>
                 </div>
               ))
@@ -841,8 +930,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 <div
                   className={
                     darkMode
-                      ? "rounded-lg bg-blue-500/15 p-3 text-blue-300"
-                      : "rounded-lg bg-blue-50 p-3 text-blue-600"
+                      ? "rounded-lg bg-teal-500/15 p-3 text-teal-300"
+                      : "rounded-lg bg-teal-50 p-3 text-teal-600"
                   }
                 >
                   <FileText size={20} />
@@ -862,137 +951,126 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
   const renderPatientsPage = () => {
     return (
-      <div className="p-9">
+      <div className="mx-auto max-w-6xl px-6 py-10 md:px-10">
         <div className="mb-8">
-          <h2 className="text-[28px] font-bold">My Patients</h2>
+          <h2 className="text-[40px] font-bold tracking-tight">My Patients</h2>
           <p className={`mt-2 text-[18px] ${textMuted}`}>Patients assigned to your care.</p>
         </div>
 
-        <div className={`rounded-[24px] border ${borderSoft} ${panelBg} p-6 shadow-sm`}>
-          <div className={`mb-8 rounded-[20px] border ${borderSoft} ${softPanelBg} p-4`}>
-            <div
-              className={`flex items-center gap-3 rounded-2xl border ${borderSoft} px-4 py-3 ${
-                darkMode ? "bg-slate-900 text-slate-300" : "bg-white text-slate-500"
-              }`}
-            >
-              <Search size={18} />
-              <input
-                type="text"
-                value={patientSearch}
-                onChange={(e) => setPatientSearch(e.target.value)}
-                placeholder="Search by name or condition..."
-                className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
-              />
-            </div>
+        <div className={`mb-6 rounded-[20px] border ${borderSoft} ${panelBg} p-4 shadow-sm`}>
+          <div
+            className={`flex items-center gap-3 rounded-2xl border ${borderSoft} px-4 py-4 ${
+              darkMode ? "bg-slate-900 text-slate-300" : "bg-white text-slate-500"
+            }`}
+          >
+            <Search size={18} />
+            <input
+              type="text"
+              value={patientSearch}
+              onChange={(e) => setPatientSearch(e.target.value)}
+              placeholder="Search by name or condition..."
+              className="w-full bg-transparent text-[16px] outline-none placeholder:text-slate-400"
+            />
           </div>
+        </div>
 
-          {filteredDoctorPatients.length === 0 ? (
-            <div className={`rounded-3xl border border-dashed ${darkMode ? "border-slate-700 text-slate-400" : "border-slate-300 text-slate-500"} p-10 text-center text-sm`}>
-              No patients found.
-            </div>
-          ) : (
-            <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
-              {filteredDoctorPatients.map((patient) => {
-                const patientAppointments = appointments.filter((apt) => apt.patient_id === patient.id);
-                const latestAppointment = [...patientAppointments].sort(
-                  (a, b) => new Date(b.date) - new Date(a.date)
-                )[0];
-                const status = latestAppointment ? latestAppointment.status : "No Appointments";
+        {filteredDoctorPatients.length === 0 ? (
+          <div className={`rounded-3xl border border-dashed ${darkMode ? "border-slate-700 text-slate-400" : "border-slate-300 text-slate-500"} p-10 text-center text-sm`}>
+            No patients found.
+          </div>
+        ) : (
+          <div className="grid gap-5 md:grid-cols-2">
+            {filteredDoctorPatients.map((patient) => {
+              const patientAppointments = appointments.filter((apt) => apt.patient_id === patient.id);
+              const latestAppointment = [...patientAppointments].sort(
+                (a, b) => new Date(b.date) - new Date(a.date)
+              )[0];
+              const completedAppointments = patientAppointments.filter((apt) => apt.status === "Completed");
+              const lastVisitAppointment = [...completedAppointments].sort(
+                (a, b) => new Date(b.date) - new Date(a.date)
+              )[0];
 
-                const completedAppointments = patientAppointments.filter((apt) => apt.status === "Completed");
-                const lastVisitAppointment = [...completedAppointments].sort(
-                  (a, b) => new Date(b.date) - new Date(a.date)
-                )[0];
+              const patientRecords = records.filter(
+                (record) => record.patient_id === patient.id || record.patientId === patient.id
+              );
+              const latestRecord = [...patientRecords].sort(
+                (a, b) => new Date(b.record_date || b.date || 0) - new Date(a.record_date || a.date || 0)
+              )[0];
+              const conditionText = patient.condition || latestRecord?.diagnosis || latestRecord?.title || "No condition noted";
+              const status = latestAppointment ? latestAppointment.status : "No Appointments";
+              const avatarTone = darkMode ? "from-slate-700 to-slate-800 text-slate-100" : "from-orange-100 to-amber-50 text-slate-700";
 
-                const lastVisit = lastVisitAppointment
-                  ? new Date(lastVisitAppointment.date).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })
-                  : "No visits";
-
-                const patientRecords = records.filter(
-                  (record) => record.patient_id === patient.id || record.patientId === patient.id
-                );
-                const latestRecord = [...patientRecords].sort(
-                  (a, b) => new Date(b.record_date || b.date || 0) - new Date(a.record_date || a.date || 0)
-                )[0];
-                const conditionText = patient.condition || latestRecord?.diagnosis || latestRecord?.title || "N/A";
-
-                return (
-                  <button
-                    key={patient.id}
-                    type="button"
-                    onClick={() => handleViewPatient(patient)}
-                    className={`text-left rounded-[28px] border ${borderSoft} ${
-                      darkMode ? "bg-slate-950" : "bg-white"
-                    } p-6 shadow-sm transition duration-200 ease-in-out hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-lg`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div
-                        className={`flex h-16 w-16 items-center justify-center rounded-3xl ${
-                          darkMode ? "bg-slate-800 text-slate-100" : "bg-slate-100 text-slate-700"
-                        }`}
-                      >
-                        <span className="text-lg font-semibold">{getInitials(patient.name)}</span>
-                      </div>
-                      <div>
-                        <p className={`text-[18px] font-semibold ${textMain}`}>{patient.name}</p>
-                        <p className={`mt-1 text-sm ${textMuted}`}>
-                          {patient.age ? `${patient.age} years • ${patient.gender || "Unknown"}` : patient.gender || "Unknown"}
-                        </p>
-                      </div>
+              return (
+                <button
+                  key={patient.id}
+                  type="button"
+                  onClick={() => handleViewPatient(patient)}
+                  className={`text-left rounded-[18px] border ${borderSoft} ${
+                    darkMode ? "bg-slate-950 hover:bg-slate-900" : "bg-white hover:border-slate-300"
+                  } p-6 shadow-sm transition duration-200`}
+                >
+                  <div className="flex items-start gap-4">
+                    <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${avatarTone} text-lg font-semibold shadow-sm`}>
+                      {getInitials(patient.name)}
                     </div>
 
-                    <div className="mt-6 space-y-4">
-                      <div className="flex flex-wrap gap-2">
-                        <span
-                          className={`rounded-full px-3 py-1 text-sm font-semibold ${
-                            conditionText === "N/A"
-                              ? darkMode
-                                ? "bg-slate-800 text-slate-200"
-                                : "bg-slate-100 text-slate-700"
-                              : darkMode
-                              ? "bg-emerald-500/15 text-emerald-300"
-                              : "bg-emerald-100 text-emerald-700"
-                          }`}
-                        >
-                          {conditionText}
-                        </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className={`text-[16px] font-semibold ${textMain}`}>{patient.name}</p>
+                          <p className={`mt-1 text-sm ${textMuted}`}>
+                            {patient.age ? `${patient.age} years` : "Age not provided"} • {patient.gender || "Unknown"}
+                          </p>
+                        </div>
 
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusBadgeClass(status)}`}>
+                          {status}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
                         {patient.bloodGroup && (
                           <span
                             className={
                               darkMode
-                                ? "rounded-full bg-slate-800 px-3 py-1 text-sm font-semibold text-slate-200"
-                                : "rounded-full bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700"
+                                ? "rounded-full bg-red-500/15 px-3 py-1 text-xs font-semibold text-red-300"
+                                : "rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-600"
                             }
                           >
                             {patient.bloodGroup}
                           </span>
                         )}
-                      </div>
 
-                      <div className="flex items-end justify-between gap-4">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Last Visit</p>
-                          <p className={`mt-1 text-sm font-medium ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
-                            {lastVisit}
-                          </p>
-                        </div>
-
-                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusBadgeClass(getDisplayStatus({...patient.appointments?.[0], status}))}`}>
-                          {getDisplayStatus({...patient.appointments?.[0], status})}
+                        <span
+                          className={
+                            darkMode
+                              ? "rounded-full bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-300"
+                              : "rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700"
+                          }
+                        >
+                          {conditionText}
                         </span>
                       </div>
+
+                      {lastVisitAppointment && (
+                        <p className={`mt-4 text-xs ${textMuted}`}>
+                          Last visit:{" "}
+                          <span className={`font-medium ${textSoft}`}>
+                            {new Date(lastVisitAppointment.date).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </span>
+                        </p>
+                      )}
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   };
@@ -1029,36 +1107,26 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
   const renderAppointmentsPage = () => {
     const filters = ["All", "Today", "Upcoming", "Pending", "Completed"];
+    const normalizedAppointmentSearch = appointmentSearch.trim().toLowerCase();
 
     const filteredAppointments = doctorAppointments.filter((apt) => {
+      const matchesPatientName =
+        !normalizedAppointmentSearch ||
+        (apt.patientName || "").toLowerCase().includes(normalizedAppointmentSearch);
+
+      if (!matchesPatientName) return false;
       if (appointmentFilter === "All") return true;
 
       try {
         if (!apt.date) return false;
-        
-        // Parse appointment date and time
-        let dateStr = apt.date;
-        if (dateStr.includes('T')) {
-          dateStr = dateStr.split('T')[0]; // Extract date part if ISO format
-        }
-        const aptDate = new Date(`${dateStr}T${apt.time || "00:00"}`);
-        if (isNaN(aptDate.getTime())) return false;
-        
-        // Get today's date and normalize it (set to midnight)
+
+        const aptDate = new Date(apt.date);
+        if (Number.isNaN(aptDate.getTime())) return false;
+
         const today = new Date();
-        const todayNormalized = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        
-        // Get appointment date normalized (set to midnight)
-        const aptDateNormalized = new Date(aptDate.getFullYear(), aptDate.getMonth(), aptDate.getDate());
-        
-        // Check if appointment is today
-        const isToday = aptDateNormalized.getTime() === todayNormalized.getTime();
-        
-        // Check if appointment is in the future (from now onwards)
+        const isToday = getLocalDateKey(apt.date) === getLocalDateKey(today);
         const isUpcoming = aptDate > today;
-        
-        // Check if appointment is in the past (already happened)
-        const isPast = aptDateNormalized.getTime() < todayNormalized.getTime();
+        const isPast = getLocalDateKey(apt.date) < getLocalDateKey(today);
 
         if (appointmentFilter === "Today") return isToday && apt.status !== "Cancelled";
         if (appointmentFilter === "Upcoming") return (isUpcoming || isToday) && apt.status !== "Cancelled";
@@ -1099,6 +1167,17 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           ))}
         </div>
 
+        <div className={`mb-8 flex items-center gap-3 rounded-2xl border ${borderSoft} px-4 py-3 ${darkMode ? "bg-slate-900" : "bg-white"} shadow-sm`}>
+          <Search size={18} className={textMuted} />
+          <input
+            type="text"
+            value={appointmentSearch}
+            onChange={(e) => setAppointmentSearch(e.target.value)}
+            placeholder={`Search patient name in ${appointmentFilter}`}
+            className={`w-full bg-transparent text-sm outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder:text-slate-400"}`}
+          />
+        </div>
+
         <div className="space-y-5">
           {filteredAppointments.length > 0 ? (
             filteredAppointments.map((apt) => (
@@ -1132,8 +1211,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                   </div>
 
                   <div className="flex flex-col items-start gap-4 lg:items-end">
-                    <span className={`rounded-full px-4 py-1 text-sm font-medium ${getStatusBadgeClass(getDisplayStatus(apt))}`}>
-                      {getDisplayStatus(apt)}
+                    <span className={`rounded-full px-4 py-1 text-sm font-medium ${getStatusBadgeClass(apt.status || "Pending")}`}>
+                      {apt.status || "Pending"}
                     </span>
 
                     {apt.status === "Pending" ? (
@@ -1184,9 +1263,16 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   };
 
   const renderMedicalRecordsPage = () => {
-    const filteredRecords = selectedPatient
+    const normalizedRecordSearch = recordSearch.trim().toLowerCase();
+    const filteredRecords = (selectedPatient
       ? records.filter((record) => record.patient_id === selectedPatient.id || record.patientId === selectedPatient.id)
-      : records;
+      : records
+    ).filter((record) =>
+      !normalizedRecordSearch ||
+      (record.patientName || record.patient_name || "Unknown Patient")
+        .toLowerCase()
+        .includes(normalizedRecordSearch)
+    );
 
     return (
       <div className="p-9">
@@ -1221,15 +1307,32 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           </button>
         </div>
 
+        <div className={`mb-8 flex items-center gap-3 rounded-2xl border ${borderSoft} px-4 py-3 ${panelBg} shadow-sm`}>
+          <Search size={18} className={textMuted} />
+          <input
+            type="text"
+            value={recordSearch}
+            onChange={(e) => setRecordSearch(e.target.value)}
+            placeholder="Search by patient name"
+            className={`w-full bg-transparent text-sm outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder:text-slate-400"}`}
+          />
+        </div>
+
         {filteredRecords.length === 0 ? (
           <div className={`rounded-[24px] border ${borderSoft} ${panelBg} p-12 text-center shadow-sm`}>
             <p className={`text-[18px] ${textMuted}`}>
-              {selectedPatient ? "No records found for this patient." : "No medical records found yet."}
+              {records.length === 0
+                ? selectedPatient
+                  ? "No records found for this patient."
+                  : "No medical records found yet."
+                : "No medical records match that patient name."}
             </p>
             <p className={`mt-3 text-sm ${textSoft}`}>
-              {selectedPatient
-                ? "Try another patient or clear the filter to view all records."
-                : "Add a new record to begin tracking patient history, or verify that patients are assigned to this doctor."}
+              {records.length === 0
+                ? selectedPatient
+                  ? "Try another patient or clear the filter to view all records."
+                  : "Add a new record to begin tracking patient history, or verify that patients are assigned to this doctor."
+                : "Try another name or clear the search."}
             </p>
           </div>
         ) : (
@@ -1529,6 +1632,17 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
   const renderPrescriptionPage = () => (
     <div className="p-9">
+      {(() => {
+        const normalizedPrescriptionSearch = prescriptionSearch.trim().toLowerCase();
+        const filteredPrescriptions = prescriptions.filter((prescription) =>
+          !normalizedPrescriptionSearch ||
+          (prescription.patient_name || "Unknown Patient")
+            .toLowerCase()
+            .includes(normalizedPrescriptionSearch)
+        );
+
+        return (
+          <>
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h2 className="text-[28px] font-bold">Prescriptions</h2>
@@ -1544,10 +1658,25 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         </button>
       </div>
 
-      {prescriptions.length === 0 ? (
+      <div className={`mb-8 flex items-center gap-3 rounded-2xl border ${borderSoft} px-4 py-3 ${panelBg} shadow-sm`}>
+        <Search size={18} className={textMuted} />
+        <input
+          type="text"
+          value={prescriptionSearch}
+          onChange={(e) => setPrescriptionSearch(e.target.value)}
+          placeholder="Search by patient name"
+          className={`w-full bg-transparent text-sm outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder:text-slate-400"}`}
+        />
+      </div>
+
+      {filteredPrescriptions.length === 0 ? (
         <div className={`rounded-[24px] border ${borderSoft} ${panelBg} p-12 text-center shadow-sm`}>
-          <p className={`text-[18px] ${textMuted}`}>No prescriptions found yet.</p>
-          <p className={`mt-3 text-sm ${textSoft}`}>Create a new prescription.</p>
+          <p className={`text-[18px] ${textMuted}`}>
+            {prescriptions.length === 0 ? "No prescriptions found yet." : "No prescriptions match that patient name."}
+          </p>
+          <p className={`mt-3 text-sm ${textSoft}`}>
+            {prescriptions.length === 0 ? "Create a new prescription." : "Try another name or clear the search."}
+          </p>
         </div>
       ) : (
         <div className={`rounded-[24px] border ${borderSoft} ${panelBg} shadow-sm`}>
@@ -1559,11 +1688,11 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
             <div className="text-right">Actions</div>
           </div>
 
-          {prescriptions.map((prescription, index) => (
+          {filteredPrescriptions.map((prescription, index) => (
             <div
               key={prescription.id}
               className={`grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr] items-center gap-4 px-5 py-5 ${
-                index !== prescriptions.length - 1 ? `border-b ${borderSoft}` : ""
+                index !== filteredPrescriptions.length - 1 ? `border-b ${borderSoft}` : ""
               } ${hoverRow}`}
             >
               <div>
@@ -1604,11 +1733,18 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 {openActionsId === prescription.id && (
                   <div className={`absolute right-0 top-full z-30 mt-1 min-w-[160px] rounded-2xl border ${borderSoft} ${panelBg} shadow-xl`}>
                     <button
+                      onClick={() => handleOpenEditPrescription(prescription)}
+                      className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm ${textSoft} ${darkMode ? "hover:bg-slate-800" : "hover:bg-slate-100"}`}
+                    >
+                      <Pencil size={16} />
+                      Edit
+                    </button>
+                    <button
                       onClick={() => {
                         handlePrintPrescription(prescription);
                         setOpenActionsId(null);
                       }}
-                      className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm ${textSoft} rounded-t-2xl ${darkMode ? "hover:bg-slate-800" : "hover:bg-slate-100"}`}
+                      className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm ${textSoft} ${darkMode ? "hover:bg-slate-800" : "hover:bg-slate-100"}`}
                     >
                       <Printer size={16} />
                       Print
@@ -1630,6 +1766,9 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           ))}
         </div>
       )}
+          </>
+        );
+      })()}
 
       {showAddPrescriptionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
@@ -1811,6 +1950,156 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         </div>
       )}
 
+      {showEditPrescriptionModal && editingPrescription && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+          <div className={`w-full max-w-3xl rounded-2xl border ${borderSoft} ${panelBg} p-6 shadow-xl`}>
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <h3 className="text-[20px] font-bold">Edit Prescription</h3>
+                <p className={`mt-1 text-sm ${textMuted}`}>
+                  Update missing details for {editingPrescription.patient_name || "this patient"}.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowEditPrescriptionModal(false);
+                  setEditingPrescription(null);
+                }}
+                className={`${textMuted} hover:text-slate-600`}
+              >
+                X
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdatePrescription} className="space-y-5">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold">Medication</label>
+                  <input
+                    type="text"
+                    value={editPrescriptionForm.medication}
+                    onChange={(e) => setEditPrescriptionForm({ ...editPrescriptionForm, medication: e.target.value })}
+                    className={inputClasses}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold">Dosage</label>
+                  <div className="grid grid-cols-[1fr_140px] gap-3">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={editPrescriptionForm.dosageAmount}
+                      onChange={(e) => setEditPrescriptionForm({ ...editPrescriptionForm, dosageAmount: e.target.value })}
+                      className={inputClasses}
+                      placeholder="Amount"
+                      required
+                    />
+                    <select
+                      value={editPrescriptionForm.dosageUnit}
+                      onChange={(e) => setEditPrescriptionForm({ ...editPrescriptionForm, dosageUnit: e.target.value })}
+                      className={inputClasses}
+                      required
+                    >
+                      <option value="mg">mg</option>
+                      <option value="mcg">mcg</option>
+                      <option value="g">g</option>
+                      <option value="ml">ml</option>
+                      <option value="l">l</option>
+                      <option value="tablet">tablet</option>
+                      <option value="capsule">capsule</option>
+                      <option value="drops">drops</option>
+                      <option value="units">units</option>
+                      <option value="IU">IU</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold">Frequency</label>
+                  <select
+                    value={editPrescriptionForm.frequency}
+                    onChange={(e) => setEditPrescriptionForm({ ...editPrescriptionForm, frequency: e.target.value })}
+                    className={inputClasses}
+                    required
+                  >
+                    <option value="">Select frequency</option>
+                    <option value="Once daily">Once daily</option>
+                    <option value="Twice daily">Twice daily</option>
+                    <option value="Three times daily">Three times daily</option>
+                    <option value="Four times daily">Four times daily</option>
+                    <option value="Every 4 hours">Every 4 hours</option>
+                    <option value="Every 6 hours">Every 6 hours</option>
+                    <option value="Every 8 hours">Every 8 hours</option>
+                    <option value="Every 12 hours">Every 12 hours</option>
+                    <option value="As needed">As needed</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold">Duration</label>
+                  <select
+                    value={editPrescriptionForm.duration}
+                    onChange={(e) => setEditPrescriptionForm({ ...editPrescriptionForm, duration: e.target.value })}
+                    className={inputClasses}
+                    required
+                  >
+                    <option value="">Select duration</option>
+                    <option value="3 days">3 days</option>
+                    <option value="5 days">5 days</option>
+                    <option value="7 days">7 days</option>
+                    <option value="10 days">10 days</option>
+                    <option value="14 days">14 days</option>
+                    <option value="21 days">21 days</option>
+                    <option value="1 month">1 month</option>
+                    <option value="2 months">2 months</option>
+                    <option value="3 months">3 months</option>
+                    <option value="6 months">6 months</option>
+                    <option value="1 year">1 year</option>
+                    <option value="Ongoing">Ongoing</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold">Instructions</label>
+                <textarea
+                  value={editPrescriptionForm.instructions}
+                  onChange={(e) => setEditPrescriptionForm({ ...editPrescriptionForm, instructions: e.target.value })}
+                  className={`${inputClasses} resize-none`}
+                  rows="4"
+                  placeholder="Enter instructions..."
+                />
+              </div>
+
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditPrescriptionModal(false);
+                    setEditingPrescription(null);
+                  }}
+                  className={`w-full sm:w-[180px] ${secondaryButtonClasses}`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-full rounded-lg bg-teal-600 py-3 text-white hover:bg-teal-700 sm:w-[220px]"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {selectedPrescription && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
           <div className={`w-full max-w-lg rounded-2xl border ${borderSoft} ${panelBg} p-6 shadow-xl`}>
@@ -1818,6 +2107,15 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               <h3 className="text-[20px] font-bold">Prescription Details</h3>
               <button onClick={() => setSelectedPrescription(null)} className={`${textMuted} hover:text-slate-600`}>
                 ✕
+              </button>
+            </div>
+            <div className="mb-5 flex justify-end">
+              <button
+                onClick={() => handleOpenEditPrescription(selectedPrescription)}
+                className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
+              >
+                <Pencil size={16} />
+                Edit Prescription
               </button>
             </div>
             <div className="space-y-4">
@@ -2191,8 +2489,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               title="Logout"
               className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                 darkMode
-                  ? "text-slate-400 hover:bg-slate-800"
-                  : "text-slate-600 hover:bg-slate-50"
+                  ? "text-red-300 hover:bg-red-500/10"
+                  : "text-red-600 hover:bg-red-50"
               }`}
             >
               <LogOut size={22} />
@@ -2373,8 +2671,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                       <div>
                         <label className={`text-xs font-semibold uppercase ${textMuted}`}>Status</label>
                         <div className="mt-2">
-                          <span className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${getStatusBadgeClass(getDisplayStatus(selectedAppointmentDetails))}`}>
-                            {getDisplayStatus(selectedAppointmentDetails)}
+                          <span className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${getStatusBadgeClass(selectedAppointmentDetails.status || "Pending")}`}>
+                            {selectedAppointmentDetails.status || "Pending"}
                           </span>
                         </div>
                       </div>

@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS prescriptions (
   doctor_id INT NOT NULL,
   medication VARCHAR(255) NOT NULL,
   dosage VARCHAR(100) NOT NULL,
+  frequency VARCHAR(100),
+  duration VARCHAR(100),
   instructions TEXT,
   prescribed_date DATE NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

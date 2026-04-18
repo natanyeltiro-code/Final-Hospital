@@ -22,6 +22,14 @@ const migrations = [
     name: "Add rating column",
     sql: "ALTER TABLE users ADD COLUMN rating DECIMAL(2,1) DEFAULT 4.5",
   },
+  {
+    name: "Add prescription frequency column",
+    sql: "ALTER TABLE prescriptions ADD COLUMN frequency VARCHAR(100) NULL AFTER dosage",
+  },
+  {
+    name: "Add prescription duration column",
+    sql: "ALTER TABLE prescriptions ADD COLUMN duration VARCHAR(100) NULL AFTER frequency",
+  },
 ];
 
 let completed = 0;

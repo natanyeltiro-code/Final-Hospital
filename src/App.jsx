@@ -13,6 +13,7 @@ import {
   LogOut,
   Bell,
   Moon,
+  Sun,
   Clock3,
   ClipboardList,
   CalendarPlus,
@@ -33,6 +34,7 @@ import {
   Eye,
   Phone,
   Info,
+  X,
 } from "lucide-react";
 import DoctorDashboard from "./DoctorDashboard";
 import AvailableDoctorsList from "./AvailableDoctorsList";
@@ -58,6 +60,8 @@ export default function App() {
 
   const [appointments, setAppointments] = useState([]);
   const [medicalRecords, setMedicalRecords] = useState([]);
+  const [patientPrescriptions, setPatientPrescriptions] = useState([]);
+  const [recordMonthSearch, setRecordMonthSearch] = useState("");
   const [doctors, setDoctors] = useState([]);
   const [adminPatients, setAdminPatients] = useState([]);
   const [adminPatientsPage, setAdminPatientsPage] = useState(1);
@@ -246,16 +250,38 @@ export default function App() {
     }
   }, [loggedInUser]);
 
+  const sortByNewestDate = (items = [], key) =>
+    [...items].sort((a, b) => new Date(b?.[key] || 0) - new Date(a?.[key] || 0));
+
+  const attachPrescriptionsToRecords = (records = [], prescriptions = []) =>
+    records.map((record) => ({
+      ...record,
+      linkedPrescriptions: prescriptions.filter(
+        (prescription) => String(prescription.doctor_id) === String(record.doctor_id)
+      ),
+    }));
+
   const fetchPatientData = async () => {
     try {
-      const aptsRes = await api.get(`/appointments/${loggedInUser.id}`);
-      setAppointments(aptsRes.data.appointments || []);
+      const [aptsRes, recordsRes, prescriptionsRes, doctorsRes] = await Promise.all([
+        api.get(`/appointments/${loggedInUser.id}`),
+        api.get(`/medical-records/${loggedInUser.id}`),
+        api.get(`/prescriptions-patient/${loggedInUser.id}`),
+        api.get("/doctors"),
+      ]);
 
-      const recordsRes = await api.get(`/medical-records/${loggedInUser.id}`);
-      setMedicalRecords(recordsRes.data.records || []);
+      const appointmentsData = aptsRes.data.appointments || [];
+      const recordsData = sortByNewestDate(recordsRes.data.records || [], "record_date");
+      const prescriptionsData = sortByNewestDate(
+        prescriptionsRes.data.prescriptions || [],
+        "prescribed_date"
+      );
+      const doctorsData = doctorsRes.data.doctors || [];
 
-      const doctorsRes = await api.get("/doctors");
-      setDoctors(doctorsRes.data.doctors || []);
+      setAppointments(appointmentsData);
+      setPatientPrescriptions(prescriptionsData);
+      setMedicalRecords(attachPrescriptionsToRecords(recordsData, prescriptionsData));
+      setDoctors(doctorsData);
 
       setProfileData({
         name: loggedInUser.name || "",
@@ -576,7 +602,21 @@ export default function App() {
   };
 
   const downloadMedicalRecord = (record) => {
-    const content = `MEDICAL RECORD\n\nTitle: ${record.title}\nDiagnosis: ${record.diagnosis}\nTreatment: ${record.treatment}\nDate: ${record.record_date}\nStatus: ${record.status}`;
+    const prescriptionsSection = (record.linkedPrescriptions || []).length
+      ? `\n\nPRESCRIPTIONS\n${(record.linkedPrescriptions || [])
+          .map(
+            (prescription, index) =>
+              `${index + 1}. Medication: ${prescription.medication || "N/A"}\n   Dosage: ${
+                prescription.dosage || "N/A"
+              }\n   Frequency: ${prescription.frequency || "N/A"}\n   Duration: ${
+                prescription.duration || "N/A"
+              }\n   Instructions: ${prescription.instructions || "N/A"}\n   Date: ${
+                prescription.prescribed_date || "N/A"
+              }`
+          )
+          .join("\n\n")}`
+      : "\n\nPRESCRIPTIONS\nNone linked yet";
+    const content = `MEDICAL RECORD\n\nTitle: ${record.title}\nDiagnosis: ${record.diagnosis}\nTreatment: ${record.treatment}\nDate: ${record.record_date}\nStatus: ${record.status}${prescriptionsSection}`;
     const blob = new Blob([content], { type: "text/plain" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -606,6 +646,13 @@ export default function App() {
       content += `Doctor: Dr. ${doctors.find((doc) => doc.id === record.doctor_id)?.name || `ID ${record.doctor_id}`}\n`;
       content += `Date: ${record.record_date || "N/A"}\n`;
       content += `Status: ${record.status || "N/A"}\n`;
+      content += `Prescriptions: ${(record.linkedPrescriptions || []).length}\n`;
+      if ((record.linkedPrescriptions || []).length > 0) {
+        content += "Prescription Details:\n";
+        (record.linkedPrescriptions || []).forEach((prescription, prescriptionIndex) => {
+          content += `  ${prescriptionIndex + 1}. ${prescription.medication || "N/A"} | ${prescription.dosage || "N/A"} | ${prescription.frequency || "N/A"} | ${prescription.duration || "N/A"} | ${prescription.instructions || "N/A"} | ${prescription.prescribed_date || "N/A"}\n`;
+        });
+      }
       content += "-".repeat(60) + "\n\n";
     });
 
@@ -1230,7 +1277,7 @@ export default function App() {
         <div className="mb-8 flex items-start justify-between">
           <div>
             <h2 className="text-[28px] font-bold">Hello, {loggedInUser.name}</h2>
-            <p className="mt-2 text-[18px] text-slate-500">Welcome to your patient portal.</p>
+            <p className={`mt-2 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Welcome to your patient portal.</p>
           </div>
 
           <button
@@ -1242,12 +1289,12 @@ export default function App() {
           </button>
         </div>
 
-        <div className="rounded-[28px] bg-gradient-to-r from-teal-500 to-teal-700 p-9 text-white shadow-lg">
+        <div className="rounded-[28px] bg-gradient-to-r from-teal-700 to-emerald-800 p-9 text-white shadow-lg">
           <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <span className={`inline-block rounded-full px-4 py-2 text-sm font-semibold ${
                 nextAppointment 
-                  ? 'bg-teal-600 text-white' 
+                  ? 'bg-white/12 text-white' 
                   : 'bg-white text-teal-700'
               }`}>Next Appointment</span>
 
@@ -1281,10 +1328,10 @@ export default function App() {
 
             <div className="w-full max-w-[360px]">
               {nextAppointment ? (
-                <div className="rounded-2xl border-2 border-teal-400 bg-teal-600 bg-opacity-80 p-6">
+                <div className="rounded-2xl border border-white/20 bg-white/8 p-6 backdrop-blur-sm">
                   <div className="flex items-center gap-4">
                     <div className="flex-shrink-0">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-teal-300 to-teal-500">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/14">
                         <Stethoscope size={28} className="text-white" />
                       </div>
                     </div>
@@ -1306,37 +1353,37 @@ export default function App() {
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-3">
-          <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+          <div className={`rounded-3xl border p-7 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-[20px] text-slate-500">Upcoming Visits</p>
+                <p className={`text-[20px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Upcoming Visits</p>
                 <p className="mt-3 text-[42px] font-bold">{upcomingAppointments.length}</p>
               </div>
-              <div className="rounded-2xl bg-teal-50 p-4 text-teal-600">
+              <div className={`rounded-2xl p-4 ${darkMode ? "bg-teal-500/10 text-teal-300" : "bg-teal-50 text-teal-600"}`}>
                 <CalendarDays size={28} />
               </div>
             </div>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+          <div className={`rounded-3xl border p-7 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-[20px] text-slate-500">Past Visits</p>
+                <p className={`text-[20px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Past Visits</p>
                 <p className="mt-3 text-[42px] font-bold">{pastAppointments.length}</p>
               </div>
-              <div className="rounded-2xl bg-blue-50 p-4 text-blue-600">
+              <div className={`rounded-2xl p-4 ${darkMode ? "bg-teal-500/10 text-teal-300" : "bg-teal-50 text-teal-600"}`}>
                 <Clock3 size={28} />
               </div>
             </div>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+          <div className={`rounded-3xl border p-7 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-[20px] text-slate-500">Medical Records</p>
+                <p className={`text-[20px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Medical Records</p>
                 <p className="mt-3 text-[42px] font-bold">{medicalRecords.length}</p>
               </div>
-              <div className="rounded-2xl bg-emerald-50 p-4 text-emerald-600">
+              <div className={`rounded-2xl p-4 ${darkMode ? "bg-teal-500/10 text-teal-300" : "bg-teal-50 text-teal-600"}`}>
                 <ClipboardList size={28} />
               </div>
             </div>
@@ -1344,7 +1391,7 @@ export default function App() {
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+          <div className={`rounded-3xl border p-7 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
             <div className="mb-6 flex items-center justify-between">
               <h3 className="text-[20px] font-semibold">Recent Medical Records</h3>
               <button
@@ -1357,21 +1404,43 @@ export default function App() {
             </div>
 
             {medicalRecords.length === 0 ? (
-              <div className="rounded-3xl border border-slate-200 p-5 text-slate-500">
+              <div className={`rounded-3xl border p-5 ${darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"}`}>
                 No records available yet.
               </div>
             ) : (
-              <div className="rounded-3xl border border-slate-200 p-5">
+              <div className={`rounded-3xl border p-5 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200"}`}>
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-[24px] font-semibold text-teal-600">{medicalRecords[0].title || 'Recent record'}</p>
-                    <p className="mt-3 text-[18px] text-slate-500">{medicalRecords[0].treatment || 'No summary available'}</p>
-                    <div className="mt-5 flex items-center gap-2 text-[16px] text-slate-500">
+                    <div className="space-y-3">
+                      <div>
+                        <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Diagnosis</p>
+                        <p className="mt-2 text-[22px] font-semibold text-teal-600">
+                          {medicalRecords[0].diagnosis || medicalRecords[0].title || 'Recent record'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${darkMode ? "text-slate-500" : "text-slate-400"}`}>Treatment</p>
+                        <p className={`mt-2 text-[16px] leading-7 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                          {medicalRecords[0].treatment || 'No treatment details available'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className={`mt-5 flex items-center gap-2 text-[16px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                       <UserCircle size={16} />
                       <span>Dr. {doctors.find((doc) => doc.id === medicalRecords[0].doctor_id)?.name || `Doctor ${medicalRecords[0].doctor_id}`}</span>
                     </div>
+                    <div className={`mt-4 rounded-2xl px-4 py-3 text-[15px] ${darkMode ? "bg-slate-900 text-slate-400" : "bg-slate-50 text-slate-600"}`}>
+                      <p className={`font-medium ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
+                        Prescriptions linked: {(medicalRecords[0].linkedPrescriptions || []).length}
+                      </p>
+                      <p className="mt-1">
+                        {(medicalRecords[0].linkedPrescriptions || []).length > 0
+                          ? `${medicalRecords[0].linkedPrescriptions[0].medication || "Medication"} prescribed by the doctor`
+                          : "No prescription linked to this record yet."}
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-[16px] text-slate-400">
+                  <p className={`text-[16px] ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
                     {medicalRecords[0].record_date
                       ? new Date(medicalRecords[0].record_date).toLocaleString("en-US", {
                           month: "short",
@@ -1388,22 +1457,22 @@ export default function App() {
             )}
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+          <div className={`rounded-3xl border p-7 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
             <h3 className="mb-6 text-[20px] font-semibold">Appointment History</h3>
 
             {appointments.length === 0 ? (
-              <div className="rounded-3xl border border-slate-200 p-5 text-slate-500">No past appointments yet.</div>
+              <div className={`rounded-3xl border p-5 ${darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"}`}>No past appointments yet.</div>
             ) : (
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
-                  <div className="flex h-16 w-16 flex-col items-center justify-center rounded-full bg-slate-100 text-sm font-semibold">
+                  <div className={`flex h-16 w-16 flex-col items-center justify-center rounded-full text-sm font-semibold ${darkMode ? "bg-slate-800 text-slate-100" : "bg-slate-100"}`}>
                     <span>{new Date(appointments[0].date).getDate()}</span>
-                    <span className="text-xs text-slate-500">{new Date(appointments[0].date).toLocaleString(undefined, { month: 'short' })}</span>
+                    <span className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{new Date(appointments[0].date).toLocaleString(undefined, { month: 'short' })}</span>
                   </div>
 
                   <div>
                     <p className="text-[22px] font-medium">{doctors.find((doc) => doc.id === appointments[0].doctor_id)?.name || `Doctor ${appointments[0].doctor_id}`}</p>
-                    <p className="text-[17px] text-slate-500">{appointments[0].type || 'Consultation'}</p>
+                    <p className={`text-[17px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{appointments[0].type || 'Consultation'}</p>
                   </div>
                 </div>
 
@@ -1423,7 +1492,7 @@ export default function App() {
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h2 className="text-[28px] font-bold">My Appointments</h2>
-          <p className="mt-2 text-[18px] text-slate-500">
+          <p className={`mt-2 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
             Book and manage your appointments.
           </p>
         </div>
@@ -1437,8 +1506,8 @@ export default function App() {
       </div>
 
       {showBookingModal && (
-        <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-          <h3 className="mb-6 text-[24px] font-bold text-slate-900">Book New Appointment</h3>
+        <div className={`mb-8 rounded-2xl border p-8 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+          <h3 className={`mb-6 text-[24px] font-bold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Book New Appointment</h3>
           
           {message && (
             <div className={`mb-6 p-4 rounded-lg ${isError ? "bg-red-50 text-red-800 border border-red-200" : "bg-green-50 text-green-800 border border-green-200"}`}>
@@ -1449,7 +1518,7 @@ export default function App() {
           <div className="grid grid-cols-1 gap-8 md:grid-cols-2 mb-6">
             {/* Left: Department Selection & Available Doctors */}
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">Select Department</label>
+              <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Select Department</label>
               <select 
                 value={bookingSpecialty}
                 onChange={(e) => {
@@ -1457,7 +1526,9 @@ export default function App() {
                   setBookingData({...bookingData, doctorId: ""});
                   setSelectedSlot(null);
                 }}
-                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none mb-4">
+                className={`mb-4 w-full rounded-lg border px-4 py-3 focus:border-teal-500 focus:outline-none ${
+                  darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-slate-200 text-slate-900"
+                }`}>
                 <option value="">Choose a department...</option>
                 <option value="Cardiology">Cardiology</option>
                 <option value="Neurology">Neurology</option>
@@ -1469,10 +1540,11 @@ export default function App() {
 
               {bookingSpecialty && (
                 <div>
-                  <p className="text-sm font-semibold text-slate-700 mb-3">Available Doctors</p>
+                  <p className={`mb-3 text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Available Doctors</p>
+                  {/* Available doctor list filtered by the selected department. */}
                   <SimpleDoctorList 
                     selectedSpecialty={bookingSpecialty}
-                    darkMode={false}
+                    darkMode={darkMode}
                     onDoctorSelect={(doctor) => {
                       setBookingData({...bookingData, doctorId: doctor.id.toString()});
                       setSelectedSlot(null);
@@ -1486,7 +1558,7 @@ export default function App() {
             <div>
               {bookingData.doctorId ? (
                 <>
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">Select Date</label>
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Select Date</label>
                   <input 
                     type="date"
                     value={bookingData.date}
@@ -1494,22 +1566,28 @@ export default function App() {
                       setBookingData({...bookingData, date: e.target.value});
                     }}
                     min={new Date().toISOString().split('T')[0]}
-                    className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none mb-4"
+                    className={`mb-4 w-full rounded-lg border px-4 py-3 focus:border-teal-500 focus:outline-none ${
+                      darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-slate-200 text-slate-900"
+                    }`}
                   />
                   
-                  <label className="mb-2 block text-sm font-semibold text-slate-700">Select Time</label>
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Select Time</label>
                   <input 
                     type="time"
                     value={bookingData.time}
                     onChange={(e) => {
                       setBookingData({...bookingData, time: e.target.value});
                     }}
-                    className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none"
+                    className={`w-full rounded-lg border px-4 py-3 focus:border-teal-500 focus:outline-none ${
+                      darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-slate-200 text-slate-900"
+                    }`}
                   />
                 </>
               ) : (
-                <div className="rounded-lg border border-dashed border-slate-300 p-4 bg-slate-50 text-center h-full flex items-center justify-center">
-                  <p className="text-sm text-slate-500">Select a doctor first</p>
+                <div className={`flex h-full items-center justify-center rounded-lg border border-dashed p-4 text-center ${
+                  darkMode ? "border-slate-700 bg-slate-800" : "border-slate-300 bg-slate-50"
+                }`}>
+                  <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Select a doctor first</p>
                 </div>
               )}
             </div>
@@ -1518,11 +1596,13 @@ export default function App() {
           {/* Appointment Type and Submit */}
           <form onSubmit={handleBookAppointment} className="space-y-4">
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">Appointment Type</label>
+              <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Appointment Type</label>
               <select 
                 value={bookingData.type}
                 onChange={(e) => setBookingData({...bookingData, type: e.target.value})}
-                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-900 focus:border-teal-500 focus:outline-none">
+                className={`w-full rounded-lg border px-4 py-3 focus:border-teal-500 focus:outline-none ${
+                  darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-slate-200 text-slate-900"
+                }`}>
                 <option>Consultation</option>
                 <option>Follow-up</option>
                 <option>Checkup</option>
@@ -1547,7 +1627,9 @@ export default function App() {
                 setSelectedSlot(null);
                 setBookingSpecialty("");
                 setMessage("");
-              }} className="flex-1 rounded-lg border border-slate-200 px-4 py-3 text-slate-700 hover:bg-slate-50 transition">Cancel</button>
+              }} className={`flex-1 rounded-lg border px-4 py-3 transition ${
+                darkMode ? "border-slate-700 text-slate-200 hover:bg-slate-800" : "border-slate-200 text-slate-700 hover:bg-slate-50"
+              }`}>Cancel</button>
             </div>
           </form>
         </div>
@@ -1555,24 +1637,24 @@ export default function App() {
 
       <div className="space-y-5">
         {appointments.length === 0 ? (
-          <p className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-slate-500">No appointments booked yet</p>
+          <p className={`rounded-2xl border p-6 text-center ${darkMode ? "border-slate-800 bg-slate-900 text-slate-400" : "border-slate-200 bg-white text-slate-500"}`}>No appointments booked yet</p>
         ) : (
           appointments.map((appointment) => (
             <div
               key={appointment.id}
-              className="pointer-events-auto rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm"
+              className={`pointer-events-auto rounded-[24px] border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}
             >
               <div className="flex flex-col gap-6 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex items-start gap-5">
-                  <div className="flex h-[68px] w-[68px] items-center justify-center rounded-full bg-slate-200">
-                    <Stethoscope size={24} className="text-slate-600" />
+                  <div className={`flex h-[68px] w-[68px] items-center justify-center rounded-full ${darkMode ? "bg-slate-800" : "bg-slate-200"}`}>
+                    <Stethoscope size={24} className={darkMode ? "text-slate-300" : "text-slate-600"} />
                   </div>
 
                   <div>
                     <h3 className="text-[20px] font-semibold">Doctor: {doctors.find((doc) => doc.id === appointment.doctor_id)?.name || `ID ${appointment.doctor_id}`}</h3>
-                    <p className="mt-1 text-[18px] text-slate-500">{appointment.type}</p>
+                    <p className={`mt-1 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{appointment.type}</p>
 
-                    <div className="mt-5 flex flex-wrap items-center gap-6 text-[18px] text-slate-500">
+                    <div className={`mt-5 flex flex-wrap items-center gap-6 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                       <div className="flex items-center gap-2">
                         <CalendarDays size={18} />
                         <span>{formatDate(appointment.date)}</span>
@@ -1604,7 +1686,9 @@ export default function App() {
                       <button 
                         type="button"
                         onClick={() => handleCancelAppointment(appointment.id)}
-                        className="pointer-events-auto cursor-pointer rounded-2xl border border-red-200 bg-white px-7 py-3 text-[18px] text-red-500 transition hover:bg-red-50 active:bg-red-100">
+                        className={`pointer-events-auto cursor-pointer rounded-2xl border px-7 py-3 text-[18px] text-red-500 transition ${
+                          darkMode ? "border-red-900 bg-slate-900 hover:bg-red-950/40 active:bg-red-950/60" : "border-red-200 bg-white hover:bg-red-50 active:bg-red-100"
+                        }`}>
                         Cancel
                       </button>
                     )}
@@ -1618,7 +1702,9 @@ export default function App() {
                           setSelectedDetailType("appointment");
                           setShowAppointmentDetails(true);
                         }}
-                        className="pointer-events-auto cursor-pointer rounded-2xl border border-slate-200 bg-white px-7 py-3 text-[18px] text-slate-700 transition hover:bg-slate-50 active:bg-slate-100">
+                        className={`pointer-events-auto cursor-pointer rounded-2xl border px-7 py-3 text-[18px] transition ${
+                          darkMode ? "border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700 active:bg-slate-700/80" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 active:bg-slate-100"
+                        }`}>
                         View Details
                       </button>
                     )}
@@ -1632,98 +1718,218 @@ export default function App() {
     </div>
   );
 
-  const renderMedicalRecordsPage = () => (
-    <div className="p-9">
-      <div className="mb-8 flex items-start justify-between">
-        <div>
-          <h2 className="text-[28px] font-bold">Medical Records</h2>
-          <p className="mt-2 text-[18px] text-slate-500">
-            View your diagnoses, summaries, and treatment history.
-          </p>
+  const renderMedicalRecordsPage = () => {
+    const normalizedMonthSearch = recordMonthSearch.trim().toLowerCase();
+    const filteredMedicalRecords = medicalRecords.filter((record) => {
+      if (!normalizedMonthSearch) return true;
+      if (!record.record_date) return false;
+
+      const monthName = new Date(record.record_date).toLocaleString("en-US", {
+        month: "long",
+      }).toLowerCase();
+
+      return monthName.includes(normalizedMonthSearch);
+    });
+
+    return (
+    <div className={`p-6 md:p-9 ${darkMode ? "bg-slate-900" : "bg-[radial-gradient(circle_at_top_left,_rgba(20,184,166,0.10),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.08),_transparent_24%)]"}`}>
+      <div className={`rounded-[32px] border p-6 shadow-sm backdrop-blur md:p-8 ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white/90"}`}>
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-teal-100 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-700">
+              <FileHeart size={16} />
+              Patient Record Center
+            </div>
+            <h2 className={`mt-5 text-[30px] font-bold tracking-tight md:text-[34px] ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
+              Medical Records
+            </h2>
+            <p className={`mt-3 max-w-2xl text-[17px] leading-7 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+              Review diagnoses, care summaries, treatment notes, and {patientPrescriptions.length} linked prescription{patientPrescriptions.length === 1 ? "" : "s"} in one organized place.
+            </p>
+          </div>
+
+          <button
+            onClick={downloadAllRecords}
+            className="inline-flex items-center justify-center gap-3 rounded-2xl bg-teal-600 px-6 py-4 text-base font-semibold text-white shadow-sm transition hover:bg-teal-700"
+          >
+            <FileText size={20} />
+            Download Records
+          </button>
         </div>
 
-        <button 
-          onClick={downloadAllRecords}
-          className="flex items-center gap-3 rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700 transition">
-          <FileText size={20} />
-          <span>Download Records</span>
-        </button>
+        <div className="mt-8 grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.9fr_0.9fr]">
+          <div className="rounded-[28px] bg-gradient-to-br from-teal-600 via-teal-700 to-emerald-700 p-6 text-white shadow-sm">
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-teal-50/90">Overview</p>
+            <div className="mt-6 flex items-end justify-between gap-4">
+              <div>
+                <p className="text-[44px] font-bold leading-none">{filteredMedicalRecords.length}</p>
+                <p className="mt-3 text-base text-teal-50/90">Records in your timeline</p>
+              </div>
+              <div className="rounded-2xl bg-white/15 p-4 text-white">
+                <ClipboardList size={28} />
+              </div>
+            </div>
+          </div>
+
+          <div className={`rounded-[28px] border p-6 ${darkMode ? "border-slate-800 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.20em] text-slate-400">Active</p>
+                <p className="mt-4 text-[38px] font-bold leading-none text-slate-900">
+                  {filteredMedicalRecords.filter((r) => r.status === "Active").length}
+                </p>
+                <p className="mt-3 text-sm text-slate-500">Conditions currently marked active</p>
+              </div>
+              <div className="rounded-2xl bg-amber-100 p-4 text-amber-700">
+                <Activity size={26} />
+              </div>
+            </div>
+          </div>
+
+          <div className={`rounded-[28px] border p-6 ${darkMode ? "border-slate-800 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.20em] text-slate-400">Latest Update</p>
+                <p className="mt-4 text-[26px] font-bold leading-tight text-slate-900">
+                  {filteredMedicalRecords.length > 0
+                    ? new Date(filteredMedicalRecords[0].record_date).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })
+                    : "N/A"}
+                </p>
+                <p className="mt-3 text-sm text-slate-500">Most recent record activity</p>
+              </div>
+              <div className="rounded-2xl bg-blue-100 p-4 text-blue-700">
+                <Clock3 size={26} />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-        <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[20px] text-slate-500">Total Records</p>
-              <p className="mt-3 text-[42px] font-bold">{medicalRecords.length}</p>
-            </div>
-            <div className="rounded-2xl bg-emerald-50 p-4 text-emerald-600">
-              <ClipboardList size={28} />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[20px] text-slate-500">Active Conditions</p>
-              <p className="mt-3 text-[42px] font-bold">{medicalRecords.filter(r => r.status === 'Active').length}</p>
-            </div>
-            <div className="rounded-2xl bg-teal-50 p-4 text-teal-600">
-              <Activity size={28} />
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-[20px] text-slate-500">Last Updated</p>
-              <p className="mt-3 text-[24px] font-bold">{getLastUpdatedDate()}</p>
-            </div>
-            <div className="rounded-2xl bg-blue-50 p-4 text-blue-600">
-              <Clock3 size={28} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-8 space-y-5">
+      <div className="mt-8">
         {medicalRecords.length === 0 ? (
-          <p className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-slate-500">No medical records found</p>
+          <div className={`rounded-[28px] border border-dashed px-6 py-16 text-center shadow-sm ${darkMode ? "border-slate-700 bg-slate-900" : "border-slate-300 bg-white"}`}>
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+              <FileText size={28} />
+            </div>
+            <h3 className="mt-5 text-[22px] font-semibold text-slate-900">No medical records yet</h3>
+            <p className="mt-3 text-base text-slate-500">
+              Once your doctor adds a consultation record, it will appear here with linked prescriptions and treatment details.
+            </p>
+          </div>
         ) : (
-          medicalRecords.map((record) => (
-            <div
-              key={record.id}
-              className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm"
-            >
-              <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-                <div className="flex items-start gap-5">
-                  <div className="flex h-[68px] w-[68px] items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
-                    <FileText size={28} />
-                  </div>
+          <div className="space-y-6">
+            <div className={`rounded-[24px] border p-5 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Search by Month</p>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Type a month like April, May, or June to show only records from that month.
+                  </p>
+                </div>
+                <div className={`flex w-full max-w-md items-center gap-3 rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                  <Search size={18} className="text-slate-400" />
+                  <input
+                    type="text"
+                    value={recordMonthSearch}
+                    onChange={(e) => setRecordMonthSearch(e.target.value)}
+                    placeholder="Search month, e.g. April"
+                    className={`w-full bg-transparent text-sm outline-none placeholder:text-slate-400 ${darkMode ? "text-slate-100" : "text-slate-700"}`}
+                  />
+                </div>
+              </div>
+            </div>
 
-                  <div>
-                    <h3 className="text-[22px] font-semibold text-slate-900">
-                      {record.title}
-                    </h3>
-
-                    <p className="mt-2 text-[18px] text-slate-500">
-                      {record.treatment}
-                    </p>
-
-                    <div className="mt-5 flex flex-wrap items-center gap-6 text-[17px] text-slate-500">
-                      <div className="flex items-center gap-2">
-                        <UserCircle size={18} />
-                        <span>Dr. {doctors.find((doc) => doc.id === record.doctor_id)?.name || `ID ${record.doctor_id}`}</span>
+            {filteredMedicalRecords.length === 0 ? (
+              <div className={`rounded-[28px] border border-dashed px-6 py-16 text-center shadow-sm ${darkMode ? "border-slate-700 bg-slate-900" : "border-slate-300 bg-white"}`}>
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+                  <Search size={28} />
+                </div>
+                <h3 className="mt-5 text-[22px] font-semibold text-slate-900">No records found for that month</h3>
+                <p className="mt-3 text-base text-slate-500">
+                  Try another month name or clear the search to view all medical records.
+                </p>
+              </div>
+            ) : (
+            filteredMedicalRecords.map((record, index) => (
+              <div
+                key={record.id}
+                className={`overflow-hidden rounded-[30px] border shadow-sm transition hover:shadow-md ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}
+              >
+                <div className={`border-b px-6 py-5 md:px-8 ${darkMode ? "border-slate-800 bg-slate-800/70" : "border-slate-100 bg-slate-50/80"}`}>
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+                        <FileText size={24} />
                       </div>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+                            Record {String(index + 1).padStart(2, "0")}
+                          </p>
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+                              record.status === "Active"
+                                ? "bg-amber-100 text-amber-700"
+                                : record.status === "Completed"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-blue-100 text-blue-700"
+                            }`}
+                          >
+                            {record.status}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
 
-                      <div className="flex items-center gap-2">
-                        <CalendarDays size={18} />
-                        <span>
+                    <div className="flex flex-wrap gap-3 xl:justify-end">
+                      <button
+                        onClick={() => {
+                          setSelectedDetail(record);
+                          setSelectedDetailType("record");
+                          setShowAppointmentDetails(true);
+                        }}
+                        className={`rounded-2xl border px-5 py-3 text-sm font-semibold transition ${darkMode ? "border-slate-700 bg-slate-800 text-slate-100 hover:bg-slate-700" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
+                      >
+                        View Details
+                      </button>
+                      <button
+                        onClick={() => downloadMedicalRecord(record)}
+                        className="rounded-2xl bg-teal-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-teal-700"
+                      >
+                        Download
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="px-6 py-6 md:px-8">
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                    <div className={`rounded-2xl border p-4 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Doctor</p>
+                      <div className="mt-3 flex items-center gap-3">
+                        <div className="rounded-xl bg-slate-100 p-2 text-slate-500">
+                          <UserCircle size={18} />
+                        </div>
+                        <p className="text-base font-semibold text-slate-800">
+                          Dr. {doctors.find((doc) => doc.id === record.doctor_id)?.name || `ID ${record.doctor_id}`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className={`rounded-2xl border p-4 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Recorded On</p>
+                      <div className="mt-3 flex items-center gap-3">
+                        <div className="rounded-xl bg-slate-100 p-2 text-slate-500">
+                          <CalendarRange size={18} />
+                        </div>
+                        <p className="text-base font-semibold text-slate-800">
                           {record.record_date
                             ? new Date(record.record_date).toLocaleString("en-US", {
-                                month: "short",
+                                month: "long",
                                 day: "numeric",
                                 year: "numeric",
                                 hour: "2-digit",
@@ -1731,56 +1937,109 @@ export default function App() {
                                 hour12: true,
                               })
                             : "N/A"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className={`rounded-2xl border p-4 ${darkMode ? "border-slate-800 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Prescriptions</p>
+                          <p className="mt-2 text-base font-semibold text-slate-900">Medication Plan</p>
+                        </div>
+                        <span className="rounded-full bg-teal-100 px-3 py-1 text-sm font-semibold text-teal-700">
+                          {(record.linkedPrescriptions || []).length}
                         </span>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="flex flex-col items-start gap-4 xl:items-end">
-                  <span
-                    className={`rounded-full px-4 py-1 text-sm font-medium ${
-                      record.status === "Active"
-                        ? "bg-amber-100 text-amber-700"
-                        : record.status === "Completed"
-                        ? "bg-emerald-100 text-emerald-700"
-                        : "bg-blue-100 text-blue-700"
-                    }`}
-                  >
-                    {record.status}
-                  </span>
+                  <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div className={`rounded-2xl border p-5 ${darkMode ? "border-slate-800 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Diagnosis</p>
+                      <p className="mt-3 text-[15px] leading-7 text-slate-600">
+                        {record.diagnosis || "No diagnosis noted for this medical record."}
+                      </p>
+                    </div>
 
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      onClick={() => {
-                        setSelectedDetail(record);
-                        setSelectedDetailType("record");
-                        setShowAppointmentDetails(true);
-                      }}
-                      className="rounded-2xl border border-slate-200 px-7 py-3 text-[18px] text-slate-700 hover:bg-slate-50">
-                      View Details
-                    </button>
-                    <button
-                      onClick={() => downloadMedicalRecord(record)}
-                      className="rounded-2xl border border-slate-200 px-7 py-3 text-[18px] text-teal-600 hover:bg-teal-50">
-                      Download
-                    </button>
+                    <div className={`rounded-2xl border p-5 ${darkMode ? "border-slate-800 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Treatment</p>
+                      <p className="mt-3 text-[15px] leading-7 text-slate-600">
+                        {record.treatment || "No treatment details available for this medical record."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-[26px] border border-slate-200 bg-slate-50/70 p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Prescriptions</p>
+                        <h4 className="mt-2 text-[20px] font-semibold text-slate-900">Medication Plan</h4>
+                      </div>
+                      <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-600 shadow-sm">
+                        {(record.linkedPrescriptions || []).length} total
+                      </span>
+                    </div>
+
+                    {(record.linkedPrescriptions || []).length === 0 ? (
+                      <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-sm leading-6 text-slate-500">
+                        No prescription has been linked to this record yet.
+                      </div>
+                    ) : (
+                      <div className="mt-5 grid gap-3 lg:grid-cols-2">
+                        {(record.linkedPrescriptions || []).slice(0, 2).map((prescription) => (
+                          <div key={prescription.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-base font-semibold text-slate-900">
+                                  {prescription.medication || "Medication"}
+                                </p>
+                                <p className="mt-1 text-sm text-slate-500">
+                                  {prescription.dosage || "Dosage not set"}
+                                </p>
+                              </div>
+                              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Prescription
+                              </span>
+                            </div>
+                            <div className="mt-4 flex flex-wrap gap-2 text-xs font-medium text-slate-600">
+                              <span className="rounded-full bg-teal-50 px-3 py-1 text-teal-700">
+                                {prescription.frequency || "No frequency"}
+                              </span>
+                              <span className="rounded-full bg-blue-50 px-3 py-1 text-blue-700">
+                                {prescription.duration || "No duration"}
+                              </span>
+                            </div>
+                            <p className="mt-4 text-sm leading-6 text-slate-500">
+                              {prescription.instructions || "No instructions provided"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {(record.linkedPrescriptions || []).length > 2 && (
+                      <p className="mt-4 text-sm font-medium text-slate-500">
+                        +{record.linkedPrescriptions.length - 2} more prescriptions available in details
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
-            </div>
-          ))
+            )))}
+          </div>
         )}
       </div>
     </div>
   );
+  };
 
   const renderProfilePage = () => (
     <div className="p-9">
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-[28px] font-bold">My Profile</h2>
-          <p className="mt-2 text-[18px] text-slate-500">Manage your personal information.</p>
+          <p className={`mt-2 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Manage your personal information.</p>
         </div>
 
         <button
@@ -1807,7 +2066,7 @@ export default function App() {
       </div>
 
       <div className="space-y-6">
-        <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
+        <div className={`rounded-[32px] border p-8 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
           <div className="flex flex-col gap-8 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center gap-5">
               <div className="flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-teal-300 to-teal-600">
@@ -1815,11 +2074,11 @@ export default function App() {
               </div>
               <div>
                 <h3 className="text-[28px] font-semibold">{loggedInUser.name}</h3>
-                <p className="mt-1 text-[17px] text-slate-500">{loggedInUser.email}</p>
+                <p className={`mt-1 text-[17px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{loggedInUser.email}</p>
                 <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700">{loggedInUser.age ? `${loggedInUser.age} years` : 'Age not set'}</span>
-                  <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700">{loggedInUser.gender || 'Gender not set'}</span>
-                  <span className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700">{loggedInUser.bloodGroup || 'Blood group not set'}</span>
+                  <span className={`rounded-full px-4 py-2 text-sm font-medium ${darkMode ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-700"}`}>{loggedInUser.age ? `${loggedInUser.age} years` : 'Age not set'}</span>
+                  <span className={`rounded-full px-4 py-2 text-sm font-medium ${darkMode ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-700"}`}>{loggedInUser.gender || 'Gender not set'}</span>
+                  <span className={`rounded-full px-4 py-2 text-sm font-medium ${darkMode ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-700"}`}>{loggedInUser.bloodGroup || 'Blood group not set'}</span>
                 </div>
               </div>
             </div>
@@ -1827,7 +2086,7 @@ export default function App() {
               <span className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-700">
                 <Phone size={16} /> {loggedInUser.phone || 'No phone'}
               </span>
-              <span className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+              <span className={`inline-flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold ${darkMode ? "bg-slate-800 text-slate-200" : "bg-slate-50 text-slate-700"}`}>
                 Patient ID: PT-{loggedInUser.id}
               </span>
             </div>
@@ -1835,25 +2094,25 @@ export default function App() {
         </div>
 
         <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-sm text-slate-500">Blood Group</p>
-            <p className="mt-3 text-[28px] font-semibold text-slate-900">{loggedInUser.bloodGroup || 'N/A'}</p>
+          <div className={`rounded-[28px] border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+            <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Blood Group</p>
+            <p className={`mt-3 text-[28px] font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.bloodGroup || 'N/A'}</p>
           </div>
-          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-sm text-slate-500">Age</p>
-            <p className="mt-3 text-[28px] font-semibold text-slate-900">{loggedInUser.age || 'N/A'}</p>
+          <div className={`rounded-[28px] border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+            <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Age</p>
+            <p className={`mt-3 text-[28px] font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.age || 'N/A'}</p>
           </div>
-          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-sm text-slate-500">Gender</p>
-            <p className="mt-3 text-[28px] font-semibold text-slate-900">{loggedInUser.gender || 'N/A'}</p>
+          <div className={`rounded-[28px] border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+            <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Gender</p>
+            <p className={`mt-3 text-[28px] font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.gender || 'N/A'}</p>
           </div>
         </div>
 
-        <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
+        <div className={`rounded-[32px] border p-8 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
           <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <h3 className="text-[22px] font-bold">Personal Information</h3>
-              <p className="mt-2 text-slate-500">Update your contact and emergency details.</p>
+              <p className={`mt-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Update your contact and emergency details.</p>
             </div>
           </div>
 
@@ -2328,18 +2587,18 @@ export default function App() {
             
             // Color palette for variety
             const colors = [
-              'from-blue-500 to-blue-300',
-              'from-teal-500 to-teal-300',
-              'from-emerald-500 to-emerald-300',
-              'from-cyan-500 to-cyan-300',
-              'from-indigo-500 to-indigo-300',
-              'from-purple-500 to-purple-300',
-              'from-pink-500 to-pink-300',
-              'from-rose-500 to-rose-300',
-              'from-amber-500 to-amber-300',
-              'from-orange-500 to-orange-300',
-              'from-lime-500 to-lime-300',
-              'from-sky-500 to-sky-300',
+              'from-teal-600 to-emerald-400',
+              'from-emerald-600 to-teal-300',
+              'from-cyan-600 to-teal-300',
+              'from-teal-500 to-cyan-300',
+              'from-emerald-500 to-lime-300',
+              'from-green-600 to-emerald-300',
+              'from-teal-700 to-emerald-500',
+              'from-cyan-500 to-emerald-300',
+              'from-teal-500 to-green-300',
+              'from-emerald-600 to-lime-400',
+              'from-cyan-600 to-emerald-400',
+              'from-teal-600 to-green-400',
             ];
             
             return (
@@ -2450,20 +2709,20 @@ export default function App() {
           <div>
             <p className="text-sm text-slate-600">{title}</p>
             <p className="mt-2 text-[32px] font-bold text-slate-900">{value}</p>
-            <p className={`mt-2 text-sm font-medium ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+            <p className={`mt-2 text-sm font-medium ${isPositive ? 'text-teal-600' : 'text-rose-600'}`}>
               {change} vs last month
             </p>
           </div>
           <div className={`p-3 rounded-lg ${
-            title.includes('Patients') ? 'bg-blue-100' :
-            title.includes('Doctors') ? 'bg-purple-100' :
-            title.includes('Appointments') ? 'bg-orange-100' :
+            title.includes('Patients') ? 'bg-teal-100' :
+            title.includes('Doctors') ? 'bg-emerald-100' :
+            title.includes('Appointments') ? 'bg-cyan-100' :
             'bg-teal-100'
           }`}>
             <IconComponent size={28} className={
-              title.includes('Patients') ? 'text-blue-600' :
-              title.includes('Doctors') ? 'text-purple-600' :
-              title.includes('Appointments') ? 'text-orange-600' :
+              title.includes('Patients') ? 'text-teal-600' :
+              title.includes('Doctors') ? 'text-emerald-600' :
+              title.includes('Appointments') ? 'text-cyan-600' :
               'text-teal-600'
             } />
           </div>
@@ -3619,7 +3878,7 @@ export default function App() {
                 <button 
                   onClick={() => setDarkMode(!darkMode)}
                   className={`rounded-lg p-2 transition-colors ${darkMode ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'text-slate-600 hover:bg-slate-100'}`}>
-                  <Moon size={20} />
+                  {darkMode ? <Sun size={20} /> : <Moon size={20} />}
                 </button>
                 
                 <div className="relative">
@@ -3654,59 +3913,69 @@ export default function App() {
                         ) : notifications.length > 0 ? (
                           notifications.map(notif => {
                             // Get notification styling based on type
-                            let notificationIcon = "📌";
+                            let NotificationIcon = Bell;
                             let bgColor = darkMode ? 'bg-blue-900' : 'bg-blue-50';
                             let borderColor = darkMode ? 'border-slate-700' : 'border-slate-100';
                             
                             switch (notif.type) {
                               case "appointment_status":
-                                notificationIcon = "?�";
+                                NotificationIcon = CalendarDays;
                                 bgColor = darkMode ? "bg-green-900/60" : "bg-green-50/60";
                                 borderColor = darkMode ? "border-green-700" : "border-green-100";
                                 break;
                               case "medical_record":
-                                notificationIcon = "📋";
+                                NotificationIcon = FileText;
                                 bgColor = darkMode ? "bg-blue-900/60" : "bg-blue-50/60";
                                 borderColor = darkMode ? "border-blue-700" : "border-blue-100";
                                 break;
                               case "approval":
-                                notificationIcon = "👍";
+                                NotificationIcon = Info;
                                 bgColor = darkMode ? "bg-purple-900/60" : "bg-purple-50/60";
                                 borderColor = darkMode ? "border-purple-700" : "border-purple-100";
                                 break;
                               case "appointment_reminder":
-                                notificationIcon = "⏰";
+                                NotificationIcon = Clock3;
                                 bgColor = darkMode ? "bg-yellow-900/60" : "bg-yellow-50/60";
                                 borderColor = darkMode ? "border-yellow-700" : "border-yellow-100";
                                 break;
                               case "profile_update":
-                                notificationIcon = "👤";
+                                NotificationIcon = User;
                                 bgColor = darkMode ? "bg-cyan-900/60" : "bg-cyan-50/60";
                                 borderColor = darkMode ? "border-cyan-700" : "border-cyan-100";
                                 break;
                               case "system":
-                                notificationIcon = "⚙️";
+                                NotificationIcon = Settings;
                                 bgColor = darkMode ? "bg-slate-800/60" : "bg-slate-50/60";
                                 borderColor = darkMode ? "border-slate-700" : "border-slate-100";
                                 break;
-                              default:
-                                notificationIcon = "🔔";
                             }
+                            const unreadHighlightClasses = darkMode
+                              ? "bg-blue-950/80 border-l-4 border-l-blue-400 shadow-[0_12px_28px_rgba(15,23,42,0.34)]"
+                              : "bg-blue-100 border-l-4 border-l-blue-500 shadow-[0_12px_28px_rgba(37,99,235,0.20)]";
                             
                             return (
                               <div 
                                 key={notif.id}
                                 onClick={() => !notif.is_read && markNotificationAsRead(notif.id)}
                                 className={`cursor-pointer border-b p-4 transition-colors ${
-                                  !notif.is_read ? (`${bgColor} hover:opacity-80`) : (darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-50')
+                                  !notif.is_read
+                                    ? `${unreadHighlightClasses} hover:opacity-95`
+                                    : darkMode
+                                    ? `hover:bg-slate-700 ${bgColor}`
+                                    : `hover:bg-slate-50 ${bgColor}`
                                 } ${borderColor}`}>
                                 <div className="flex items-start justify-between">
-                                  <div className="flex-1">
+                                  <div className="flex flex-1 items-start gap-3">
+                                    <div className={`mt-0.5 rounded-xl p-2 ${darkMode ? 'bg-slate-800/70 text-slate-200' : 'bg-white/80 text-slate-600'}`}>
+                                      <NotificationIcon size={16} />
+                                    </div>
+                                    <div className="flex-1">
                                     <p className={`text-sm font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{notif.title}</p>
                                     <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{notif.message}</p>
                                     <p className={`mt-2 text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
                                       {new Date(notif.created_at).toLocaleString()}
                                     </p>
+                                    </div>
                                   </div>
                                   <div className="flex items-center gap-2 ml-2">
                                     {!notif.is_read && (
@@ -3718,7 +3987,7 @@ export default function App() {
                                         deleteNotification(notif.id);
                                       }}
                                       className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>
-                                      ?
+                                      <X size={12} />
                                     </button>
                                   </div>
                                 </div>
@@ -3907,9 +4176,9 @@ export default function App() {
                   <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Record Information</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Title</label>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Diagnosis</label>
                       <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
-                        {selectedDetail.title || "N/A"}
+                        {selectedDetail.diagnosis || selectedDetail.title || "N/A"}
                       </p>
                     </div>
 
@@ -3965,6 +4234,60 @@ export default function App() {
                     <p className={`text-base mt-3 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>{selectedDetail.treatment}</p>
                   </div>
                 )}
+
+                <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} pt-6`}>
+                  <div className="flex items-center justify-between gap-4">
+                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Prescriptions</label>
+                    <span className={`rounded-full px-3 py-1 text-sm font-medium ${
+                      darkMode ? 'bg-teal-900/40 text-teal-200' : 'bg-teal-100 text-teal-700'
+                    }`}>
+                      {(selectedDetail.linkedPrescriptions || []).length}
+                    </span>
+                  </div>
+
+                  {(selectedDetail.linkedPrescriptions || []).length === 0 ? (
+                    <p className={`text-base mt-3 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                      No prescription linked to this record yet.
+                    </p>
+                  ) : (
+                    <div className="mt-4 space-y-4">
+                      {(selectedDetail.linkedPrescriptions || []).map((prescription) => (
+                        <div
+                          key={prescription.id}
+                          className={`rounded-2xl border p-4 ${
+                            darkMode ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div>
+                              <p className={`text-base font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                                {prescription.medication || "Medication"}
+                              </p>
+                              <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                                {prescription.dosage || "Dosage not set"}
+                              </p>
+                              <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                                {prescription.frequency || "No frequency set"} • {prescription.duration || "No duration set"}
+                              </p>
+                            </div>
+                            <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                              {prescription.prescribed_date
+                                ? new Date(prescription.prescribed_date).toLocaleDateString("en-US", {
+                                    month: "long",
+                                    day: "numeric",
+                                    year: "numeric",
+                                  })
+                                : "N/A"}
+                            </p>
+                          </div>
+                          <p className={`mt-3 text-sm ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                            {prescription.instructions || "No instructions provided"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 {/* Record ID */}
                 <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} pt-6`}>
@@ -4295,7 +4618,7 @@ export default function App() {
                 <button 
                   onClick={() => setDarkMode(!darkMode)}
                   className={`rounded-lg p-2 transition-colors ${darkMode ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'text-slate-600 hover:bg-slate-100'}`}>
-                  <Moon size={20} />
+                  {darkMode ? <Sun size={20} /> : <Moon size={20} />}
                 </button>
                 
                 <div className="relative">
@@ -4330,59 +4653,69 @@ export default function App() {
                         ) : notifications.length > 0 ? (
                           notifications.map(notif => {
                             // Get notification styling based on type
-                            let notificationIcon = "📌";
+                            let NotificationIcon = Bell;
                             let bgColor = darkMode ? 'bg-blue-900' : 'bg-blue-50';
                             let borderColor = darkMode ? 'border-slate-700' : 'border-slate-100';
                             
                             switch (notif.type) {
                               case "appointment_status":
-                                notificationIcon = "?�";
+                                NotificationIcon = CalendarDays;
                                 bgColor = darkMode ? "bg-green-900/60" : "bg-green-50/60";
                                 borderColor = darkMode ? "border-green-700" : "border-green-100";
                                 break;
                               case "medical_record":
-                                notificationIcon = "📋";
+                                NotificationIcon = FileText;
                                 bgColor = darkMode ? "bg-blue-900/60" : "bg-blue-50/60";
                                 borderColor = darkMode ? "border-blue-700" : "border-blue-100";
                                 break;
                               case "approval":
-                                notificationIcon = "👍";
+                                NotificationIcon = Info;
                                 bgColor = darkMode ? "bg-purple-900/60" : "bg-purple-50/60";
                                 borderColor = darkMode ? "border-purple-700" : "border-purple-100";
                                 break;
                               case "appointment_reminder":
-                                notificationIcon = "⏰";
+                                NotificationIcon = Clock3;
                                 bgColor = darkMode ? "bg-yellow-900/60" : "bg-yellow-50/60";
                                 borderColor = darkMode ? "border-yellow-700" : "border-yellow-100";
                                 break;
                               case "profile_update":
-                                notificationIcon = "👤";
+                                NotificationIcon = User;
                                 bgColor = darkMode ? "bg-cyan-900/60" : "bg-cyan-50/60";
                                 borderColor = darkMode ? "border-cyan-700" : "border-cyan-100";
                                 break;
                               case "system":
-                                notificationIcon = "⚙️";
+                                NotificationIcon = Settings;
                                 bgColor = darkMode ? "bg-slate-800/60" : "bg-slate-50/60";
                                 borderColor = darkMode ? "border-slate-700" : "border-slate-100";
                                 break;
-                              default:
-                                notificationIcon = "🔔";
                             }
+                            const unreadHighlightClasses = darkMode
+                              ? "bg-blue-950/80 border-l-4 border-l-blue-400 shadow-[0_12px_28px_rgba(15,23,42,0.34)]"
+                              : "bg-blue-100 border-l-4 border-l-blue-500 shadow-[0_12px_28px_rgba(37,99,235,0.20)]";
                             
                             return (
                               <div 
                                 key={notif.id}
                                 onClick={() => !notif.is_read && markNotificationAsRead(notif.id)}
                                 className={`cursor-pointer border-b p-4 transition-colors ${
-                                  !notif.is_read ? (`${bgColor} hover:opacity-80`) : (darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-50')
+                                  !notif.is_read
+                                    ? `${unreadHighlightClasses} hover:opacity-95`
+                                    : darkMode
+                                    ? `hover:bg-slate-700 ${bgColor}`
+                                    : `hover:bg-slate-50 ${bgColor}`
                                 } ${borderColor}`}>
                                 <div className="flex items-start justify-between">
-                                  <div className="flex-1">
+                                  <div className="flex flex-1 items-start gap-3">
+                                    <div className={`mt-0.5 rounded-xl p-2 ${darkMode ? 'bg-slate-800/70 text-slate-200' : 'bg-white/80 text-slate-600'}`}>
+                                      <NotificationIcon size={16} />
+                                    </div>
+                                    <div className="flex-1">
                                     <p className={`text-sm font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{notif.title}</p>
                                     <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{notif.message}</p>
                                     <p className={`mt-2 text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
                                       {new Date(notif.created_at).toLocaleString()}
                                     </p>
+                                    </div>
                                   </div>
                                   <div className="flex items-center gap-2 ml-2">
                                     {!notif.is_read && (
@@ -4394,7 +4727,7 @@ export default function App() {
                                         deleteNotification(notif.id);
                                       }}
                                       className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>
-                                      ?
+                                      <X size={12} />
                                     </button>
                                   </div>
                                 </div>

@@ -2115,15 +2115,25 @@ app.get("/admin/appointments", authenticateToken, authorizeRoles("admin"), (req,
 
 /* CREATE PRESCRIPTION */
 app.post("/prescriptions", (req, res) => {
-  const { appointmentId, patientId, doctorId, medication, dosage, instructions, prescribed_date } = req.body;
+  const {
+    appointmentId,
+    patientId,
+    doctorId,
+    medication,
+    dosage,
+    frequency,
+    duration,
+    instructions,
+    prescribed_date,
+  } = req.body;
   
-  if (!appointmentId || !patientId || !doctorId || !medication || !dosage) {
+  if (!appointmentId || !patientId || !doctorId || !medication || !dosage || !frequency || !duration) {
     return res.status(400).json({ message: "❌ Please fill all required fields" });
   }
   
-  const sql = "INSERT INTO prescriptions (appointment_id, patient_id, doctor_id, medication, dosage, instructions, prescribed_date) VALUES (?, ?, ?, ?, ?, ?, ?)";
+  const sql = "INSERT INTO prescriptions (appointment_id, patient_id, doctor_id, medication, dosage, frequency, duration, instructions, prescribed_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
   
-  db.query(sql, [appointmentId, patientId, doctorId, medication, dosage, instructions || "", prescribed_date || new Date()], (err) => {
+  db.query(sql, [appointmentId, patientId, doctorId, medication, dosage, frequency, duration, instructions || "", prescribed_date || new Date()], (err) => {
     if (err) {
       return res.status(500).json({ message: "❌ Failed to create prescription" });
     }
@@ -2197,9 +2207,9 @@ app.get("/doctor/prescriptions", authenticateToken, authorizeRoles("doctor"), (r
 /* UPDATE PRESCRIPTION */
 app.patch("/prescriptions/:prescriptionId", (req, res) => {
   const { prescriptionId } = req.params;
-  const { medication, dosage, instructions } = req.body;
+  const { medication, dosage, frequency, duration, instructions } = req.body;
   
-  if (!medication && !dosage && !instructions) {
+  if (!medication && !dosage && !frequency && !duration && !instructions) {
     return res.status(400).json({ message: "❌ No fields to update" });
   }
   
@@ -2213,6 +2223,14 @@ app.patch("/prescriptions/:prescriptionId", (req, res) => {
   if (dosage) {
     updateFields.push("dosage = ?");
     params.push(dosage);
+  }
+  if (frequency) {
+    updateFields.push("frequency = ?");
+    params.push(frequency);
+  }
+  if (duration) {
+    updateFields.push("duration = ?");
+    params.push(duration);
   }
   if (instructions) {
     updateFields.push("instructions = ?");
@@ -2338,8 +2356,15 @@ app.get("/notifications/:userId/unread-count", authenticateToken, (req, res) => 
 });
 
 /* NOTIFICATIONS - CREATE NOTIFICATION */
-app.post("/notifications", authenticateToken, authorizeRoles("admin"), (req, res) => {
-  const { userId, title, message, type = "system", relatedEntityId = null } = req.body;
+app.post("/notifications", authenticateToken, authorizeRoles("admin", "doctor"), (req, res) => {
+  const {
+    userId,
+    title,
+    message,
+    type = "system",
+    relatedEntityId = null,
+    relatedId = null,
+  } = req.body;
   
   if (!userId || !title || !message) {
     return res.status(400).json({ message: "❌ Missing required fields: userId, title, message" });
@@ -2350,7 +2375,7 @@ app.post("/notifications", authenticateToken, authorizeRoles("admin"), (req, res
     VALUES (?, ?, ?, ?, ?)
   `;
   
-  db.query(sql, [userId, title, message, type, relatedEntityId], (err, result) => {
+  db.query(sql, [userId, title, message, type, relatedEntityId || relatedId], (err, result) => {
     if (err) {
       console.error("Error creating notification:", err);
       return res.status(500).json({ message: "❌ Failed to create notification" });
