@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS medical_records (
   diagnosis TEXT,
   treatment TEXT,
   record_date DATE NOT NULL,
-  status ENUM('Draft', 'Active', 'Archived', 'Reviewed') DEFAULT 'Active',
+  status ENUM('Draft', 'Active', 'Archived', 'Reviewed', 'Completed') DEFAULT 'Active',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (patient_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 -- Prescriptions Table
 CREATE TABLE IF NOT EXISTS prescriptions (
   id INT PRIMARY KEY AUTO_INCREMENT,
-  appointment_id INT NOT NULL,
+  appointment_id INT NULL,
+  medical_record_id INT NULL,
   patient_id INT NOT NULL,
   doctor_id INT NOT NULL,
   medication VARCHAR(255) NOT NULL,
@@ -73,6 +74,7 @@ CREATE TABLE IF NOT EXISTS prescriptions (
   prescribed_date DATE NOT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE,
+  FOREIGN KEY (medical_record_id) REFERENCES medical_records(id) ON DELETE SET NULL,
   FOREIGN KEY (patient_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (doctor_id) REFERENCES users(id) ON DELETE CASCADE
 );

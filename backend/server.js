@@ -2,7 +2,6 @@ require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
-const crypto = require("crypto");
 
 const db = require("./config/db");
 const { signToken, authenticateToken, authorizeRoles } = require("./middleware/auth");
@@ -238,6 +237,70 @@ const initializeSchema = () => {
         });
       });
     }
+
+    // Ensure prescriptions table supports medical-record linking
+    await new Promise((resolve) => {
+      const sql = "ALTER TABLE prescriptions MODIFY appointment_id INT NULL";
+      db.query(sql, (err) => {
+        if (err) {
+          console.log(`  ℹ️  prescriptions.appointment_id: ${err.message.substring(0, 60)}`);
+        } else {
+          console.log("  ✅ prescriptions.appointment_id changed to nullable");
+        }
+        resolve();
+      });
+    });
+
+    await new Promise((resolve) => {
+      const sql = "ALTER TABLE prescriptions ADD COLUMN medical_record_id INT NULL AFTER appointment_id";
+      db.query(sql, (err) => {
+        if (err) {
+          if (err.message.includes("Duplicate column") || err.message.includes("already exists")) {
+            console.log("  ℹ️  Column medical_record_id already exists in prescriptions");
+          } else {
+            console.log(`  ⚠️  prescriptions.medical_record_id: ${err.message.substring(0, 60)}`);
+          }
+        } else {
+          console.log("  ✅ Column medical_record_id added to prescriptions");
+        }
+        resolve();
+      });
+    });
+
+    await new Promise((resolve) => {
+      const sql =
+        "ALTER TABLE prescriptions ADD CONSTRAINT fk_prescriptions_medical_record FOREIGN KEY (medical_record_id) REFERENCES medical_records(id) ON DELETE SET NULL";
+      db.query(sql, (err) => {
+        if (err) {
+          if (
+            err.message.includes("Duplicate key") ||
+            err.message.includes("already exists") ||
+            err.message.includes("errno: 121")
+          ) {
+            console.log("  ℹ️  Foreign key fk_prescriptions_medical_record already exists");
+          } else {
+            console.log(`  ⚠️  prescriptions FK medical_record_id: ${err.message.substring(0, 60)}`);
+          }
+        } else {
+          console.log("  ✅ Foreign key for prescriptions.medical_record_id created");
+        }
+        resolve();
+      });
+    });
+
+    // Ensure medical_records status supports "Completed"
+    await new Promise((resolve) => {
+      const sql =
+        "ALTER TABLE medical_records MODIFY status ENUM('Draft', 'Active', 'Archived', 'Reviewed', 'Completed') DEFAULT 'Active'";
+      db.query(sql, (err) => {
+        if (err) {
+          console.log(`  ⚠️  medical_records.status enum: ${err.message.substring(0, 60)}`);
+        } else {
+          console.log("  ✅ medical_records.status enum updated with Completed");
+        }
+        resolve();
+      });
+    });
 
     // Create available_slots table
     await new Promise((resolve) => {
@@ -480,6 +543,57 @@ const generateMedicalRecordNotification = (recordId, patientId, doctorId, action
     db.query(sql, [patientId, title, message, "medical_record", recordId], (err) => {
       if (err) console.log(`⚠️  Could not create medical record notification: ${err.message}`);
       else console.log(`✅ Medical record ${action} notification created`);
+    });
+  });
+};
+
+/* HELPER FUNCTION: Generate prescription notification */
+const generatePrescriptionNotification = (
+  prescriptionId,
+  patientId,
+  doctorId,
+  medication,
+  done = () => {}
+) => {
+  db.query("SELECT name FROM users WHERE id = ?", [doctorId], (err, results) => {
+    if (err || !results.length) {
+      if (err) console.log(`⚠️  Could not fetch doctor for prescription notification: ${err.message}`);
+      done(err || new Error("Doctor not found"));
+      return;
+    }
+
+    const doctorName = results[0].name;
+    const patientTitle = "Prescription Added";
+    const patientMessage = `Dr. ${doctorName} prescribed you ${medication || "a medicine"}`;
+    const doctorTitle = "Prescription Sent";
+    const sql = `
+      INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+      VALUES (?, ?, ?, ?, ?)
+    `;
+
+    db.query(sql, [patientId, patientTitle, patientMessage, "prescription", prescriptionId], (notifyErr) => {
+      if (notifyErr) {
+        console.log(`⚠️  Could not create patient prescription notification: ${notifyErr.message}`);
+        done(notifyErr);
+      } else {
+        console.log("✅ Patient prescription notification created");
+        done(null);
+      }
+    });
+
+    db.query("SELECT name FROM users WHERE id = ?", [patientId], (patientErr, patientResults) => {
+      const patientName = !patientErr && patientResults && patientResults.length
+        ? patientResults[0].name
+        : `patient #${patientId}`;
+      const doctorMessage = `You prescribed ${medication || "a medicine"} to ${patientName}`;
+
+      db.query(sql, [doctorId, doctorTitle, doctorMessage, "prescription", prescriptionId], (doctorNotifyErr) => {
+      if (doctorNotifyErr) {
+        console.log(`⚠️  Could not create doctor prescription notification: ${doctorNotifyErr.message}`);
+      } else {
+        console.log("✅ Doctor prescription notification created");
+      }
+      });
     });
   });
 };
@@ -743,7 +857,7 @@ app.post("/forgot-password/request", (req, res) => {
     return res.status(400).json({ message: "Email is required" });
   }
 
-  const checkSql = "SELECT id FROM users WHERE email = ?";
+  const checkSql = "SELECT id, name, email FROM users WHERE email = ?";
   db.query(checkSql, [email], (err, results) => {
     if (err) {
       console.error("Password reset request DB error:", err.message);
@@ -751,25 +865,28 @@ app.post("/forgot-password/request", (req, res) => {
     }
 
     if (results.length === 0) {
-      return res.json({ message: "If that email exists, a reset token has been generated" });
+      // Keep generic response to avoid account enumeration.
+      return res.json({ message: "If that email exists, your reset request has been sent to admin." });
     }
 
-    const userId = results[0].id;
-    const token = crypto.randomBytes(32).toString("hex");
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 60)
-      .toISOString()
-      .slice(0, 19)
-      .replace("T", " ");
+    const requester = results[0];
+    const title = "Password Reset Request";
+    const message = `${requester.name} wants to reset their password.`;
+    const type = "password_reset_request";
 
-    const insertSql = "INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)";
-    db.query(insertSql, [userId, token, expiresAt], (insertErr) => {
-      if (insertErr) {
-        console.error("Password reset token DB error:", insertErr.message);
+    const notifyAdminsSql = `
+      INSERT INTO notifications (user_id, title, message, type, related_entity_id)
+      SELECT id, ?, ?, ?, ? FROM users WHERE role = 'admin'
+    `;
+
+    db.query(notifyAdminsSql, [title, message, type, requester.id], (notifyErr) => {
+      if (notifyErr) {
+        console.error("Password reset admin notification DB error:", notifyErr.message);
+        return res.status(500).json({ message: "Failed to submit reset request" });
       }
 
-      res.json({
-        message: "If that email exists, a reset token has been generated",
-        resetToken: token,
+      return res.json({
+        message: "✅ Reset request sent to admin. Please wait for admin assistance.",
       });
     });
   });
@@ -1453,6 +1570,7 @@ app.put("/users/:userId", authenticateToken, (req, res) => {
 app.put("/users/:userId/change-password", authenticateToken, async (req, res) => {
   const { userId } = req.params;
   const { currentPassword, newPassword, confirmPassword } = req.body;
+  const isAdminReset = req.user.role === "admin" && req.user.id !== Number(userId);
 
   console.log("🔐 CHANGE PASSWORD REQUEST:");
   console.log("  User ID:", userId);
@@ -1466,8 +1584,12 @@ app.put("/users/:userId/change-password", authenticateToken, async (req, res) =>
   }
 
   // Validate required fields
-  if (!currentPassword || !newPassword || !confirmPassword) {
-    return res.status(400).json({ message: "❌ All password fields are required" });
+  if (!newPassword || !confirmPassword || (!isAdminReset && !currentPassword)) {
+    return res.status(400).json({
+      message: isAdminReset
+        ? "❌ New password and confirm password are required"
+        : "❌ All password fields are required",
+    });
   }
 
   // Verify passwords match
@@ -1495,12 +1617,14 @@ app.put("/users/:userId/change-password", authenticateToken, async (req, res) =>
 
       const user = results[0];
 
-      // Verify current password
+      // For admin reset of another user, skip current-password verification.
       try {
-        const isMatch = await bcrypt.compare(currentPassword, user.password);
-        if (!isMatch) {
-          console.log("❌ Current password is incorrect");
-          return res.status(401).json({ message: "❌ Current password is incorrect" });
+        if (!isAdminReset) {
+          const isMatch = await bcrypt.compare(currentPassword, user.password);
+          if (!isMatch) {
+            console.log("❌ Current password is incorrect");
+            return res.status(401).json({ message: "❌ Current password is incorrect" });
+          }
         }
 
         // Hash new password
@@ -1515,7 +1639,11 @@ app.put("/users/:userId/change-password", authenticateToken, async (req, res) =>
           }
 
           console.log("✅ Password changed successfully for user:", userId);
-          res.json({ message: "✅ Password changed successfully" });
+          res.json({
+            message: isAdminReset
+              ? "✅ Password reset successfully by admin"
+              : "✅ Password changed successfully",
+          });
         });
       } catch (hashErr) {
         console.error("❌ Hash comparison error:", hashErr.message);
@@ -2117,6 +2245,7 @@ app.get("/admin/appointments", authenticateToken, authorizeRoles("admin"), (req,
 app.post("/prescriptions", (req, res) => {
   const {
     appointmentId,
+    medicalRecordId,
     patientId,
     doctorId,
     medication,
@@ -2127,18 +2256,102 @@ app.post("/prescriptions", (req, res) => {
     prescribed_date,
   } = req.body;
   
-  if (!appointmentId || !patientId || !doctorId || !medication || !dosage || !frequency || !duration) {
+  if (!medicalRecordId || !patientId || !doctorId || !medication || !dosage || !frequency || !duration) {
     return res.status(400).json({ message: "❌ Please fill all required fields" });
   }
   
-  const sql = "INSERT INTO prescriptions (appointment_id, patient_id, doctor_id, medication, dosage, frequency, duration, instructions, prescribed_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-  
-  db.query(sql, [appointmentId, patientId, doctorId, medication, dosage, frequency, duration, instructions || "", prescribed_date || new Date()], (err) => {
-    if (err) {
-      return res.status(500).json({ message: "❌ Failed to create prescription" });
+  const verifyRecordSql =
+    "SELECT id FROM medical_records WHERE id = ? AND patient_id = ? AND doctor_id = ? LIMIT 1";
+  const insertSql =
+    "INSERT INTO prescriptions (appointment_id, medical_record_id, patient_id, doctor_id, medication, dosage, frequency, duration, instructions, prescribed_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+  db.query(verifyRecordSql, [medicalRecordId, patientId, doctorId], (verifyErr, verifyResults) => {
+    if (verifyErr) {
+      return res.status(500).json({ message: "❌ Failed to verify medical record" });
     }
-    
-    res.json({ message: "✅ Prescription created successfully" });
+
+    if (!verifyResults || verifyResults.length === 0) {
+      return res.status(400).json({ message: "❌ Selected medical record does not match the patient and doctor" });
+    }
+
+    db.query(
+      insertSql,
+      [
+        appointmentId || null,
+        medicalRecordId,
+        patientId,
+        doctorId,
+        medication,
+        dosage,
+        frequency,
+        duration,
+        instructions || "",
+        prescribed_date || new Date(),
+      ],
+      (err, insertResult) => {
+        if (err) {
+          const dbMessage = String(err.message || "");
+          const needsMigration =
+            dbMessage.includes("Unknown column 'medical_record_id'") ||
+            dbMessage.includes("cannot be null") && dbMessage.includes("appointment_id");
+
+          if (needsMigration) {
+            return res.status(500).json({
+              message:
+                "❌ Database schema is outdated. Please run: cd backend && npm run migrate, then restart backend.",
+            });
+          }
+
+          return res.status(500).json({ message: `❌ Failed to create prescription (${dbMessage})` });
+        }
+
+        const markCompletedSql =
+          "UPDATE medical_records SET status = 'Completed' WHERE id = ?";
+
+        db.query(markCompletedSql, [medicalRecordId], (markErr, markResult) => {
+          if (markErr) {
+            const markMessage = String(markErr.message || "");
+            if (markMessage.includes("Data truncated")) {
+              return res.status(500).json({
+                message:
+                  "❌ Prescription was created, but medical_records.status does not support 'Completed' yet. Restart backend to apply schema updates.",
+              });
+            }
+            return res.status(500).json({
+              message:
+                "❌ Prescription was created but failed to mark the medical record as Completed.",
+            });
+          }
+
+          if (!markResult || markResult.affectedRows === 0) {
+            return res.status(500).json({
+              message:
+                "❌ Prescription was created, but no medical record row was updated to Completed.",
+            });
+          }
+
+          generatePrescriptionNotification(
+            insertResult?.insertId || null,
+            patientId,
+            doctorId,
+            medication,
+            (notifyErr) => {
+              if (notifyErr) {
+                return res.json({
+                  message:
+                    "✅ Prescription created and record marked as Completed, but notification could not be delivered.",
+                });
+              }
+
+              return res.json({
+                message:
+                  "✅ Prescription created, record marked as Completed, and patient notified successfully",
+              });
+            }
+          );
+        });
+      }
+    );
   });
 });
 
@@ -2183,16 +2396,48 @@ app.get("/doctor/prescriptions", authenticateToken, authorizeRoles("doctor"), (r
   const doctorId = req.user.id;
 
   const sql = `
-    SELECT p.*, u.name AS patient_name, a.date AS appointment_date, a.time AS appointment_time
+    SELECT 
+      p.*, 
+      u.name AS patient_name, 
+      a.date AS appointment_date, 
+      a.time AS appointment_time,
+      mr.record_date AS medical_record_date,
+      mr.title AS medical_record_title,
+      mr.diagnosis AS medical_record_diagnosis
     FROM prescriptions p
     LEFT JOIN users u ON p.patient_id = u.id
     LEFT JOIN appointments a ON p.appointment_id = a.id
+    LEFT JOIN medical_records mr ON p.medical_record_id = mr.id
     WHERE p.doctor_id = ?
     ORDER BY p.prescribed_date DESC
   `;
 
   db.query(sql, [doctorId], (err, results) => {
     if (err) {
+      // Backward-compatible fallback for instances where migration has not run yet.
+      if (String(err.message || "").includes("Unknown column 'p.medical_record_id'")) {
+        const fallbackSql = `
+          SELECT p.*, u.name AS patient_name, a.date AS appointment_date, a.time AS appointment_time
+          FROM prescriptions p
+          LEFT JOIN users u ON p.patient_id = u.id
+          LEFT JOIN appointments a ON p.appointment_id = a.id
+          WHERE p.doctor_id = ?
+          ORDER BY p.prescribed_date DESC
+        `;
+
+        return db.query(fallbackSql, [doctorId], (fallbackErr, fallbackResults) => {
+          if (fallbackErr) {
+            console.error("Error fetching prescriptions for doctor (fallback):", fallbackErr);
+            return res.status(500).json({ message: "❌ Database error" });
+          }
+
+          return res.json({
+            message: "✅ Doctor prescriptions retrieved successfully",
+            prescriptions: fallbackResults,
+          });
+        });
+      }
+
       console.error("Error fetching prescriptions for doctor:", err);
       return res.status(500).json({ message: "❌ Database error" });
     }

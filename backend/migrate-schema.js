@@ -30,6 +30,18 @@ const migrations = [
     name: "Add prescription duration column",
     sql: "ALTER TABLE prescriptions ADD COLUMN duration VARCHAR(100) NULL AFTER frequency",
   },
+  {
+    name: "Allow nullable appointment_id for prescriptions",
+    sql: "ALTER TABLE prescriptions MODIFY COLUMN appointment_id INT NULL",
+  },
+  {
+    name: "Add prescription medical_record_id column",
+    sql: "ALTER TABLE prescriptions ADD COLUMN medical_record_id INT NULL AFTER appointment_id",
+  },
+  {
+    name: "Add prescription medical_record_id foreign key",
+    sql: "ALTER TABLE prescriptions ADD CONSTRAINT fk_prescriptions_medical_record FOREIGN KEY (medical_record_id) REFERENCES medical_records(id) ON DELETE SET NULL",
+  },
 ];
 
 let completed = 0;
@@ -42,7 +54,7 @@ const runMigrations = async () => {
       db.query(migration.sql, (err) => {
         if (err) {
           // Ignore "duplicate column" errors, but show other errors
-          if (err.message.includes("Duplicate column")) {
+          if (err.message.includes("Duplicate column") || err.message.includes("Duplicate key") || err.message.includes("already exists")) {
             console.log(`⏭️  ${migration.name} (already exists)`);
           } else {
             console.error(`❌ ${migration.name}: ${err.message}`);

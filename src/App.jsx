@@ -32,6 +32,7 @@ import {
   Trash2,
   MoreVertical,
   Eye,
+  EyeOff,
   Phone,
   Info,
   X,
@@ -120,8 +121,6 @@ export default function App() {
   const [calendarMonth, setCalendarMonth] = useState(new Date()); // For calendar navigation
   const [selectedSlot, setSelectedSlot] = useState(null); // For availability system
   const [bookingSpecialty, setBookingSpecialty] = useState(""); // For availability system
-  const [forgotStep, setForgotStep] = useState("request");
-  const [resetToken, setResetToken] = useState("");
   const [selectedDetail, setSelectedDetail] = useState(null);
   const [selectedDetailType, setSelectedDetailType] = useState("");
   const [profileData, setProfileData] = useState({
@@ -149,6 +148,15 @@ export default function App() {
   const [passwordMessage, setPasswordMessage] = useState("");
   const [passwordError, setPasswordError] = useState(false);
   const [loadingPassword, setLoadingPassword] = useState(false);
+  const [showPatientPasswordModal, setShowPatientPasswordModal] = useState(false);
+  const [selectedPatientForPassword, setSelectedPatientForPassword] = useState(null);
+  const [adminResetPasswordData, setAdminResetPasswordData] = useState({
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [adminResetPasswordLoading, setAdminResetPasswordLoading] = useState(false);
+  const [showAdminResetPassword, setShowAdminResetPassword] = useState(false);
+  const [openPatientActionsMenuId, setOpenPatientActionsMenuId] = useState(null);
 
   // Notifications state
   const [notifications, setNotifications] = useState([]);
@@ -196,6 +204,12 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [message]);
+
+  useEffect(() => {
+    const closeMenu = () => setOpenPatientActionsMenuId(null);
+    document.addEventListener("click", closeMenu);
+    return () => document.removeEventListener("click", closeMenu);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -253,13 +267,72 @@ export default function App() {
   const sortByNewestDate = (items = [], key) =>
     [...items].sort((a, b) => new Date(b?.[key] || 0) - new Date(a?.[key] || 0));
 
-  const attachPrescriptionsToRecords = (records = [], prescriptions = []) =>
-    records.map((record) => ({
+  const toDateOnly = (value) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    date.setHours(0, 0, 0, 0);
+    return date;
+  };
+
+  const attachPrescriptionsToRecords = (records = [], prescriptions = []) => {
+    const preparedRecords = records.map((record) => ({
       ...record,
-      linkedPrescriptions: prescriptions.filter(
-        (prescription) => String(prescription.doctor_id) === String(record.doctor_id)
-      ),
+      linkedPrescriptions: [],
     }));
+
+    // Attach each prescription to exactly one best-fit record so records stay separate.
+    prescriptions.forEach((prescription) => {
+      // Preferred linking path: explicit medical_record_id from backend.
+      if (prescription.medical_record_id) {
+        const explicitRecord = preparedRecords.find(
+          (record) => String(record.id) === String(prescription.medical_record_id)
+        );
+        if (explicitRecord) {
+          explicitRecord.linkedPrescriptions.push(prescription);
+          return;
+        }
+      }
+
+      const prescriptionDate = toDateOnly(prescription.prescribed_date || prescription.created_at);
+      const sameDoctorRecords = preparedRecords.filter(
+        (record) => String(record.doctor_id) === String(prescription.doctor_id)
+      );
+
+      if (sameDoctorRecords.length === 0) return;
+
+      let targetRecord = null;
+
+      if (prescriptionDate) {
+        const eligibleRecords = sameDoctorRecords
+          .filter((record) => {
+            const recordDate = toDateOnly(record.record_date || record.created_at);
+            return recordDate && recordDate.getTime() <= prescriptionDate.getTime();
+          })
+          .sort((a, b) => {
+            const aDate = toDateOnly(a.record_date || a.created_at)?.getTime() || 0;
+            const bDate = toDateOnly(b.record_date || b.created_at)?.getTime() || 0;
+            return bDate - aDate;
+          });
+
+        targetRecord = eligibleRecords[0] || null;
+      }
+
+      // Fallback: attach to latest record by the same doctor.
+      if (!targetRecord) {
+        targetRecord = [...sameDoctorRecords].sort(
+          (a, b) =>
+            new Date(b.record_date || b.created_at || 0) - new Date(a.record_date || a.created_at || 0)
+        )[0];
+      }
+
+      if (targetRecord) {
+        targetRecord.linkedPrescriptions.push(prescription);
+      }
+    });
+
+    return preparedRecords;
+  };
 
   const fetchPatientData = async () => {
     try {
@@ -877,57 +950,22 @@ export default function App() {
     e.preventDefault();
     setMessage("");
 
-    const { email, newPassword, confirmPassword } = forgotData;
+    const { email } = forgotData;
 
-    if (forgotStep === "request") {
-      if (!email) {
-        setIsError(true);
-        setMessage("❌ Please enter your email.");
-        return;
-      }
-
-      try {
-        const res = await api.post("/forgot-password/request", { email });
-        setIsError(false);
-        setMessage(res.data.message || "?� Password reset token generated.");
-        if (res.data.resetToken) {
-          setResetToken(res.data.resetToken);
-        }
-        setForgotStep("reset");
-      } catch (err) {
-        setIsError(true);
-        setMessage(err.response?.data?.message || "❌ Failed to request reset");
-      }
-      return;
-    }
-
-    if (!email || !newPassword || !confirmPassword || !resetToken) {
+    if (!email) {
       setIsError(true);
-      setMessage("❌ Please fill in all reset fields and enter your token.");
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setIsError(true);
-      setMessage("❌ Passwords do not match.");
+      setMessage("❌ Please enter your email.");
       return;
     }
 
     try {
-      const res = await api.post("/forgot-password/reset", {
-        token: resetToken,
-        newPassword,
-      });
+      const res = await api.post("/forgot-password/request", { email });
       setIsError(false);
-      setMessage(res.data.message || "?� Password reset successfully.");
+      setMessage(res.data.message || "✅ Reset request sent to admin.");
       setForgotData({ email: "", newPassword: "", confirmPassword: "" });
-      setResetToken("");
-      setShowForgotPassword(false);
-      setIsLogin(true);
-      setForgotStep("request");
     } catch (err) {
       setIsError(true);
-      setMessage(err.response?.data?.message || "❌ Failed to reset password");
+      setMessage(err.response?.data?.message || "❌ Failed to request admin reset");
     }
   };
 
@@ -1216,6 +1254,91 @@ export default function App() {
     }
   };
 
+  const openPatientPasswordModal = (patient) => {
+    setSelectedPatientForPassword(patient);
+    setAdminResetPasswordData({ newPassword: "", confirmPassword: "" });
+    setShowAdminResetPassword(false);
+    setShowPatientPasswordModal(true);
+  };
+
+  const handleAdminResetPatientPassword = async () => {
+    if (!selectedPatientForPassword?.id) {
+      setIsError(true);
+      setMessage("❌ No patient selected for password reset");
+      return;
+    }
+
+    const trimmedNewPassword = adminResetPasswordData.newPassword.trim();
+    const trimmedConfirmPassword = adminResetPasswordData.confirmPassword.trim();
+
+    if (!trimmedNewPassword || !trimmedConfirmPassword) {
+      setIsError(true);
+      setMessage("❌ Please fill both password fields");
+      return;
+    }
+
+    if (trimmedNewPassword.length < 6) {
+      setIsError(true);
+      setMessage("❌ Password must be at least 6 characters");
+      return;
+    }
+
+    if (trimmedNewPassword !== trimmedConfirmPassword) {
+      setIsError(true);
+      setMessage("❌ Passwords do not match");
+      return;
+    }
+
+    setAdminResetPasswordLoading(true);
+    try {
+      await api.put(`/users/${selectedPatientForPassword.id}/change-password`, {
+        newPassword: trimmedNewPassword,
+        confirmPassword: trimmedConfirmPassword,
+      });
+      setIsError(false);
+      setMessage(`✅ Successfully reset the password for ${selectedPatientForPassword.name}`);
+      setShowPatientPasswordModal(false);
+      setSelectedPatientForPassword(null);
+      setAdminResetPasswordData({ newPassword: "", confirmPassword: "" });
+      setShowAdminResetPassword(false);
+    } catch (err) {
+      setIsError(true);
+      setMessage(err.response?.data?.message || "❌ Failed to reset patient password");
+    } finally {
+      setAdminResetPasswordLoading(false);
+    }
+  };
+
+  const handleGenerateTemporaryPassword = async () => {
+    const charset = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+    const passwordLength = 12;
+    let generated = "";
+
+    for (let i = 0; i < passwordLength; i += 1) {
+      const randomIndex = Math.floor(Math.random() * charset.length);
+      generated += charset[randomIndex];
+    }
+
+    setAdminResetPasswordData({
+      newPassword: generated,
+      confirmPassword: generated,
+    });
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(generated);
+        setIsError(false);
+        setMessage("✅ Temporary password generated and copied to clipboard");
+        return;
+      }
+    } catch (err) {
+      console.error("Clipboard copy failed:", err);
+    }
+
+    setIsError(false);
+    setMessage("✅ Temporary password generated");
+  };
+
   const handleLogout = () => {
     setAuthToken("");
     setToken("");
@@ -1441,8 +1564,8 @@ export default function App() {
                     </div>
                   </div>
                   <p className={`text-[16px] ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
-                    {medicalRecords[0].record_date
-                      ? new Date(medicalRecords[0].record_date).toLocaleString("en-US", {
+                    {medicalRecords[0].created_at || medicalRecords[0].record_date
+                      ? new Date(medicalRecords[0].created_at || medicalRecords[0].record_date).toLocaleString("en-US", {
                           month: "short",
                           day: "numeric",
                           year: "numeric",
@@ -1508,12 +1631,6 @@ export default function App() {
       {showBookingModal && (
         <div className={`mb-8 rounded-2xl border p-8 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
           <h3 className={`mb-6 text-[24px] font-bold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Book New Appointment</h3>
-          
-          {message && (
-            <div className={`mb-6 p-4 rounded-lg ${isError ? "bg-red-50 text-red-800 border border-red-200" : "bg-green-50 text-green-800 border border-green-200"}`}>
-              {message}
-            </div>
-          )}
           
           <div className="grid grid-cols-1 gap-8 md:grid-cols-2 mb-6">
             {/* Left: Department Selection & Available Doctors */}
@@ -1732,65 +1849,65 @@ export default function App() {
     });
 
     return (
-    <div className={`p-6 md:p-9 ${darkMode ? "bg-slate-900" : "bg-[radial-gradient(circle_at_top_left,_rgba(20,184,166,0.10),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.08),_transparent_24%)]"}`}>
-      <div className={`rounded-[32px] border p-6 shadow-sm backdrop-blur md:p-8 ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white/90"}`}>
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+    <div className={`p-4 md:p-6 ${darkMode ? "bg-slate-900" : "bg-[radial-gradient(circle_at_top_left,_rgba(20,184,166,0.10),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(59,130,246,0.08),_transparent_24%)]"}`}>
+      <div className={`rounded-[28px] border p-5 shadow-sm backdrop-blur md:p-6 ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white/90"}`}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-teal-100 bg-teal-50 px-4 py-2 text-sm font-semibold text-teal-700">
               <FileHeart size={16} />
               Patient Record Center
             </div>
-            <h2 className={`mt-5 text-[30px] font-bold tracking-tight md:text-[34px] ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
+            <h2 className={`mt-4 text-[30px] font-bold tracking-tight md:text-[34px] ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
               Medical Records
             </h2>
-            <p className={`mt-3 max-w-2xl text-[17px] leading-7 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+            <p className={`mt-2 max-w-2xl text-[17px] leading-7 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
               Review diagnoses, care summaries, treatment notes, and {patientPrescriptions.length} linked prescription{patientPrescriptions.length === 1 ? "" : "s"} in one organized place.
             </p>
           </div>
 
           <button
             onClick={downloadAllRecords}
-            className="inline-flex items-center justify-center gap-3 rounded-2xl bg-teal-600 px-6 py-4 text-base font-semibold text-white shadow-sm transition hover:bg-teal-700"
+            className="inline-flex items-center justify-center gap-3 rounded-2xl bg-teal-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-teal-700"
           >
             <FileText size={20} />
             Download Records
           </button>
         </div>
 
-        <div className="mt-8 grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.9fr_0.9fr]">
-          <div className="rounded-[28px] bg-gradient-to-br from-teal-600 via-teal-700 to-emerald-700 p-6 text-white shadow-sm">
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-teal-50/90">Overview</p>
-            <div className="mt-6 flex items-end justify-between gap-4">
+        <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.9fr_0.9fr]">
+          <div className="rounded-[24px] bg-gradient-to-br from-teal-600 via-teal-700 to-emerald-700 p-5 text-white shadow-sm">
+            <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-[44px] font-bold leading-none">{filteredMedicalRecords.length}</p>
-                <p className="mt-3 text-base text-teal-50/90">Records in your timeline</p>
+                <p className="text-sm font-semibold uppercase tracking-[0.24em] text-teal-50/90">Overview</p>
+                <p className="text-[36px] font-bold leading-none">{filteredMedicalRecords.length}</p>
+                <p className="mt-2 text-sm text-teal-50/90">Records in your timeline</p>
               </div>
-              <div className="rounded-2xl bg-white/15 p-4 text-white">
-                <ClipboardList size={28} />
+              <div className="rounded-2xl bg-white/15 p-3 text-white">
+                <ClipboardList size={24} />
               </div>
             </div>
           </div>
 
-          <div className={`rounded-[28px] border p-6 ${darkMode ? "border-slate-800 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+          <div className={`rounded-[24px] border p-5 ${darkMode ? "border-slate-800 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.20em] text-slate-400">Active</p>
-                <p className="mt-4 text-[38px] font-bold leading-none text-slate-900">
+                <p className={`mt-3 text-[32px] font-bold leading-none ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
                   {filteredMedicalRecords.filter((r) => r.status === "Active").length}
                 </p>
-                <p className="mt-3 text-sm text-slate-500">Conditions currently marked active</p>
+                <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-500"}`}>Conditions currently marked active</p>
               </div>
-              <div className="rounded-2xl bg-amber-100 p-4 text-amber-700">
-                <Activity size={26} />
+              <div className="rounded-2xl bg-amber-100 p-3 text-amber-700">
+                <Activity size={22} />
               </div>
             </div>
           </div>
 
-          <div className={`rounded-[28px] border p-6 ${darkMode ? "border-slate-800 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+          <div className={`rounded-[24px] border p-5 ${darkMode ? "border-slate-800 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.20em] text-slate-400">Latest Update</p>
-                <p className="mt-4 text-[26px] font-bold leading-tight text-slate-900">
+                <p className={`mt-3 text-[24px] font-bold leading-tight ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
                   {filteredMedicalRecords.length > 0
                     ? new Date(filteredMedicalRecords[0].record_date).toLocaleDateString("en-US", {
                         month: "short",
@@ -1799,10 +1916,10 @@ export default function App() {
                       })
                     : "N/A"}
                 </p>
-                <p className="mt-3 text-sm text-slate-500">Most recent record activity</p>
+                <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-500"}`}>Most recent record activity</p>
               </div>
-              <div className="rounded-2xl bg-blue-100 p-4 text-blue-700">
-                <Clock3 size={26} />
+              <div className="rounded-2xl bg-blue-100 p-3 text-blue-700">
+                <Clock3 size={22} />
               </div>
             </div>
           </div>
@@ -1815,8 +1932,8 @@ export default function App() {
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
               <FileText size={28} />
             </div>
-            <h3 className="mt-5 text-[22px] font-semibold text-slate-900">No medical records yet</h3>
-            <p className="mt-3 text-base text-slate-500">
+            <h3 className={`mt-5 text-[22px] font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>No medical records yet</h3>
+            <p className={`mt-3 text-base ${darkMode ? "text-slate-300" : "text-slate-500"}`}>
               Once your doctor adds a consultation record, it will appear here with linked prescriptions and treatment details.
             </p>
           </div>
@@ -1826,7 +1943,7 @@ export default function App() {
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Search by Month</p>
-                  <p className="mt-2 text-sm text-slate-500">
+                  <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-500"}`}>
                     Type a month like April, May, or June to show only records from that month.
                   </p>
                 </div>
@@ -1848,8 +1965,8 @@ export default function App() {
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
                   <Search size={28} />
                 </div>
-                <h3 className="mt-5 text-[22px] font-semibold text-slate-900">No records found for that month</h3>
-                <p className="mt-3 text-base text-slate-500">
+                <h3 className={`mt-5 text-[22px] font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>No records found for that month</h3>
+                <p className={`mt-3 text-base ${darkMode ? "text-slate-300" : "text-slate-500"}`}>
                   Try another month name or clear the search to view all medical records.
                 </p>
               </div>
@@ -1857,13 +1974,13 @@ export default function App() {
             filteredMedicalRecords.map((record, index) => (
               <div
                 key={record.id}
-                className={`overflow-hidden rounded-[30px] border shadow-sm transition hover:shadow-md ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}
+                className={`overflow-hidden rounded-[28px] border shadow-sm transition ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}
               >
-                <div className={`border-b px-6 py-5 md:px-8 ${darkMode ? "border-slate-800 bg-slate-800/70" : "border-slate-100 bg-slate-50/80"}`}>
-                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                <div className={`border-b px-6 py-5 md:px-8 ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-100 bg-slate-50"}`}>
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                     <div className="flex items-start gap-4">
-                      <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
-                        <FileText size={24} />
+                      <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl ${darkMode ? "bg-teal-900/40 text-teal-300" : "bg-emerald-100 text-emerald-700"}`}>
+                        <FileText size={20} />
                       </div>
                       <div>
                         <div className="flex flex-wrap items-center gap-3">
@@ -1885,7 +2002,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-3 xl:justify-end">
+                    <div className="flex flex-wrap gap-3 md:justify-end">
                       <button
                         onClick={() => {
                           setSelectedDetail(record);
@@ -1907,28 +2024,28 @@ export default function App() {
                 </div>
 
                 <div className="px-6 py-6 md:px-8">
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                    <div className={`rounded-2xl border p-4 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+                  <div className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+                    <div className={`flex min-h-[130px] flex-col rounded-2xl border p-5 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white"}`}>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Doctor</p>
-                      <div className="mt-3 flex items-center gap-3">
-                        <div className="rounded-xl bg-slate-100 p-2 text-slate-500">
-                          <UserCircle size={18} />
+                      <div className="mt-auto flex items-center gap-3">
+                        <div className={`rounded-2xl p-2.5 ${darkMode ? "bg-slate-700 text-slate-200" : "bg-slate-100 text-slate-600"}`}>
+                          <Stethoscope size={20} />
                         </div>
-                        <p className="text-base font-semibold text-slate-800">
+                        <p className={`text-[18px] font-semibold ${darkMode ? "text-slate-100" : "text-slate-800"}`}>
                           Dr. {doctors.find((doc) => doc.id === record.doctor_id)?.name || `ID ${record.doctor_id}`}
                         </p>
                       </div>
                     </div>
 
-                    <div className={`rounded-2xl border p-4 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+                    <div className={`flex min-h-[130px] flex-col rounded-2xl border p-5 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white"}`}>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Recorded On</p>
-                      <div className="mt-3 flex items-center gap-3">
-                        <div className="rounded-xl bg-slate-100 p-2 text-slate-500">
-                          <CalendarRange size={18} />
+                      <div className="mt-auto flex items-center gap-3">
+                        <div className={`rounded-2xl p-2.5 ${darkMode ? "bg-slate-700 text-slate-200" : "bg-slate-100 text-slate-600"}`}>
+                          <CalendarRange size={20} />
                         </div>
-                        <p className="text-base font-semibold text-slate-800">
-                          {record.record_date
-                            ? new Date(record.record_date).toLocaleString("en-US", {
+                        <p className={`text-[18px] font-semibold ${darkMode ? "text-slate-100" : "text-slate-800"}`}>
+                          {record.created_at || record.record_date
+                            ? new Date(record.created_at || record.record_date).toLocaleString("en-US", {
                                 month: "long",
                                 day: "numeric",
                                 year: "numeric",
@@ -1940,88 +2057,82 @@ export default function App() {
                         </p>
                       </div>
                     </div>
-
-                    <div className={`rounded-2xl border p-4 ${darkMode ? "border-slate-800 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Prescriptions</p>
-                          <p className="mt-2 text-base font-semibold text-slate-900">Medication Plan</p>
-                        </div>
-                        <span className="rounded-full bg-teal-100 px-3 py-1 text-sm font-semibold text-teal-700">
-                          {(record.linkedPrescriptions || []).length}
-                        </span>
-                      </div>
-                    </div>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <div className={`rounded-2xl border p-5 ${darkMode ? "border-slate-800 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                  <div className="mt-4 grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+                    <div className={`flex min-h-[130px] flex-col rounded-2xl border p-5 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white"}`}>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Diagnosis</p>
-                      <p className="mt-3 text-[15px] leading-7 text-slate-600">
+                      <p className={`mt-5 text-[16px] leading-relaxed ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
                         {record.diagnosis || "No diagnosis noted for this medical record."}
                       </p>
                     </div>
 
-                    <div className={`rounded-2xl border p-5 ${darkMode ? "border-slate-800 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <div className={`flex min-h-[130px] flex-col rounded-2xl border p-5 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white"}`}>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Treatment</p>
-                      <p className="mt-3 text-[15px] leading-7 text-slate-600">
+                      <p className={`mt-5 text-[16px] leading-relaxed ${darkMode ? "text-slate-200" : "text-slate-700"}`}>
                         {record.treatment || "No treatment details available for this medical record."}
                       </p>
                     </div>
                   </div>
 
-                  <div className="mt-4 rounded-[26px] border border-slate-200 bg-slate-50/70 p-5">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Prescriptions</p>
-                        <h4 className="mt-2 text-[20px] font-semibold text-slate-900">Medication Plan</h4>
-                      </div>
-                      <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-600 shadow-sm">
-                        {(record.linkedPrescriptions || []).length} total
-                      </span>
+                  <div className={`mt-4 rounded-2xl border p-5 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-white"}`}>
+                    <div className="flex items-center gap-4">
+                      <h4 className={`text-[20px] font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Medication Plan</h4>
                     </div>
 
                     {(record.linkedPrescriptions || []).length === 0 ? (
-                      <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-sm leading-6 text-slate-500">
+                      <div className={`mt-4 rounded-2xl border border-dashed p-5 text-sm leading-6 ${darkMode ? "border-slate-600 bg-slate-900 text-slate-300" : "border-slate-300 bg-white text-slate-500"}`}>
                         No prescription has been linked to this record yet.
                       </div>
                     ) : (
-                      <div className="mt-5 grid gap-3 lg:grid-cols-2">
-                        {(record.linkedPrescriptions || []).slice(0, 2).map((prescription) => (
-                          <div key={prescription.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="text-base font-semibold text-slate-900">
-                                  {prescription.medication || "Medication"}
-                                </p>
-                                <p className="mt-1 text-sm text-slate-500">
-                                  {prescription.dosage || "Dosage not set"}
-                                </p>
-                              </div>
-                              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                Prescription
-                              </span>
-                            </div>
-                            <div className="mt-4 flex flex-wrap gap-2 text-xs font-medium text-slate-600">
-                              <span className="rounded-full bg-teal-50 px-3 py-1 text-teal-700">
-                                {prescription.frequency || "No frequency"}
-                              </span>
-                              <span className="rounded-full bg-blue-50 px-3 py-1 text-blue-700">
-                                {prescription.duration || "No duration"}
-                              </span>
-                            </div>
-                            <p className="mt-4 text-sm leading-6 text-slate-500">
-                              {prescription.instructions || "No instructions provided"}
-                            </p>
-                          </div>
-                        ))}
+                      <div className={`mt-4 overflow-x-auto rounded-2xl border ${darkMode ? "border-slate-700 bg-slate-900" : "border-slate-200 bg-white"}`}>
+                        <table className="min-w-full text-left">
+                          <thead className={darkMode ? "bg-slate-800 text-slate-300" : "bg-slate-50 text-slate-700"}>
+                            <tr>
+                              <th className="px-5 py-4 text-base font-semibold">Patient</th>
+                              <th className="px-5 py-4 text-base font-semibold">Frequency</th>
+                              <th className="px-5 py-4 text-base font-semibold">Duration</th>
+                              <th className="px-5 py-4 text-base font-semibold">Medication</th>
+                              <th className="px-5 py-4 text-base font-semibold">Dosage</th>
+                              <th className="px-5 py-4 text-base font-semibold">Clinical Notes</th>
+                              <th className="px-5 py-4 text-base font-semibold">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody className={darkMode ? "text-slate-100" : "text-slate-800"}>
+                            {(record.linkedPrescriptions || []).map((prescription) => (
+                              <tr key={prescription.id} className={darkMode ? "border-t border-slate-700" : "border-t border-slate-200"}>
+                                <td className="px-5 py-5 align-top">
+                                  <p className="text-[18px] font-semibold leading-tight">{prescription.patient_name || loggedInUser?.name || "Patient"}</p>
+                                </td>
+                                <td className="px-5 py-5 align-top">
+                                  <span className={`inline-flex rounded-xl px-3 py-1 text-sm ${darkMode ? "bg-slate-700 text-slate-200" : "bg-slate-100 text-slate-600"}`}>
+                                    {prescription.frequency || "No frequency set"}
+                                  </span>
+                                </td>
+                                <td className="px-5 py-5 align-top">
+                                  <span className={`inline-flex rounded-xl px-3 py-1 text-sm ${darkMode ? "bg-slate-700 text-slate-200" : "bg-slate-100 text-slate-600"}`}>
+                                    {prescription.duration || "No duration set"}
+                                  </span>
+                                </td>
+                                <td className="px-5 py-5 align-top">
+                                  <p className="text-[18px] font-semibold leading-tight">{prescription.medication || "Medication"}</p>
+                                </td>
+                                <td className="px-5 py-5 align-top text-[18px] leading-tight">{prescription.dosage || "Not set"}</td>
+                                <td className="px-5 py-5 align-top text-[16px] leading-relaxed">
+                                  {prescription.instructions || "No notes provided"}
+                                </td>
+                                <td className="px-5 py-5 align-top text-[18px] leading-tight">
+                                  {new Date(prescription.prescribed_date || record.record_date || Date.now()).toLocaleDateString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric",
+                                  })}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    )}
-
-                    {(record.linkedPrescriptions || []).length > 2 && (
-                      <p className="mt-4 text-sm font-medium text-slate-500">
-                        +{record.linkedPrescriptions.length - 2} more prescriptions available in details
-                      </p>
                     )}
                   </div>
                 </div>
@@ -2402,48 +2513,84 @@ export default function App() {
 
             <div className="truncate text-[17px] text-slate-700">{patient.phone || 'N/A'}</div>
 
-            <div className="flex items-center justify-end gap-4">
-              <button 
-                onClick={() => { 
-                  setAddModalType("patient"); 
-                  setShowAddModal(true); 
-                  setEditingPatientId(patient.id);
-                  setNewUserData({
-                    name: patient.name,
-                    email: patient.email,
-                    password: "",
-                    phone: patient.phone || "",
-                    role: "patient",
-                    specialty: "",
-                    age: patient.age || "",
-                    gender: patient.gender || "",
-                    blood_group: patient.blood_group || "",
-                    condition: patient.condition || "",
-                    date_of_birth: patient.date_of_birth || "",
-                    address: patient.address || "",
-                    emergency_contact: patient.emergency_contact || "",
-                  }); 
-                }}
-                className="text-blue-600 hover:opacity-70"
-              >
-                <Pencil size={18} />
-              </button>
-              <button 
-                onClick={() => { 
-                  setSelectedDetailType("patient"); 
-                  setSelectedDetail(patient); 
-                  setShowAppointmentDetails(true); 
-                }}
-                className="text-blue-600 hover:opacity-70"
-              >
-                <Eye size={18} />
-              </button>
+            <div className="relative flex items-center justify-end">
               <button
-                onClick={() => handleDeleteUser(patient.id, "patient")}
-                className="text-red-500 hover:opacity-70"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpenPatientActionsMenuId((prev) => (prev === patient.id ? null : patient.id));
+                }}
+                className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+                title="Patient actions"
               >
-                <Trash2 size={18} />
+                <MoreVertical size={18} />
               </button>
+
+              {openPatientActionsMenuId === patient.id && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute right-0 top-10 z-20 w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+                >
+                  <button
+                    onClick={() => {
+                      setOpenPatientActionsMenuId(null);
+                      openPatientPasswordModal(patient);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-amber-700 hover:bg-amber-50"
+                  >
+                    <Lock size={16} />
+                    Reset Password
+                  </button>
+                  <button
+                    onClick={() => {
+                      setOpenPatientActionsMenuId(null);
+                      setAddModalType("patient");
+                      setShowAddModal(true);
+                      setEditingPatientId(patient.id);
+                      setNewUserData({
+                        name: patient.name,
+                        email: patient.email,
+                        password: "",
+                        phone: patient.phone || "",
+                        role: "patient",
+                        specialty: "",
+                        age: patient.age || "",
+                        gender: patient.gender || "",
+                        blood_group: patient.blood_group || "",
+                        condition: patient.condition || "",
+                        date_of_birth: patient.date_of_birth || "",
+                        address: patient.address || "",
+                        emergency_contact: patient.emergency_contact || "",
+                      });
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-blue-700 hover:bg-blue-50"
+                  >
+                    <Pencil size={16} />
+                    Edit Patient
+                  </button>
+                  <button
+                    onClick={() => {
+                      setOpenPatientActionsMenuId(null);
+                      setSelectedDetailType("patient");
+                      setSelectedDetail(patient);
+                      setShowAppointmentDetails(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+                  >
+                    <Eye size={16} />
+                    View Details
+                  </button>
+                  <button
+                    onClick={() => {
+                      setOpenPatientActionsMenuId(null);
+                      handleDeleteUser(patient.id, "patient");
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 size={16} />
+                    Delete Patient
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -3557,6 +3704,25 @@ export default function App() {
     );
   };
 
+  const renderTopToast = () => {
+    if (!message) return null;
+
+    return (
+      <div className="fixed left-1/2 top-5 z-[80] w-[92%] max-w-xl -translate-x-1/2">
+        <div className="pointer-events-none absolute inset-0 -z-10 rounded-3xl bg-black/45 blur-xl" />
+        <div
+          className={`rounded-2xl border px-6 py-4 text-base font-semibold tracking-[0.01em] text-white shadow-[0_24px_60px_rgba(2,6,23,0.65)] backdrop-blur-xl ${
+            isError
+              ? "border-red-300/45 bg-slate-950/86 ring-1 ring-red-400/30"
+              : "border-emerald-300/40 bg-slate-950/86 ring-1 ring-emerald-300/25"
+          }`}
+        >
+          {message}
+        </div>
+      </div>
+    );
+  };
+
   const renderAdminSettingsPage = () => {
     const handleUpdatePassword = async () => {
       setPasswordMessage("");
@@ -3791,6 +3957,7 @@ export default function App() {
   if (loggedInUser && loggedInUser.role === "patient") {
     return (
       <>
+        {renderTopToast()}
         <div className="flex min-h-screen">
           <aside className={`flex flex-col justify-between border-r transition-all duration-300 ${patientSidebarCollapsed ? "w-20" : "w-[260px]"} ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
             <div>
@@ -3928,6 +4095,11 @@ export default function App() {
                                 bgColor = darkMode ? "bg-blue-900/60" : "bg-blue-50/60";
                                 borderColor = darkMode ? "border-blue-700" : "border-blue-100";
                                 break;
+                              case "prescription":
+                                NotificationIcon = FileText;
+                                bgColor = darkMode ? "bg-teal-900/60" : "bg-teal-50/60";
+                                borderColor = darkMode ? "border-teal-700" : "border-teal-100";
+                                break;
                               case "approval":
                                 NotificationIcon = Info;
                                 bgColor = darkMode ? "bg-purple-900/60" : "bg-purple-50/60";
@@ -4055,11 +4227,12 @@ export default function App() {
             >
               <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
                 <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Appointment Details</h3>
-                <button 
-                  onClick={() => setShowAppointmentDetails(false)} 
-                  className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                  aria-label="Close patient details"
                 >
-                  ?
+                  <X size={24} />
                 </button>
               </div>
 
@@ -4162,11 +4335,12 @@ export default function App() {
             >
               <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
                 <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Medical Record Details</h3>
-                <button 
-                  onClick={() => setShowAppointmentDetails(false)} 
-                  className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                  aria-label="Close patient details"
                 >
-                  ?
+                  <X size={24} />
                 </button>
               </div>
 
@@ -4332,11 +4506,12 @@ export default function App() {
             >
               <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
                 <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Patient Details</h3>
-                <button 
-                  onClick={() => setShowAppointmentDetails(false)} 
-                  className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                  aria-label="Close details"
                 >
-                  ?
+                  <X size={24} />
                 </button>
               </div>
 
@@ -4417,11 +4592,12 @@ export default function App() {
             >
               <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
                 <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Doctor Details</h3>
-                <button 
-                  onClick={() => setShowAppointmentDetails(false)} 
-                  className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                  aria-label="Close details"
                 >
-                  ?
+                  <X size={24} />
                 </button>
               </div>
 
@@ -4495,6 +4671,7 @@ export default function App() {
   if (loggedInUser && loggedInUser.role === "admin") {
     return (
       <>
+        {renderTopToast()}
         <div className="flex min-h-screen">
           <aside className={`flex flex-col justify-between border-r transition-all duration-300 ${adminSidebarCollapsed ? "w-20" : "w-[260px]"} ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
             <div>
@@ -4668,6 +4845,11 @@ export default function App() {
                                 bgColor = darkMode ? "bg-blue-900/60" : "bg-blue-50/60";
                                 borderColor = darkMode ? "border-blue-700" : "border-blue-100";
                                 break;
+                              case "prescription":
+                                NotificationIcon = FileText;
+                                bgColor = darkMode ? "bg-teal-900/60" : "bg-teal-50/60";
+                                borderColor = darkMode ? "border-teal-700" : "border-teal-100";
+                                break;
                               case "approval":
                                 NotificationIcon = Info;
                                 bgColor = darkMode ? "bg-purple-900/60" : "bg-purple-50/60";
@@ -4779,19 +4961,6 @@ export default function App() {
               ? renderAdminReportsPage()
               : renderAdminSettingsPage()}
 
-            {message && (
-              <div className="px-9 pb-8">
-                <div
-                  className={`rounded-2xl px-4 py-3 text-sm ${
-                    isError
-                      ? "bg-red-100 text-red-700"
-                      : "bg-green-100 text-green-700"
-                  }`}
-                >
-                  {message}
-                </div>
-              </div>
-            )}
           </main>
         </div>
 
@@ -5032,6 +5201,94 @@ export default function App() {
           </div>
         )}
 
+        {/* Reset Patient Password Modal */}
+        {showPatientPasswordModal && selectedPatientForPassword && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+            <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-lg">
+              <h2 className="mb-2 text-[24px] font-bold">Reset Patient Password</h2>
+              <p className="mb-6 text-sm text-slate-600">
+                Set a new password for <span className="font-semibold text-slate-900">{selectedPatientForPassword.name}</span>.
+              </p>
+
+              <div className="space-y-4">
+                <button
+                  onClick={handleGenerateTemporaryPassword}
+                  type="button"
+                  className="w-full rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700 hover:bg-amber-100"
+                >
+                  Generate Temporary Password
+                </button>
+                <div className="relative">
+                  <input
+                    type={showAdminResetPassword ? "text" : "password"}
+                    placeholder="New Password"
+                    value={adminResetPasswordData.newPassword}
+                    onChange={(e) =>
+                      setAdminResetPasswordData({
+                        ...adminResetPasswordData,
+                        newPassword: e.target.value,
+                      })
+                    }
+                    className="w-full rounded-lg border border-slate-200 px-4 py-3 pr-12 text-sm outline-none focus:border-teal-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminResetPassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 flex items-center px-4 text-slate-500 hover:text-slate-700"
+                    aria-label={showAdminResetPassword ? "Hide password" : "Show password"}
+                  >
+                    {showAdminResetPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showAdminResetPassword ? "text" : "password"}
+                    placeholder="Confirm New Password"
+                    value={adminResetPasswordData.confirmPassword}
+                    onChange={(e) =>
+                      setAdminResetPasswordData({
+                        ...adminResetPasswordData,
+                        confirmPassword: e.target.value,
+                      })
+                    }
+                    className="w-full rounded-lg border border-slate-200 px-4 py-3 pr-12 text-sm outline-none focus:border-teal-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminResetPassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 flex items-center px-4 text-slate-500 hover:text-slate-700"
+                    aria-label={showAdminResetPassword ? "Hide password" : "Show password"}
+                  >
+                    {showAdminResetPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-8 flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowPatientPasswordModal(false);
+                    setSelectedPatientForPassword(null);
+                    setAdminResetPasswordData({ newPassword: "", confirmPassword: "" });
+                    setShowAdminResetPassword(false);
+                  }}
+                  className="flex-1 rounded-lg border border-slate-200 px-4 py-3 font-medium text-slate-700 hover:bg-slate-50"
+                  disabled={adminResetPasswordLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAdminResetPatientPassword}
+                  className="flex-1 rounded-lg bg-teal-600 px-4 py-3 font-medium text-white hover:bg-teal-700 disabled:opacity-60"
+                  disabled={adminResetPasswordLoading}
+                >
+                  {adminResetPasswordLoading ? "Saving..." : "Update Password"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Patient Details Modal - Admin View */}
         {showAppointmentDetails && selectedDetailType === "patient" && selectedDetail && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
@@ -5041,11 +5298,12 @@ export default function App() {
             >
               <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
                 <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Patient Details</h3>
-                <button 
-                  onClick={() => setShowAppointmentDetails(false)} 
-                  className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                  aria-label="Close details"
                 >
-                  ?
+                  <X size={24} />
                 </button>
               </div>
 
@@ -5126,11 +5384,12 @@ export default function App() {
             >
               <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
                 <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Doctor Details</h3>
-                <button 
-                  onClick={() => setShowAppointmentDetails(false)} 
-                  className={`text-2xl transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                  aria-label="Close details"
                 >
-                  ?
+                  <X size={24} />
                 </button>
               </div>
 
@@ -5202,8 +5461,10 @@ export default function App() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-r from-slate-100 via-teal-50 to-blue-100 px-4">
-      <div className="w-full max-w-[460px] rounded-2xl border border-gray-200 bg-white px-8 py-10 shadow-sm">
+    <>
+      {renderTopToast()}
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-r from-slate-100 via-teal-50 to-blue-100 px-4">
+        <div className="w-full max-w-[460px] rounded-2xl border border-gray-200 bg-white px-8 py-10 shadow-sm">
         <div className="flex flex-col items-center">
           <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-100">
             <Activity className="text-teal-600" size={28} />
@@ -5214,7 +5475,7 @@ export default function App() {
           </h1>
           <p className="mt-2 text-sm text-gray-500">
             {showForgotPassword
-              ? "Reset your password"
+              ? "Request an admin password reset"
               : isLogin
               ? "Sign in to access your dashboard"
               : "Create an account to continue"}
@@ -5250,18 +5511,6 @@ export default function App() {
           </div>
         )}
 
-        {message && (
-          <div
-            className={`mt-4 rounded-lg px-4 py-3 text-sm ${
-              isError
-                ? "bg-red-100 text-red-700"
-                : "bg-green-100 text-green-700"
-            }`}
-          >
-            {message}
-          </div>
-        )}
-
         {showForgotPassword ? (
           <form onSubmit={handleForgotPassword} className="mt-6">
             <div className="mt-1">
@@ -5280,71 +5529,12 @@ export default function App() {
                 />
               </div>
               <p className="mt-3 text-sm text-gray-500">
-                {forgotStep === "request"
-                  ? "Enter your email to request a password reset token."
-                  : "Enter the reset token you received and choose a new password."}
+                Enter your email to send a reset request to admin.
               </p>
             </div>
 
-            {forgotStep === "reset" && (
-              <div className="mt-5">
-                <label className="mb-2 block text-sm font-medium text-gray-800">
-                  Reset Token
-                </label>
-                <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
-                  <Lock size={18} className="mr-3 text-gray-400" />
-                  <input
-                    type="text"
-                    name="token"
-                    value={resetToken}
-                    onChange={(e) => setResetToken(e.target.value)}
-                    placeholder="Paste your reset token"
-                    className="w-full outline-none placeholder:text-gray-400"
-                  />
-                </div>
-              </div>
-            )}
-
-            {forgotStep === "reset" && (
-              <>
-                <div className="mt-5">
-                  <label className="mb-2 block text-sm font-medium text-gray-800">
-                    New Password
-                  </label>
-                  <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
-                    <Lock size={18} className="mr-3 text-gray-400" />
-                    <input
-                      type="password"
-                      name="newPassword"
-                      value={forgotData.newPassword}
-                      onChange={handleForgotChange}
-                      placeholder="Enter new password"
-                      className="w-full outline-none placeholder:text-gray-400"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-5">
-                  <label className="mb-2 block text-sm font-medium text-gray-800">
-                    Confirm New Password
-                  </label>
-                  <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
-                    <Lock size={18} className="mr-3 text-gray-400" />
-                    <input
-                      type="password"
-                      name="confirmPassword"
-                      value={forgotData.confirmPassword}
-                      onChange={handleForgotChange}
-                      placeholder="Confirm new password"
-                      className="w-full outline-none placeholder:text-gray-400"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-
             <button className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 py-3 text-white transition hover:bg-teal-700">
-              {forgotStep === "request" ? "Request Reset Token" : "Reset Password"}
+              Request Reset Admin
               <ArrowRight size={18} />
             </button>
 
@@ -5354,8 +5544,7 @@ export default function App() {
                 setShowForgotPassword(false);
                 setIsLogin(true);
                 setMessage("");
-                setForgotStep("request");
-                setResetToken("");
+                setForgotData({ email: "", newPassword: "", confirmPassword: "" });
               }}
               className="mt-3 w-full rounded-lg border border-gray-300 py-3 text-gray-700 transition hover:bg-gray-50"
             >
@@ -5483,8 +5672,9 @@ export default function App() {
             </button>
           </form>
         )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 

@@ -62,7 +62,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   });
   const [prescriptions, setPrescriptions] = useState([]);
   const [prescriptionForm, setPrescriptionForm] = useState({
-    appointmentId: "",
+    medicalRecordId: "",
     patientId: "",
     medication: "",
     dosageAmount: "",
@@ -501,7 +501,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     e.preventDefault();
 
     if (
-      !prescriptionForm.appointmentId ||
+      !prescriptionForm.medicalRecordId ||
       !prescriptionForm.patientId ||
       !prescriptionForm.medication ||
       !prescriptionForm.dosageAmount ||
@@ -515,7 +515,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
     try {
       await api.post("/prescriptions", {
-        appointmentId: prescriptionForm.appointmentId,
+        medicalRecordId: prescriptionForm.medicalRecordId,
         patientId: prescriptionForm.patientId,
         doctorId: loggedInUser.id,
         medication: prescriptionForm.medication,
@@ -528,8 +528,10 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
       const prescriptionsRes = await api.get("/doctor/prescriptions");
       setPrescriptions(prescriptionsRes.data.prescriptions || []);
+      const recordsRes = await api.get("/doctor/medical-records");
+      setRecords(normalizeMedicalRecords(recordsRes.data.records || []));
       setPrescriptionForm({
-        appointmentId: "",
+        medicalRecordId: "",
         patientId: "",
         medication: "",
         dosageAmount: "",
@@ -541,7 +543,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       setShowAddPrescriptionModal(false);
     } catch (err) {
       console.error("Error adding prescription:", err);
-      alert("Failed to add prescription.");
+      alert(err.response?.data?.message || "Failed to add prescription.");
     }
   };
 
@@ -645,7 +647,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
             <div class="row"><span class="label">Duration:</span> ${prescription.duration || "N/A"}</div>
             <div class="row"><span class="label">Instructions:</span> ${prescription.instructions || "N/A"}</div>
             <div class="row"><span class="label">Date:</span> ${new Date(prescription.prescribed_date).toLocaleDateString()}</div>
-            <div class="row"><span class="label">Appointment:</span> ${prescription.appointment_date || "N/A"} ${prescription.appointment_time || ""}</div>
+            <div class="row"><span class="label">Medical Record:</span> ${prescription.medical_record_diagnosis || prescription.medical_record_title || "N/A"}</div>
           </div>
         </body>
       </html>
@@ -1790,7 +1792,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                       setPrescriptionForm({
                         ...prescriptionForm,
                         patientId: e.target.value,
-                        appointmentId: "",
+                        medicalRecordId: "",
                       });
                     }}
                     className={inputClasses}
@@ -1806,19 +1808,21 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Appointment</label>
+                  <label className="mb-2 block text-sm font-semibold">Medical Record</label>
                   <select
-                    value={prescriptionForm.appointmentId}
-                    onChange={(e) => setPrescriptionForm({ ...prescriptionForm, appointmentId: e.target.value })}
+                    value={prescriptionForm.medicalRecordId}
+                    onChange={(e) => setPrescriptionForm({ ...prescriptionForm, medicalRecordId: e.target.value })}
                     className={inputClasses}
                     required
                   >
-                    <option value="">Select appointment</option>
-                    {appointments
-                      .filter((apt) => String(apt.patient_id) === String(prescriptionForm.patientId))
-                      .map((apt) => (
-                        <option key={apt.id} value={apt.id}>
-                          {new Date(apt.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} {formatTimeString(apt.time)} — {apt.type || "Consultation"}
+                    <option value="">Select medical record</option>
+                    {records
+                      .filter((record) => String(record.patient_id || record.patientId) === String(prescriptionForm.patientId))
+                      .map((record) => (
+                        <option key={record.id} value={record.id}>
+                          {record.record_date
+                            ? new Date(record.record_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                            : "No date"} - {record.diagnosis || record.title || "Medical Record"}
                         </option>
                       ))}
                   </select>
@@ -2155,11 +2159,11 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                   </p>
                 </div>
                 <div>
-                  <p className={`text-sm font-semibold ${textMuted}`}>Appointment</p>
+                  <p className={`text-sm font-semibold ${textMuted}`}>Medical Record</p>
                   <p className="text-lg">
-                    {selectedPrescription.appointment_date
-                      ? `${new Date(selectedPrescription.appointment_date).toLocaleDateString()} ${selectedPrescription.appointment_time || ""}`
-                      : "N/A"}
+                    {selectedPrescription.medical_record_diagnosis ||
+                      selectedPrescription.medical_record_title ||
+                      "N/A"}
                   </p>
                 </div>
               </div>
