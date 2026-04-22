@@ -96,6 +96,8 @@ export default function App() {
     phone: "",
     role: "patient",
     specialty: "",
+    department: "",
+    yearsExperience: "",
     age: "",
     gender: "",
     blood_group: "",
@@ -150,6 +152,8 @@ export default function App() {
   const [loadingPassword, setLoadingPassword] = useState(false);
   const [showPatientPasswordModal, setShowPatientPasswordModal] = useState(false);
   const [selectedPatientForPassword, setSelectedPatientForPassword] = useState(null);
+  const [showDoctorPasswordModal, setShowDoctorPasswordModal] = useState(false);
+  const [selectedDoctorForPassword, setSelectedDoctorForPassword] = useState(null);
   const [adminResetPasswordData, setAdminResetPasswordData] = useState({
     newPassword: "",
     confirmPassword: "",
@@ -157,6 +161,7 @@ export default function App() {
   const [adminResetPasswordLoading, setAdminResetPasswordLoading] = useState(false);
   const [showAdminResetPassword, setShowAdminResetPassword] = useState(false);
   const [openPatientActionsMenuId, setOpenPatientActionsMenuId] = useState(null);
+  const [openDoctorActionsMenuId, setOpenDoctorActionsMenuId] = useState(null);
 
   // Notifications state
   const [notifications, setNotifications] = useState([]);
@@ -591,7 +596,7 @@ export default function App() {
       }
       
       setIsError(false);
-      setMessage(res.data.message || "?� Appointment booked successfully!");
+      setMessage(res.data.message || "Appointment booked successfully!");
       setShowBookingModal(false);
       setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
       fetchPatientData();
@@ -611,7 +616,7 @@ export default function App() {
     try {
       const res = await api.put(`/appointments/${appointmentId}`, { status: "Cancelled" });
       setIsError(false);
-      setMessage(res.data.message || "?� Appointment cancelled successfully!");
+      setMessage(res.data.message || "Appointment cancelled successfully!");
       fetchPatientData();
       // Refresh notifications after status change
       if (loggedInUser && loggedInUser.id) {
@@ -663,7 +668,7 @@ export default function App() {
     try {
       const res = await api.put(`/users/${loggedInUser.id}`, updateData);
       setIsError(false);
-      setMessage(res.data.message || "?� Profile updated successfully!");
+      setMessage(res.data.message || "Profile updated successfully!");
       setLoggedInUser({ ...loggedInUser, ...updateData });
       setEditingProfile(false);
       setTimeout(() => setMessage(""), 3000);
@@ -908,7 +913,7 @@ export default function App() {
     try {
       const res = await api.post("/register", { name: trimmedName, email: trimmedEmail, password: trimmedPassword });
       setIsError(false);
-      setMessage(res.data.message || "?� Registration successful!");
+      setMessage(res.data.message || "Registration successful!");
       setRegisterData({ name: "", email: "", password: "" });
       setIsLogin(true);
       setShowForgotPassword(false);
@@ -939,7 +944,7 @@ export default function App() {
       setActivePage("dashboard");
       setAdminPage("dashboard");
       setIsError(false);
-      setMessage(res.data.message || "?� Login successful!");
+      setMessage(res.data.message || "Login successful!");
     } catch (err) {
       setIsError(true);
       setMessage(err.response?.data?.message || "❌ Login failed");
@@ -1171,7 +1176,7 @@ export default function App() {
         }
       }
       
-      setMessage("?� Appointment booked successfully!");
+      setMessage("Appointment booked successfully!");
       setIsError(false);
       setShowAddModal(false);
       setAddModalType("");
@@ -1217,6 +1222,8 @@ export default function App() {
           email: newUserData.email,
           phone: newUserData.phone,
           specialty: newUserData.specialty,
+          department: newUserData.department,
+          yearsExperience: newUserData.yearsExperience,
         });
         setMessage("Doctor updated successfully");
         setEditingDoctorId(null);
@@ -1240,13 +1247,16 @@ export default function App() {
           email: newUserData.email,
           password: newUserData.password,
           role: newUserData.role,
+          phone: newUserData.phone,
           specialty: addModalType === "doctor" ? newUserData.specialty : undefined,
+          department: addModalType === "doctor" ? newUserData.department : undefined,
+          yearsExperience: addModalType === "doctor" ? newUserData.yearsExperience : undefined,
         });
         setMessage(`${addModalType.charAt(0).toUpperCase() + addModalType.slice(1)} added successfully`);
       }
       setIsError(false);
       setShowAddModal(false);
-      setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "", age: "", gender: "", blood_group: "", condition: "", date_of_birth: "", address: "", emergency_contact: "" });
+      setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "", department: "", yearsExperience: "", age: "", gender: "", blood_group: "", condition: "", date_of_birth: "", address: "", emergency_contact: "" });
       fetchAdminData();
     } catch (err) {
       setMessage(err.response?.data?.message || "Error", true);
@@ -1259,6 +1269,13 @@ export default function App() {
     setAdminResetPasswordData({ newPassword: "", confirmPassword: "" });
     setShowAdminResetPassword(false);
     setShowPatientPasswordModal(true);
+  };
+
+  const openDoctorPasswordModal = (doctor) => {
+    setSelectedDoctorForPassword(doctor);
+    setAdminResetPasswordData({ newPassword: "", confirmPassword: "" });
+    setShowAdminResetPassword(false);
+    setShowDoctorPasswordModal(true);
   };
 
   const handleAdminResetPatientPassword = async () => {
@@ -1304,6 +1321,54 @@ export default function App() {
     } catch (err) {
       setIsError(true);
       setMessage(err.response?.data?.message || "❌ Failed to reset patient password");
+    } finally {
+      setAdminResetPasswordLoading(false);
+    }
+  };
+
+  const handleAdminResetDoctorPassword = async () => {
+    if (!selectedDoctorForPassword?.id) {
+      setIsError(true);
+      setMessage("❌ No doctor selected for password reset");
+      return;
+    }
+
+    const trimmedNewPassword = adminResetPasswordData.newPassword.trim();
+    const trimmedConfirmPassword = adminResetPasswordData.confirmPassword.trim();
+
+    if (!trimmedNewPassword || !trimmedConfirmPassword) {
+      setIsError(true);
+      setMessage("❌ Please fill both password fields");
+      return;
+    }
+
+    if (trimmedNewPassword.length < 6) {
+      setIsError(true);
+      setMessage("❌ Password must be at least 6 characters");
+      return;
+    }
+
+    if (trimmedNewPassword !== trimmedConfirmPassword) {
+      setIsError(true);
+      setMessage("❌ Passwords do not match");
+      return;
+    }
+
+    setAdminResetPasswordLoading(true);
+    try {
+      await api.put(`/users/${selectedDoctorForPassword.id}/change-password`, {
+        newPassword: trimmedNewPassword,
+        confirmPassword: trimmedConfirmPassword,
+      });
+      setIsError(false);
+      setMessage(`✅ Successfully reset the password for Dr. ${selectedDoctorForPassword.name}`);
+      setShowDoctorPasswordModal(false);
+      setSelectedDoctorForPassword(null);
+      setAdminResetPasswordData({ newPassword: "", confirmPassword: "" });
+      setShowAdminResetPassword(false);
+    } catch (err) {
+      setIsError(true);
+      setMessage(err.response?.data?.message || "❌ Failed to reset doctor password");
     } finally {
       setAdminResetPasswordLoading(false);
     }
@@ -2528,7 +2593,7 @@ export default function App() {
               {openPatientActionsMenuId === patient.id && (
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className="absolute right-0 top-10 z-20 w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+                  className="absolute bottom-10 right-0 z-20 w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
                 >
                   <button
                     onClick={() => {
@@ -2797,7 +2862,13 @@ export default function App() {
         <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-[20px] font-bold">Recent Appointments</h3>
-            <a href="#" className="text-sm text-teal-600 hover:underline">View All →</a>
+            <button
+              type="button"
+              onClick={() => setAdminPage("appointments")}
+              className="text-sm text-teal-600 hover:underline"
+            >
+              View All →
+            </button>
           </div>
           <div className="space-y-4">
             {adminAppointments.slice(0, 5).map((apt, idx) => {
@@ -2948,12 +3019,11 @@ export default function App() {
             </button>
           </div>
 
-          <div className="grid gap-4 border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-500" style={{gridTemplateColumns: '2fr 1.2fr 1.2fr 1fr 1fr 1fr 1fr'}}>
+          <div className="grid gap-4 border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-500" style={{gridTemplateColumns: '2fr 1.2fr 1.2fr 1fr 1fr 1fr'}}>
             <div>DOCTOR</div>
             <div>SPECIALIZATION</div>
             <div>DEPARTMENT</div>
             <div>EXPERIENCE</div>
-            <div>RATING</div>
             <div>PATIENTS</div>
             <div className="text-right">Actions</div>
           </div>
@@ -2975,7 +3045,7 @@ export default function App() {
               className={`grid items-center gap-4 px-5 py-5 ${
                 index !== paginatedDoctors.length - 1 ? "border-b border-slate-200" : ""
               }`}
-              style={{gridTemplateColumns: '2fr 1.2fr 1.2fr 1fr 1fr 1fr 1fr'}}
+              style={{gridTemplateColumns: '2fr 1.2fr 1.2fr 1fr 1fr 1fr'}}
             >
               <div className="flex items-center gap-4 min-w-0">
                 <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-teal-600">
@@ -2993,48 +3063,81 @@ export default function App() {
 
               <div className="truncate text-[17px] text-slate-700">{(doctor.experience !== null && doctor.experience !== undefined) ? `${doctor.experience} years` : 'N/A'}</div>
 
-              <div className="flex items-center gap-1 text-[17px] text-slate-700">
-                <span className="text-yellow-400">★</span>
-                <span className="font-medium">{doctor.rating !== null && doctor.rating !== undefined ? parseFloat(doctor.rating).toFixed(1) : 'N/A'}</span>
-              </div>
-
               <div className="truncate text-[17px] text-teal-600 font-medium">{patientCount}</div>
 
-              <div className="flex items-center justify-end gap-4">
-                <button 
-                  onClick={() => { 
-                    setAddModalType("doctor"); 
-                    setShowAddModal(true); 
-                    setEditingDoctorId(doctor.id);
-                    setNewUserData({
-                      name: doctor.name,
-                      email: doctor.email,
-                      password: "",
-                      phone: doctor.phone || "",
-                      role: "doctor",
-                      specialty: doctor.specialty || "",
-                    }); 
-                  }}
-                  className="text-blue-600 hover:opacity-70"
-                >
-                  <Pencil size={18} />
-                </button>
-                <button 
-                  onClick={() => { 
-                    setSelectedDetailType("doctor"); 
-                    setSelectedDetail(doctor); 
-                    setShowAppointmentDetails(true); 
-                  }}
-                  className="text-blue-600 hover:opacity-70"
-                >
-                  <Eye size={18} />
-                </button>
+              <div className="relative flex items-center justify-end">
                 <button
-                  onClick={() => handleDeleteUser(doctor.id, "doctor")}
-                  className="text-red-500 hover:opacity-70"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenDoctorActionsMenuId((prev) => (prev === doctor.id ? null : doctor.id));
+                  }}
+                  className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+                  title="Doctor actions"
                 >
-                  <Trash2 size={18} />
+                  <MoreVertical size={18} />
                 </button>
+
+                {openDoctorActionsMenuId === doctor.id && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute bottom-10 right-0 z-20 w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+                  >
+                    <button
+                      onClick={() => {
+                        setOpenDoctorActionsMenuId(null);
+                        openDoctorPasswordModal(doctor);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-amber-700 hover:bg-amber-50"
+                    >
+                      <Lock size={16} />
+                      Reset Password
+                    </button>
+                    <button
+                      onClick={() => {
+                        setOpenDoctorActionsMenuId(null);
+                        setAddModalType("doctor");
+                        setShowAddModal(true);
+                        setEditingDoctorId(doctor.id);
+                        setNewUserData({
+                          name: doctor.name,
+                          email: doctor.email,
+                          password: "",
+                          phone: doctor.phone || "",
+                          role: "doctor",
+                          specialty: doctor.specialty || "",
+                          department: doctor.department || "",
+                          yearsExperience: doctor.experience !== null && doctor.experience !== undefined ? String(doctor.experience) : "",
+                        });
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-blue-700 hover:bg-blue-50"
+                    >
+                      <Pencil size={16} />
+                      Edit Doctor
+                    </button>
+                    <button
+                      onClick={() => {
+                        setOpenDoctorActionsMenuId(null);
+                        setSelectedDetailType("doctor");
+                        setSelectedDetail(doctor);
+                        setShowAppointmentDetails(true);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+                    >
+                      <Eye size={16} />
+                      View Details
+                    </button>
+                    <button
+                      onClick={() => {
+                        setOpenDoctorActionsMenuId(null);
+                        handleDeleteUser(doctor.id, "doctor");
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 size={16} />
+                      Delete Doctor
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -3088,7 +3191,14 @@ export default function App() {
   const renderAdminAppointmentsPage = () => {
     // Filter appointments by status and search
     const filteredAppointments = adminAppointments.filter((apt) => {
-      const matchesStatus = appointmentFilter === "All" || apt.status === appointmentFilter;
+      const appointmentDate = apt.date ? new Date(`${apt.date}T00:00:00`) : null;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const matchesStatus =
+        appointmentFilter === "All" ||
+        (appointmentFilter === "Today"
+          ? !!appointmentDate && appointmentDate.getTime() === today.getTime()
+          : apt.status === appointmentFilter);
       
       // Local search only
       const localSearchActive = appointmentSearch && appointmentSearch.trim() !== "";
@@ -3156,7 +3266,7 @@ export default function App() {
 
         {/* Filter Tabs */}
         <div className="mb-6 flex gap-2">
-          {["All", "Scheduled", "Pending", "Completed", "Cancelled"].map((status) => (
+          {["All", "Today", "Pending", "Completed", "Cancelled"].map((status) => (
             <button
               key={status}
               onClick={() => {
@@ -4625,25 +4735,15 @@ export default function App() {
                       <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Experience</label>
                       <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.experience ? `${selectedDetail.experience} years` : "N/A"}</p>
                     </div>
-                    <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Rating</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
-                        <span className="text-yellow-400">★</span> {selectedDetail.rating ? parseFloat(selectedDetail.rating).toFixed(1) : "N/A"}
-                      </p>
-                    </div>
                   </div>
                 </div>
 
                 <div>
                   <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Contact Information</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 gap-6">
                     <div>
                       <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Phone</label>
                       <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.phone || "N/A"}</p>
-                    </div>
-                    <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Bio</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.bio || "N/A"}</p>
                     </div>
                   </div>
                 </div>
@@ -5156,13 +5256,39 @@ export default function App() {
                   </>
                 )}
                 {addModalType === "doctor" && !editingPatientId && (
-                  <input
-                    type="text"
-                    placeholder="Specialty"
-                    value={newUserData.specialty}
-                    onChange={(e) => setNewUserData({...newUserData, specialty: e.target.value})}
-                    className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
-                  />
+                  <>
+                    <input
+                      type="text"
+                      placeholder="Specialty"
+                      value={newUserData.specialty}
+                      onChange={(e) => setNewUserData({...newUserData, specialty: e.target.value})}
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                    />
+                    <select
+                      value={newUserData.department}
+                      onChange={(e) => setNewUserData({...newUserData, department: e.target.value})}
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                    >
+                      <option value="">Select Department</option>
+                      <option>Cardiology</option>
+                      <option>Neurology</option>
+                      <option>Orthopedics</option>
+                      <option>Pediatrics</option>
+                      <option>Dermatology</option>
+                      <option>General Medicine</option>
+                      <option>Surgery</option>
+                      <option>Internal Medicine</option>
+                      <option>Pathology</option>
+                    </select>
+                    <input
+                      type="number"
+                      placeholder="Years of Experience"
+                      value={newUserData.yearsExperience}
+                      onChange={(e) => setNewUserData({...newUserData, yearsExperience: e.target.value})}
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                      min="0"
+                    />
+                  </>
                 )}
                   </>
                 )}
@@ -5175,7 +5301,7 @@ export default function App() {
                     setAddModalType("");
                     setEditingDoctorId(null);
                     setEditingPatientId(null);
-                    setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "", age: "", gender: "", blood_group: "", condition: "", date_of_birth: "", address: "", emergency_contact: "", patientType: "registered", selectedPatientId: "", emergencyPatientName: "", emergencyPatientPhone: "" });
+                    setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "", department: "", yearsExperience: "", age: "", gender: "", blood_group: "", condition: "", date_of_birth: "", address: "", emergency_contact: "", patientType: "registered", selectedPatientId: "", emergencyPatientName: "", emergencyPatientPhone: "" });
                     setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
                   }}
                   className="flex-1 rounded-lg border border-slate-200 px-4 py-3 font-medium text-slate-700 hover:bg-slate-50"
@@ -5194,7 +5320,15 @@ export default function App() {
                   }}
                   className="flex-1 rounded-lg bg-teal-600 px-4 py-3 font-medium text-white hover:bg-teal-700"
                 >
-                  {addModalType === "appointment" ? "Book Appointment" : editingPatientId ? "Save" : addModalType === "patient" ? "Save" : `Add ${addModalType.charAt(0).toUpperCase() + addModalType.slice(1)}`}
+                  {addModalType === "appointment"
+                    ? "Book Appointment"
+                    : editingDoctorId
+                    ? "Update Doctor"
+                    : editingPatientId
+                    ? "Save"
+                    : addModalType === "patient"
+                    ? "Save"
+                    : `Add ${addModalType.charAt(0).toUpperCase() + addModalType.slice(1)}`}
                 </button>
               </div>
             </div>
@@ -5283,6 +5417,206 @@ export default function App() {
                   disabled={adminResetPasswordLoading}
                 >
                   {adminResetPasswordLoading ? "Saving..." : "Update Password"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Reset Doctor Password Modal */}
+        {showDoctorPasswordModal && selectedDoctorForPassword && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+            <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-lg">
+              <h2 className="mb-2 text-[24px] font-bold">Reset Doctor Password</h2>
+              <p className="mb-6 text-sm text-slate-600">
+                Set a new password for <span className="font-semibold text-slate-900">Dr. {selectedDoctorForPassword.name}</span>.
+              </p>
+
+              <div className="space-y-4">
+                <button
+                  onClick={handleGenerateTemporaryPassword}
+                  type="button"
+                  className="w-full rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700 hover:bg-amber-100"
+                >
+                  Generate Temporary Password
+                </button>
+                <div className="relative">
+                  <input
+                    type={showAdminResetPassword ? "text" : "password"}
+                    placeholder="New Password"
+                    value={adminResetPasswordData.newPassword}
+                    onChange={(e) =>
+                      setAdminResetPasswordData({
+                        ...adminResetPasswordData,
+                        newPassword: e.target.value,
+                      })
+                    }
+                    className="w-full rounded-lg border border-slate-200 px-4 py-3 pr-12 text-sm outline-none focus:border-teal-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminResetPassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 flex items-center px-4 text-slate-500 hover:text-slate-700"
+                    aria-label={showAdminResetPassword ? "Hide password" : "Show password"}
+                  >
+                    {showAdminResetPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showAdminResetPassword ? "text" : "password"}
+                    placeholder="Confirm New Password"
+                    value={adminResetPasswordData.confirmPassword}
+                    onChange={(e) =>
+                      setAdminResetPasswordData({
+                        ...adminResetPasswordData,
+                        confirmPassword: e.target.value,
+                      })
+                    }
+                    className="w-full rounded-lg border border-slate-200 px-4 py-3 pr-12 text-sm outline-none focus:border-teal-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminResetPassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 flex items-center px-4 text-slate-500 hover:text-slate-700"
+                    aria-label={showAdminResetPassword ? "Hide password" : "Show password"}
+                  >
+                    {showAdminResetPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-8 flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowDoctorPasswordModal(false);
+                    setSelectedDoctorForPassword(null);
+                    setAdminResetPasswordData({ newPassword: "", confirmPassword: "" });
+                    setShowAdminResetPassword(false);
+                  }}
+                  className="flex-1 rounded-lg border border-slate-200 px-4 py-3 font-medium text-slate-700 hover:bg-slate-50"
+                  disabled={adminResetPasswordLoading}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAdminResetDoctorPassword}
+                  className="flex-1 rounded-lg bg-teal-600 px-4 py-3 font-medium text-white hover:bg-teal-700 disabled:opacity-60"
+                  disabled={adminResetPasswordLoading}
+                >
+                  {adminResetPasswordLoading ? "Saving..." : "Update Password"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Appointment Details Modal - Admin View */}
+        {showAppointmentDetails && selectedDetailType === "appointment" && selectedDetail && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-4">
+            <div
+              ref={detailsRef}
+              className={`w-full max-w-2xl rounded-2xl border ${darkMode ? 'border-slate-700' : 'border-slate-200'} ${darkMode ? 'bg-slate-800' : 'bg-white'} shadow-xl flex flex-col max-h-[90vh]`}
+            >
+              <div className={`flex flex-shrink-0 items-center justify-between border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <h3 className={`text-[22px] font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>Appointment Details</h3>
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`transition ${darkMode ? 'text-slate-400 hover:text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                  aria-label="Close details"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+                <div>
+                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Appointment Information</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Patient</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {selectedDetail.patient_name || "Walk-in / Emergency Patient"}
+                      </p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Patient Email</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {selectedDetail.patient_email || "N/A"}
+                      </p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Doctor</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {selectedDetail.doctor_name || doctors.find((doc) => doc.id === selectedDetail.doctor_id)?.name || `ID ${selectedDetail.doctor_id}`}
+                      </p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Specialization</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {selectedDetail.specialty || doctors.find((doc) => doc.id === selectedDetail.doctor_id)?.specialty || "N/A"}
+                      </p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Appointment Date</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {selectedDetail.date
+                          ? new Date(selectedDetail.date).toLocaleDateString("en-US", {
+                              month: "long",
+                              day: "numeric",
+                              year: "numeric",
+                            })
+                          : "N/A"}
+                      </p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Time</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.time || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Appointment Type</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.type || "Consultation"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Status</label>
+                      <div className="mt-2">
+                        <span className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${
+                          selectedDetail.status === "Pending"
+                            ? darkMode ? "bg-amber-900 text-amber-200" : "bg-amber-100 text-amber-700"
+                            : selectedDetail.status === "Cancelled"
+                            ? darkMode ? "bg-red-900 text-red-200" : "bg-red-100 text-red-700"
+                            : darkMode ? "bg-emerald-900 text-emerald-200" : "bg-emerald-100 text-emerald-700"
+                        }`}>
+                          {selectedDetail.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedDetail.notes && (
+                  <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} pt-6`}>
+                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Notes</label>
+                    <p className={`text-base mt-3 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>{selectedDetail.notes}</p>
+                  </div>
+                )}
+
+                <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} pt-6`}>
+                  <h4 className={`text-[16px] font-bold mb-4 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Appointment ID</h4>
+                  <p className={`text-base font-mono ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{selectedDetail.id}</p>
+                </div>
+              </div>
+
+              <div className={`flex flex-shrink-0 gap-4 border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-8 py-6`}>
+                <button
+                  onClick={() => setShowAppointmentDetails(false)}
+                  className={`flex-1 rounded-lg px-4 py-3 font-medium transition ${
+                    darkMode
+                      ? 'bg-slate-700 text-slate-100 hover:bg-slate-600'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  Close
                 </button>
               </div>
             </div>

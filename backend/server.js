@@ -344,12 +344,39 @@ const initializeSchema = () => {
   });
 };
 
-initializeSchema();
+const isServerless = process.env.VERCEL === "1";
+if (!isServerless) {
+  initializeSchema();
+}
 
 
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || ["http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:5176"],
+    origin: (origin, callback) => {
+      const configuredOrigins = (process.env.CORS_ORIGIN || "")
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
+      const defaultOrigins = [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:5175",
+        "http://localhost:5176",
+        "https://project-jrwhp.vercel.app",
+      ];
+      const allowedOrigins = configuredOrigins.length ? configuredOrigins : defaultOrigins;
+
+      // Allow same-origin/no-origin requests (e.g., direct function calls, curl).
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      try {
+        if (/\.vercel\.app$/i.test(new URL(origin).hostname)) return callback(null, true);
+      } catch (_err) {
+        // Ignore URL parse errors and treat as disallowed origin below.
+      }
+
+      return callback(new Error("CORS not allowed"), false);
+    },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   })
 );
@@ -714,11 +741,18 @@ app.get("/debug/schema", (req, res) => {
 app.post("/register", async (req, res) => {
   console.log("Register attempt headers:", req.headers["content-type"]);
   console.log("Register attempt body:", req.body);
-  const { name, email, password, role, specialty } = req.body;
+  const { name, email, password, role, specialty, phone, department, yearsExperience, bio } = req.body;
 
   const trimmedName = name?.trim();
   const trimmedEmail = email?.trim();
   const trimmedPassword = password?.trim();
+  const trimmedPhone = phone?.trim() || null;
+  const trimmedDepartment = department?.trim() || null;
+  const trimmedBio = bio?.trim() || null;
+  const parsedExperience =
+    yearsExperience !== undefined && yearsExperience !== null && yearsExperience !== ""
+      ? Number(yearsExperience)
+      : null;
 
   if (!trimmedName || !trimmedEmail || !trimmedPassword) {
     return res.status(400).json({ message: "❌ Please fill all fields" });
@@ -728,14 +762,23 @@ app.post("/register", async (req, res) => {
     const hashedPassword = await bcrypt.hash(trimmedPassword, 10);
     const userRole = role || "patient";
 
-    const sql = "INSERT INTO users (name, email, password, role, specialty) VALUES (?, ?, ?, ?, ?)";
+    const sql = "INSERT INTO users (name, email, password, role, specialty, phone, department, experience, bio) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-    db.query(sql, [trimmedName, trimmedEmail, hashedPassword, userRole, specialty || null], (err) => {
+    db.query(sql, [trimmedName, trimmedEmail, hashedPassword, userRole, specialty || null, trimmedPhone, trimmedDepartment, parsedExperience, trimmedBio], (err) => {
       if (err) {
         if (err.code === "ER_DUP_ENTRY") {
           return res.status(400).json({ message: "❌ Email already exists" });
         }
-        return res.status(500).json({ message: "❌ Database error" });
+        const dbUnavailable =
+          typeof err.message === "string" &&
+          (err.message.includes("ECONNREFUSED") || err.message.includes("ETIMEDOUT"));
+        if (dbUnavailable) {
+          return res.status(500).json({
+            message:
+              "❌ Database is not reachable in production. Set DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, and DB_NAME in Vercel Environment Variables.",
+          });
+        }
+        return res.status(500).json({ message: `❌ Database error: ${err.message}` });
       }
 
       res.json({ message: "✅ Registration successful" });
@@ -1477,7 +1520,32 @@ app.put("/users/:userId", authenticateToken, (req, res) => {
 
   const parsedAge = age !== undefined && age !== null && age !== "" ? Number(age) : null;
   const parsedExperience = yearsExperience !== undefined && yearsExperience !== null && yearsExperience !== "" ? Number(yearsExperience) : null;
-  const sql = "UPDATE users SET name = ?, email = ?, phone = ?, blood_group = ?, age = ?, gender = ?, date_of_birth = ?, address = ?, emergency_contact = ?, specialty = ?, department = ?, experience = ?, bio = ?, `condition` = ? WHERE id = ?";
+  const updateFields = [];
+  const updateValues = [];
+
+  const addUpdateField = (column, value) => {
+    updateFields.push(`${column} = ?`);
+    updateValues.push(value);
+  };
+
+  // Only update fields explicitly provided by the client so admin edits do not
+  // overwrite unrelated doctor fields with NULL when the modal omits them.
+  addUpdateField("name", name);
+  addUpdateField("email", email);
+  if (phone !== undefined) addUpdateField("phone", phone || null);
+  if (bloodGroup !== undefined) addUpdateField("blood_group", bloodGroup || null);
+  if (age !== undefined) addUpdateField("age", parsedAge);
+  if (gender !== undefined) addUpdateField("gender", gender || null);
+  if (dateOfBirth !== undefined) addUpdateField("date_of_birth", dateOfBirth || null);
+  if (address !== undefined) addUpdateField("address", address || null);
+  if (emergencyContact !== undefined) addUpdateField("emergency_contact", emergencyContact || null);
+  if (specialization !== undefined) addUpdateField("specialty", specialization || null);
+  if (department !== undefined) addUpdateField("department", department || null);
+  if (yearsExperience !== undefined) addUpdateField("experience", parsedExperience);
+  if (bio !== undefined) addUpdateField("bio", bio || null);
+  if (condition !== undefined) addUpdateField("`condition`", condition || null);
+
+  const sql = `UPDATE users SET ${updateFields.join(", ")} WHERE id = ?`;
 
   console.log("\n📝 UPDATE PROFILE DETAILS:");
   console.log("  User ID:", userId);
@@ -1489,23 +1557,7 @@ app.put("/users/:userId", authenticateToken, (req, res) => {
 
   db.query(
     sql,
-    [
-      name,
-      email,
-      phone || null,
-      bloodGroup || null,
-      parsedAge,
-      gender || null,
-      dateOfBirth || null,
-      address || null,
-      emergencyContact || null,
-      specialization || null,
-      department || null,
-      parsedExperience,
-      bio || null,
-      condition || null,
-      userId,
-    ],
+    [...updateValues, userId],
     (err, result) => {
       if (err) {
         console.error("\n❌ DATABASE ERROR:");
@@ -2907,9 +2959,14 @@ app.delete("/doctor/availability/:dateId", authenticateToken, authorizeRoles("do
 /* ========== DOCTOR AVAILABILITY SYSTEM ========== */
 const availabilityRoutes = require('./routes/availability');
 app.use('/api', availabilityRoutes);
+app.use('/', availabilityRoutes);
+
+module.exports = app;
 
 /* SERVER */
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+  });
+}

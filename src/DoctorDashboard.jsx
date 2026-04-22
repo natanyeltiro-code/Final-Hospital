@@ -21,7 +21,6 @@ import {
   Clock3,
   Check,
   X,
-  Star,
   Mail,
   Phone,
   Moon,
@@ -247,7 +246,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       setError("Unable to load dashboard: missing doctor ID.");
       setLoading(false);
     }
-  }, [loggedInUser]);
+  }, [loggedInUser?.id]);
 
   const markNotificationAsRead = async (notificationId) => {
     try {
@@ -2190,22 +2189,30 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
             <div>
               <h3 className="text-[32px] font-bold">{profileForm.fullName}</h3>
-              <p
-                className={
-                  darkMode
-                    ? "mt-2 inline-block rounded-full bg-teal-500/15 px-4 py-2 text-sm font-medium text-teal-300"
-                    : "mt-2 inline-block rounded-full bg-teal-100 px-4 py-2 text-sm font-medium text-teal-700"
-                }
-              >
-                {profileForm.specialization}
-              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <p
+                  className={
+                    darkMode
+                      ? "inline-block rounded-full bg-teal-500/15 px-4 py-2 text-sm font-medium text-teal-300"
+                      : "inline-block rounded-full bg-teal-100 px-4 py-2 text-sm font-medium text-teal-700"
+                  }
+                >
+                  {profileForm.specialization}
+                </p>
+                {profileForm.department && (
+                  <p
+                    className={
+                      darkMode
+                        ? "inline-block rounded-full bg-blue-500/15 px-4 py-2 text-sm font-medium text-blue-300"
+                        : "inline-block rounded-full bg-blue-100 px-4 py-2 text-sm font-medium text-blue-700"
+                    }
+                  >
+                    {profileForm.department}
+                  </p>
+                )}
+              </div>
 
               <div className={`mt-6 flex flex-wrap items-center gap-6 text-[16px] ${textSoft}`}>
-                <div className="flex items-center gap-2">
-                  <Star size={18} className="fill-amber-400 text-amber-400" />
-                  <span className="font-semibold">{loggedInUser?.rating !== null && loggedInUser?.rating !== undefined ? parseFloat(loggedInUser.rating).toFixed(1) : '4.5'}</span>
-                  <span>Rating</span>
-                </div>
                 <div className="flex items-center gap-2">
                   <span className="font-semibold">{profileForm.yearsExperience}</span>
                   <span>Years</span>

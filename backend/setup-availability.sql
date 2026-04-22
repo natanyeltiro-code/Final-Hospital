@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS doctor_schedule (
 );
 
 -- Add appointment slots tracking (when doctors are busy)
+ALTER TABLE appointments MODIFY patient_id INT NULL;
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_name VARCHAR(255);
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS patient_phone VARCHAR(20);
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS slot_id INT;
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS appointment_duration INT DEFAULT 30;
 

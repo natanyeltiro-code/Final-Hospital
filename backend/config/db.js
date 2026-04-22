@@ -1,11 +1,23 @@
 require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const mysql = require("mysql2");
 
+const isVercel = process.env.VERCEL === "1";
+const env = (key, fallback = "") => (process.env[key] || fallback).toString().trim();
+const dbHost = env("DB_HOST", "localhost");
+const useTls = env("DB_SSL", dbHost === "localhost" ? "false" : "true").toLowerCase() !== "false";
+
+if (isVercel && !env("DB_HOST")) {
+  console.error("DB_HOST is not set in Vercel environment variables.");
+}
+
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || "localhost",
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "",
-  database: process.env.DB_NAME || "medicare",
+  host: dbHost,
+  port: parseInt(env("DB_PORT", "3306"), 10),
+  user: env("DB_USER", "root"),
+  password: env("DB_PASSWORD", ""),
+  database: env("DB_NAME", "medicare"),
+  connectTimeout: parseInt(env("DB_CONNECT_TIMEOUT", "20000"), 10),
+  ssl: useTls ? { rejectUnauthorized: false } : undefined,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
