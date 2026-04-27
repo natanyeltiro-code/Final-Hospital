@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import api from "./api";
+import SuccessPopup from "./SuccessPopup";
 
 export default function SimpleAppointmentBooking({ 
   darkMode, 
@@ -49,6 +50,7 @@ export default function SimpleAppointmentBooking({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [successPopupOpen, setSuccessPopupOpen] = useState(false);
   
   // Styling
   const bgClass = darkMode ? "bg-slate-800" : "bg-white";
@@ -233,7 +235,8 @@ export default function SimpleAppointmentBooking({
       console.log(`   Response:`, bookResponse.data);
       
       setSuccess(true);
-      setMessage(`✅ ${bookResponse.data.message}`);
+      setMessage("");
+      setSuccessPopupOpen(true);
       
       // Reset form
       setSelectedDoctor(null);
@@ -292,6 +295,12 @@ export default function SimpleAppointmentBooking({
   
   return (
     <div className={`rounded-lg border ${borderClass} ${bgClass} p-6 max-w-2xl`}>
+      <SuccessPopup
+        open={successPopupOpen}
+        message="Appointment Booked Successfully"
+        onClose={() => setSuccessPopupOpen(false)}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
@@ -315,7 +324,7 @@ export default function SimpleAppointmentBooking({
         <div className="mb-4 p-4 rounded-lg bg-green-100 border border-green-300 flex items-start gap-3">
           <CheckCircle className="text-green-600 mt-0.5" size={20} />
           <div>
-            <p className="font-semibold text-green-800">{message}</p>
+            <p className="font-semibold text-green-800">Appointment Booked Successfully</p>
             <p className="text-sm text-green-700 mt-1">
               The doctor will confirm your appointment soon.
             </p>

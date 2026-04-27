@@ -42,12 +42,18 @@ import AvailableDoctorsList from "./AvailableDoctorsList";
 import SimpleDoctorList from "./SimpleDoctorList";
 import AvailableSlotsSelector from "./AvailableSlotsSelector";
 import SimpleAppointmentBooking from "./SimpleAppointmentBooking";
+import SuccessPopup from "./SuccessPopup";
 
 export default function App() {
   const [isLogin, setIsLogin] = useState(true);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
+  const [successPopup, setSuccessPopup] = useState({
+    open: false,
+    title: "Success!",
+    message: "",
+  });
   const [loggedInUser, setLoggedInUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem("authToken") || "");
   const [activePage, setActivePage] = useState("dashboard");
@@ -209,6 +215,20 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [message]);
+
+  const showSuccessPopup = (popupMessage, title = "Success!") => {
+    if (!popupMessage) return;
+
+    setSuccessPopup({
+      open: true,
+      title,
+      message: popupMessage,
+    });
+  };
+
+  const closeSuccessPopup = () => {
+    setSuccessPopup((prev) => ({ ...prev, open: false }));
+  };
 
   useEffect(() => {
     const closeMenu = () => setOpenPatientActionsMenuId(null);
@@ -550,6 +570,248 @@ export default function App() {
     }
   };
 
+  const parseDateSafe = (value) => {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const getReportPeriodRange = (period, now = new Date()) => {
+    const current = new Date(now);
+    current.setHours(23, 59, 59, 999);
+
+    let start;
+    let end;
+    let previousStart;
+    let previousEnd;
+
+    if (period === "This Month") {
+      start = new Date(current.getFullYear(), current.getMonth(), 1);
+      end = new Date(current);
+      previousStart = new Date(current.getFullYear(), current.getMonth() - 1, 1);
+      previousEnd = new Date(current.getFullYear(), current.getMonth(), 0, 23, 59, 59, 999);
+    } else if (period === "Last Month") {
+      start = new Date(current.getFullYear(), current.getMonth() - 1, 1);
+      end = new Date(current.getFullYear(), current.getMonth(), 0, 23, 59, 59, 999);
+      previousStart = new Date(current.getFullYear(), current.getMonth() - 2, 1);
+      previousEnd = new Date(current.getFullYear(), current.getMonth() - 1, 0, 23, 59, 59, 999);
+    } else if (period === "Last Quarter") {
+      const currentQuarter = Math.floor(current.getMonth() / 3);
+      const quarterStartMonth = currentQuarter * 3;
+      start = new Date(current.getFullYear(), quarterStartMonth - 3, 1);
+      end = new Date(current.getFullYear(), quarterStartMonth, 0, 23, 59, 59, 999);
+      previousStart = new Date(current.getFullYear(), quarterStartMonth - 6, 1);
+      previousEnd = new Date(current.getFullYear(), quarterStartMonth - 3, 0, 23, 59, 59, 999);
+    } else {
+      start = new Date(current.getFullYear(), 0, 1);
+      end = new Date(current);
+      previousStart = new Date(current.getFullYear() - 1, 0, 1);
+      previousEnd = new Date(current.getFullYear() - 1, current.getMonth(), current.getDate(), 23, 59, 59, 999);
+    }
+
+    start.setHours(0, 0, 0, 0);
+    previousStart.setHours(0, 0, 0, 0);
+
+    return { start, end, previousStart, previousEnd };
+  };
+
+  const isDateWithinRange = (value, start, end) => {
+    const date = parseDateSafe(value);
+    if (!date) return false;
+    return date >= start && date <= end;
+  };
+
+  const formatTrendChange = (currentValue, previousValue) => {
+    if (!previousValue) {
+      if (!currentValue) return "0.0%";
+      return "+100.0%";
+    }
+
+    const change = ((currentValue - previousValue) / previousValue) * 100;
+    const sign = change > 0 ? "+" : "";
+    return `${sign}${change.toFixed(1)}%`;
+  };
+
+  const buildReportAnalytics = (period = demographicsPeriod) => {
+    const { start, end, previousStart, previousEnd } = getReportPeriodRange(period);
+
+    const filteredAppointments = adminAppointments.filter((apt) =>
+      isDateWithinRange(apt.date, start, end)
+    );
+    const previousAppointments = adminAppointments.filter((apt) =>
+      isDateWithinRange(apt.date, previousStart, previousEnd)
+    );
+
+    const filteredRecords = adminMedicalRecords.filter((record) =>
+      isDateWithinRange(record.record_date, start, end)
+    );
+    const previousRecords = adminMedicalRecords.filter((record) =>
+      isDateWithinRange(record.record_date, previousStart, previousEnd)
+    );
+
+    const uniquePatientIds = new Set(
+      filteredAppointments
+        .map((apt) => apt.patient_id)
+        .filter(Boolean)
+    );
+    const previousUniquePatientIds = new Set(
+      previousAppointments
+        .map((apt) => apt.patient_id)
+        .filter(Boolean)
+    );
+
+    const totalDoctors = doctors.length;
+    const avgRating =
+      totalDoctors > 0
+        ? (
+            doctors.reduce((sum, doctor) => sum + (parseFloat(doctor.rating) || 0), 0) / totalDoctors
+          ).toFixed(1)
+        : "0.0";
+
+    const appointmentTypeData = {
+      Checkup: filteredAppointments.filter((apt) => apt.type === "Checkup").length,
+      Consultation: filteredAppointments.filter((apt) => apt.type === "Consultation").length,
+      "Follow-up": filteredAppointments.filter((apt) => apt.type === "Follow-up").length,
+      Emergency: filteredAppointments.filter((apt) => apt.type === "Emergency").length,
+    };
+    const totalTypes = Object.values(appointmentTypeData).reduce((sum, value) => sum + value, 0) || 1;
+    const appointmentTypes = Object.fromEntries(
+      Object.entries(appointmentTypeData).map(([key, value]) => [key, Math.round((value / totalTypes) * 100)])
+    );
+
+    const deptPatientIds = {};
+    filteredAppointments.forEach((apt) => {
+      const doctor = doctors.find((doc) => doc.id === apt.doctor_id);
+      const department = doctor?.department || "General";
+      if (!deptPatientIds[department]) {
+        deptPatientIds[department] = new Set();
+      }
+      if (apt.patient_id) {
+        deptPatientIds[department].add(apt.patient_id);
+      }
+    });
+
+    const deptLoad = Object.fromEntries(
+      Object.entries(deptPatientIds).map(([department, patientIds]) => [department, patientIds.size])
+    );
+
+    const ageGroups = {
+      "0-18": 0,
+      "19-35": 0,
+      "36-50": 0,
+      "51-65": 0,
+      "65+": 0,
+    };
+    adminPatients.forEach((patient) => {
+      const dob = patient.dateOfBirth || patient.date_of_birth;
+      const birthDate = parseDateSafe(dob);
+      if (!birthDate) return;
+
+      let age = end.getFullYear() - birthDate.getFullYear();
+      const hadBirthdayThisYear =
+        end.getMonth() > birthDate.getMonth() ||
+        (end.getMonth() === birthDate.getMonth() && end.getDate() >= birthDate.getDate());
+      if (!hadBirthdayThisYear) age -= 1;
+
+      if (age <= 18) ageGroups["0-18"] += 1;
+      else if (age <= 35) ageGroups["19-35"] += 1;
+      else if (age <= 50) ageGroups["36-50"] += 1;
+      else if (age <= 65) ageGroups["51-65"] += 1;
+      else ageGroups["65+"] += 1;
+    });
+
+    const trendMonths = [];
+    const trendBase =
+      period === "This Year"
+        ? new Date(end.getFullYear(), 0, 1)
+        : new Date(end.getFullYear(), end.getMonth() - 5, 1);
+    const trendCount = period === "This Year" ? 12 : 6;
+
+    for (let i = 0; i < trendCount; i += 1) {
+      const bucketDate = new Date(trendBase.getFullYear(), trendBase.getMonth() + i, 1);
+      const label = bucketDate.toLocaleString("en-US", { month: "short" });
+      trendMonths.push({
+        label,
+        year: bucketDate.getFullYear(),
+        month: bucketDate.getMonth(),
+        value: 0,
+      });
+    }
+
+    filteredAppointments.forEach((apt) => {
+      const aptDate = parseDateSafe(apt.date);
+      if (!aptDate) return;
+      const bucket = trendMonths.find(
+        (item) => item.year === aptDate.getFullYear() && item.month === aptDate.getMonth()
+      );
+      if (bucket) bucket.value += 1;
+    });
+
+    const conditionCounts = {};
+    adminPatients.forEach((patient) => {
+      const condition = patient.condition || "No Condition";
+      conditionCounts[condition] = (conditionCounts[condition] || 0) + 1;
+    });
+
+    return {
+      period,
+      range: { start, end, previousStart, previousEnd },
+      filteredAppointments,
+      previousAppointments,
+      filteredRecords,
+      previousRecords,
+      totalAppointments: filteredAppointments.length,
+      activePatients: uniquePatientIds.size,
+      totalDoctors,
+      avgRating,
+      appointmentTypeData,
+      appointmentTypes,
+      deptLoad,
+      ageGroups,
+      trendMonths,
+      conditionCounts,
+      changes: {
+        appointments: formatTrendChange(filteredAppointments.length, previousAppointments.length),
+        patients: formatTrendChange(uniquePatientIds.size, previousUniquePatientIds.size),
+        doctors: "0.0%",
+        records: formatTrendChange(filteredRecords.length, previousRecords.length),
+      },
+    };
+  };
+
+  const downloadWordDocument = (filename, title, bodyHtml) => {
+    const documentHtml = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+  <head>
+    <meta charset="utf-8" />
+    <title>${title}</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
+      h1 { font-size: 26px; margin-bottom: 8px; }
+      h2 { font-size: 18px; margin: 24px 0 8px; }
+      p, li { font-size: 14px; line-height: 1.6; }
+      .card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+      .muted { color: #475569; }
+      .divider { border-top: 1px solid #cbd5e1; margin: 16px 0; }
+      ul { margin: 8px 0 0 18px; padding: 0; }
+    </style>
+  </head>
+  <body>
+    ${bodyHtml}
+  </body>
+</html>`;
+
+    const blob = new Blob(["\ufeff", documentHtml], { type: "application/msword" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename.endsWith(".doc") ? filename : `${filename}.doc`;
+    link.click();
+    window.URL.revokeObjectURL(url);
+  };
+
   const handleBookAppointment = async (e) => {
     e.preventDefault();
     if (!bookingData.doctorId || !bookingData.date || !bookingData.time) {
@@ -596,7 +858,7 @@ export default function App() {
       }
       
       setIsError(false);
-      setMessage(res.data.message || "Appointment booked successfully!");
+      showSuccessPopup("Appointment Booked Successfully");
       setShowBookingModal(false);
       setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
       fetchPatientData();
@@ -616,7 +878,7 @@ export default function App() {
     try {
       const res = await api.put(`/appointments/${appointmentId}`, { status: "Cancelled" });
       setIsError(false);
-      setMessage(res.data.message || "Appointment cancelled successfully!");
+      showSuccessPopup("Appointment Cancelled Successfully");
       fetchPatientData();
       // Refresh notifications after status change
       if (loggedInUser && loggedInUser.id) {
@@ -668,10 +930,9 @@ export default function App() {
     try {
       const res = await api.put(`/users/${loggedInUser.id}`, updateData);
       setIsError(false);
-      setMessage(res.data.message || "Profile updated successfully!");
+      showSuccessPopup("Successfully edited profile.");
       setLoggedInUser({ ...loggedInUser, ...updateData });
       setEditingProfile(false);
-      setTimeout(() => setMessage(""), 3000);
     } catch (err) {
       console.error("Error updating profile:", err.response || err);
       setIsError(true);
@@ -680,28 +941,42 @@ export default function App() {
   };
 
   const downloadMedicalRecord = (record) => {
-    const prescriptionsSection = (record.linkedPrescriptions || []).length
-      ? `\n\nPRESCRIPTIONS\n${(record.linkedPrescriptions || [])
+    const prescriptionsHtml = (record.linkedPrescriptions || []).length
+      ? `
+        <h2>Prescriptions</h2>
+        ${(record.linkedPrescriptions || [])
           .map(
-            (prescription, index) =>
-              `${index + 1}. Medication: ${prescription.medication || "N/A"}\n   Dosage: ${
-                prescription.dosage || "N/A"
-              }\n   Frequency: ${prescription.frequency || "N/A"}\n   Duration: ${
-                prescription.duration || "N/A"
-              }\n   Instructions: ${prescription.instructions || "N/A"}\n   Date: ${
-                prescription.prescribed_date || "N/A"
-              }`
+            (prescription, index) => `
+              <div class="card">
+                <p><strong>${index + 1}. Medication:</strong> ${prescription.medication || "N/A"}</p>
+                <p><strong>Dosage:</strong> ${prescription.dosage || "N/A"}</p>
+                <p><strong>Frequency:</strong> ${prescription.frequency || "N/A"}</p>
+                <p><strong>Duration:</strong> ${prescription.duration || "N/A"}</p>
+                <p><strong>Instructions:</strong> ${prescription.instructions || "N/A"}</p>
+                <p><strong>Date:</strong> ${prescription.prescribed_date || "N/A"}</p>
+              </div>
+            `
           )
-          .join("\n\n")}`
-      : "\n\nPRESCRIPTIONS\nNone linked yet";
-    const content = `MEDICAL RECORD\n\nTitle: ${record.title}\nDiagnosis: ${record.diagnosis}\nTreatment: ${record.treatment}\nDate: ${record.record_date}\nStatus: ${record.status}${prescriptionsSection}`;
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${record.title}.txt`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+          .join("")}
+      `
+      : "<h2>Prescriptions</h2><p>None linked yet.</p>";
+
+    downloadWordDocument(
+      `${record.title || "medical-record"}.doc`,
+      "Medical Record",
+      `
+        <h1>Medical Record</h1>
+        <div class="card">
+          <p><strong>Title:</strong> ${record.title || "N/A"}</p>
+          <p><strong>Diagnosis:</strong> ${record.diagnosis || "N/A"}</p>
+          <p><strong>Treatment:</strong> ${record.treatment || "N/A"}</p>
+          <p><strong>Date:</strong> ${record.record_date || "N/A"}</p>
+          <p><strong>Status:</strong> ${record.status || "N/A"}</p>
+        </div>
+        ${prescriptionsHtml}
+      `
+    );
+    showSuccessPopup("Report Generated Successfully");
   };
 
   const downloadAllRecords = () => {
@@ -710,42 +985,56 @@ export default function App() {
       return;
     }
 
-    let content = "COMPLETE MEDICAL RECORDS\n";
-    content += `Patient: ${loggedInUser.name}\n`;
-    content += `Downloaded on: ${new Date().toLocaleDateString()}\n`;
-    content += `Total Records: ${medicalRecords.length}\n`;
-    content += "=" .repeat(60) + "\n\n";
+    const recordsHtml = medicalRecords
+      .map((record, index) => {
+        const prescriptionItems = (record.linkedPrescriptions || []).length
+          ? `<ul>${(record.linkedPrescriptions || [])
+              .map(
+                (prescription) => `
+                  <li>
+                    ${prescription.medication || "N/A"} | ${prescription.dosage || "N/A"} |
+                    ${prescription.frequency || "N/A"} | ${prescription.duration || "N/A"} |
+                    ${prescription.instructions || "N/A"} | ${prescription.prescribed_date || "N/A"}
+                  </li>
+                `
+              )
+              .join("")}</ul>`
+          : "<p>No prescriptions linked.</p>";
 
-    medicalRecords.forEach((record, index) => {
-      content += `RECORD ${index + 1}\n`;
-      content += `Title: ${record.title || "N/A"}\n`;
-      content += `Diagnosis: ${record.diagnosis || "N/A"}\n`;
-      content += `Treatment: ${record.treatment || "N/A"}\n`;
-      content += `Doctor: Dr. ${doctors.find((doc) => doc.id === record.doctor_id)?.name || `ID ${record.doctor_id}`}\n`;
-      content += `Date: ${record.record_date || "N/A"}\n`;
-      content += `Status: ${record.status || "N/A"}\n`;
-      content += `Prescriptions: ${(record.linkedPrescriptions || []).length}\n`;
-      if ((record.linkedPrescriptions || []).length > 0) {
-        content += "Prescription Details:\n";
-        (record.linkedPrescriptions || []).forEach((prescription, prescriptionIndex) => {
-          content += `  ${prescriptionIndex + 1}. ${prescription.medication || "N/A"} | ${prescription.dosage || "N/A"} | ${prescription.frequency || "N/A"} | ${prescription.duration || "N/A"} | ${prescription.instructions || "N/A"} | ${prescription.prescribed_date || "N/A"}\n`;
-        });
-      }
-      content += "-".repeat(60) + "\n\n";
-    });
+        return `
+          <div class="card">
+            <h2>Record ${index + 1}</h2>
+            <p><strong>Title:</strong> ${record.title || "N/A"}</p>
+            <p><strong>Diagnosis:</strong> ${record.diagnosis || "N/A"}</p>
+            <p><strong>Treatment:</strong> ${record.treatment || "N/A"}</p>
+            <p><strong>Doctor:</strong> Dr. ${doctors.find((doc) => doc.id === record.doctor_id)?.name || `ID ${record.doctor_id}`}</p>
+            <p><strong>Date:</strong> ${record.record_date || "N/A"}</p>
+            <p><strong>Status:</strong> ${record.status || "N/A"}</p>
+            <p><strong>Prescriptions:</strong> ${(record.linkedPrescriptions || []).length}</p>
+            ${prescriptionItems}
+          </div>
+        `;
+      })
+      .join("");
 
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `medical-records-${new Date().toISOString().split("T")[0]}.txt`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+    downloadWordDocument(
+      `medical-records-${new Date().toISOString().split("T")[0]}.doc`,
+      "Complete Medical Records",
+      `
+        <h1>Complete Medical Records</h1>
+        <p class="muted"><strong>Patient:</strong> ${loggedInUser.name}</p>
+        <p class="muted"><strong>Downloaded on:</strong> ${new Date().toLocaleDateString()}</p>
+        <p class="muted"><strong>Total Records:</strong> ${medicalRecords.length}</p>
+        <div class="divider"></div>
+        ${recordsHtml}
+      `
+    );
+    showSuccessPopup("Report Generated Successfully");
   };
 
   const getLastUpdatedDate = () => {
-    if (medicalRecords.length === 0) return "N/A";
-    const dates = medicalRecords
+    if (adminMedicalRecords.length === 0) return "N/A";
+    const dates = adminMedicalRecords
       .map((r) => new Date(r.record_date || ""))
       .filter((d) => !isNaN(d.getTime()));
     if (dates.length === 0) return "N/A";
@@ -760,7 +1049,7 @@ export default function App() {
     });
   };
 
-  const generateAdminReport = () => {
+  const generateAdminReport = (analytics = buildReportAnalytics()) => {
     const now = new Date();
     const reportDate = now.toLocaleString("en-US", {
       month: "long",
@@ -780,24 +1069,20 @@ export default function App() {
     // 1. Executive Summary
     report += "\n1. EXECUTIVE SUMMARY\n";
     report += "-".repeat(70) + "\n";
+    report += `Selected Period: ${analytics.period}\n`;
     report += `Total Patients: ${adminPatients.length}\n`;
-    report += `Total Doctors: ${doctors.length}\n`;
-    report += `Total Appointments: ${adminAppointments.length}\n`;
-    report += `Total Medical Records: ${medicalRecords.length}\n`;
-    report += `Pending Appointments: ${adminAppointments.filter(a => a.status === 'Pending').length}\n`;
-    report += `Completed Appointments: ${adminAppointments.filter(a => a.status === 'Completed').length}\n`;
-    report += `Cancelled Appointments: ${adminAppointments.filter(a => a.status === 'Cancelled').length}\n`;
+    report += `Total Doctors: ${analytics.totalDoctors}\n`;
+    report += `Total Appointments: ${analytics.totalAppointments}\n`;
+    report += `Total Medical Records: ${analytics.filteredRecords.length}\n`;
+    report += `Pending Appointments: ${analytics.filteredAppointments.filter(a => a.status === 'Pending').length}\n`;
+    report += `Completed Appointments: ${analytics.filteredAppointments.filter(a => a.status === 'Completed').length}\n`;
+    report += `Cancelled Appointments: ${analytics.filteredAppointments.filter(a => a.status === 'Cancelled').length}\n`;
 
     // 2. Appointment Statistics
     report += "\n" + "=" .repeat(70) + "\n";
     report += "\n2. APPOINTMENT STATISTICS\n";
     report += "-".repeat(70) + "\n";
-    const appointmentsByType = {};
-    adminAppointments.forEach(apt => {
-      const type = apt.type || "Consultation";
-      appointmentsByType[type] = (appointmentsByType[type] || 0) + 1;
-    });
-    Object.entries(appointmentsByType).forEach(([type, count]) => {
+    Object.entries(analytics.appointmentTypeData).forEach(([type, count]) => {
       report += `${type}: ${count} appointments\n`;
     });
 
@@ -805,16 +1090,13 @@ export default function App() {
     report += "\n" + "=" .repeat(70) + "\n";
     report += "\n3. PATIENT DEMOGRAPHICS\n";
     report += "-".repeat(70) + "\n";
-    const conditionCounts = {};
-    adminPatients.forEach(patient => {
-      const condition = patient.condition || 'No Condition';
-      conditionCounts[condition] = (conditionCounts[condition] || 0) + 1;
-    });
-    const topConditions = Object.entries(conditionCounts)
+    const topConditions = Object.entries(analytics.conditionCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10);
     topConditions.forEach(([condition, count]) => {
-      const percentage = ((count / adminPatients.length) * 100).toFixed(1);
+      const percentage = adminPatients.length
+        ? ((count / adminPatients.length) * 100).toFixed(1)
+        : "0.0";
       report += `${condition}: ${count} patients (${percentage}%)\n`;
     });
 
@@ -823,7 +1105,7 @@ export default function App() {
     report += "\n4. DOCTOR STATISTICS\n";
     report += "-".repeat(70) + "\n";
     doctors.forEach(doctor => {
-      const appointmentCount = adminAppointments.filter(a => a.doctor_id === doctor.id).length;
+      const appointmentCount = analytics.filteredAppointments.filter(a => a.doctor_id === doctor.id).length;
       const avgRating = doctor.rating ? parseFloat(doctor.rating).toFixed(1) : "N/A";
       report += `Dr. ${doctor.name} (${doctor.specialty || "N/A"})\n`;
       report += `  - Department: ${doctor.department || "N/A"}\n`;
@@ -836,7 +1118,9 @@ export default function App() {
     report += "=" .repeat(70) + "\n";
     report += "\n5. RECENT APPOINTMENTS (Last 10)\n";
     report += "-".repeat(70) + "\n";
-    const recentAppointments = adminAppointments.slice(-10).reverse();
+    const recentAppointments = [...analytics.filteredAppointments]
+      .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+      .slice(0, 10);
     recentAppointments.forEach((apt, index) => {
       const patient = adminPatients.find(p => p.id === apt.patient_id);
       const doctor = doctors.find(d => d.id === apt.doctor_id);
@@ -849,11 +1133,13 @@ export default function App() {
     report += "\n" + "=" .repeat(70) + "\n";
     report += "\n6. ACTIVE MEDICAL CONDITIONS\n";
     report += "-".repeat(70) + "\n";
-    const activeMedicalRecords = medicalRecords.filter(r => r.status === 'Active').slice(-10);
+    const activeMedicalRecords = analytics.filteredRecords
+      .filter((record) => record.status === "Active")
+      .slice(-10);
     activeMedicalRecords.forEach((record, index) => {
       const patient = adminPatients.find(p => p.id === record.patient_id);
       const doctor = doctors.find(d => d.id === record.doctor_id);
-      report += `\n${index + 1}. ${record.title}\n`;
+      report += `\n${index + 1}. ${record.title || record.diagnosis || "Medical Record"}\n`;
       report += `   Patient: ${patient?.name || "Unknown"}\n`;
       report += `   Doctor: Dr. ${doctor?.name || "Unknown"}\n`;
       report += `   Diagnosis: ${record.diagnosis || "N/A"}\n`;
@@ -872,13 +1158,16 @@ export default function App() {
     report += "END OF REPORT\n";
 
     // Download report
-    const blob = new Blob([report], { type: "text/plain" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `admin-report-${new Date().toISOString().split("T")[0]}.txt`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+    downloadWordDocument(
+      `admin-report-${new Date().toISOString().split("T")[0]}.doc`,
+      "Admin Report",
+      `
+        <h1>Medicare Portal - Comprehensive Admin Report</h1>
+        <p class="muted">Generated on: ${reportDate}</p>
+        <p class="muted">Report Type: Healthcare System Operations Summary</p>
+        <div class="card"><pre style="white-space: pre-wrap; font-family: Arial, sans-serif;">${report}</pre></div>
+      `
+    );
   };
 
   const handleRegisterChange = (e) => {
@@ -944,7 +1233,7 @@ export default function App() {
       setActivePage("dashboard");
       setAdminPage("dashboard");
       setIsError(false);
-      setMessage(res.data.message || "Login successful!");
+      showSuccessPopup("Logged in successfully.");
     } catch (err) {
       setIsError(true);
       setMessage(err.response?.data?.message || "❌ Login failed");
@@ -978,7 +1267,11 @@ export default function App() {
     if (window.confirm(`Are you sure you want to delete this ${type}?`)) {
       try {
         await api.delete(`/users/${userId}`);
-        setMessage(`${type.charAt(0).toUpperCase() + type.slice(1)} deleted successfully`);
+        if (type === "patient") {
+          showSuccessPopup("Patient Deleted Successfully");
+        } else {
+          setMessage(`${type.charAt(0).toUpperCase() + type.slice(1)} deleted successfully`);
+        }
         fetchAdminData();
       } catch (err) {
         setMessage(`Error deleting ${type}`, true);
@@ -991,7 +1284,7 @@ export default function App() {
     if (window.confirm("Are you sure you want to delete this appointment?")) {
       try {
         await api.delete(`/appointments/${appointmentId}`);
-        setMessage("Appointment deleted successfully");
+        showSuccessPopup("Appointment Deleted Successfully");
         fetchAdminData();
       } catch (err) {
         setMessage("Error deleting appointment", true);
@@ -1176,7 +1469,7 @@ export default function App() {
         }
       }
       
-      setMessage("Appointment booked successfully!");
+      showSuccessPopup("Appointment Booked Successfully");
       setIsError(false);
       setShowAddModal(false);
       setAddModalType("");
@@ -1238,7 +1531,7 @@ export default function App() {
           bloodGroup: newUserData.blood_group,
           condition: newUserData.condition,
         });
-        setMessage("Patient updated successfully");
+        showSuccessPopup("Patient Updated Successfully");
         setEditingPatientId(null);
       } else {
         // Create new user
@@ -1313,7 +1606,7 @@ export default function App() {
         confirmPassword: trimmedConfirmPassword,
       });
       setIsError(false);
-      setMessage(`✅ Successfully reset the password for ${selectedPatientForPassword.name}`);
+      showSuccessPopup("Patient Password Updated Successfully");
       setShowPatientPasswordModal(false);
       setSelectedPatientForPassword(null);
       setAdminResetPasswordData({ newPassword: "", confirmPassword: "" });
@@ -1412,7 +1705,7 @@ export default function App() {
     setAdminPage("dashboard");
     setLoginData({ email: "", password: "" });
     setIsError(false);
-    setMessage(" Logged out successfully.");
+    showSuccessPopup("Logged out successfully.");
   };
 
   const renderPatientDashboard = () => {
@@ -1675,7 +1968,31 @@ export default function App() {
     );
   };
 
-  const renderAppointmentsPage = () => (
+  const renderAppointmentsPage = () => {
+    const statusPriority = {
+      Pending: 0,
+      Confirmed: 1,
+      Completed: 2,
+      Cancelled: 3,
+    };
+
+    const sortedAppointments = [...appointments].sort((a, b) => {
+      const priorityDiff =
+        (statusPriority[a.status] ?? 99) - (statusPriority[b.status] ?? 99);
+
+      if (priorityDiff !== 0) return priorityDiff;
+
+      const aDateTime = new Date(
+        `${(a.date || "").split("T")[0]}T${a.time || "00:00"}`
+      ).getTime();
+      const bDateTime = new Date(
+        `${(b.date || "").split("T")[0]}T${b.time || "00:00"}`
+      ).getTime();
+
+      return bDateTime - aDateTime;
+    });
+
+    return (
     <div className="p-9">
       <div className="mb-8 flex items-start justify-between">
         <div>
@@ -1818,10 +2135,10 @@ export default function App() {
       )}
 
       <div className="space-y-5">
-        {appointments.length === 0 ? (
+        {sortedAppointments.length === 0 ? (
           <p className={`rounded-2xl border p-6 text-center ${darkMode ? "border-slate-800 bg-slate-900 text-slate-400" : "border-slate-200 bg-white text-slate-500"}`}>No appointments booked yet</p>
         ) : (
-          appointments.map((appointment) => (
+          sortedAppointments.map((appointment) => (
             <div
               key={appointment.id}
               className={`pointer-events-auto rounded-[24px] border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}
@@ -1899,6 +2216,7 @@ export default function App() {
       </div>
     </div>
   );
+  };
 
   const renderMedicalRecordsPage = () => {
     const normalizedMonthSearch = recordMonthSearch.trim().toLowerCase();
@@ -2725,7 +3043,10 @@ export default function App() {
           <p className="mt-2 text-[18px] text-slate-500">Overview of hospital operations and statistics.</p>
         </div>
         <button 
-          onClick={generateAdminReport}
+          onClick={() => {
+            generateAdminReport(buildReportAnalytics(demographicsPeriod));
+            showSuccessPopup("Report Generated Successfully");
+          }}
           className="flex items-center gap-2 rounded-2xl bg-teal-600 px-6 py-3 text-white shadow-md hover:bg-teal-700 transition">
           <BarChart3 size={20} />
           <span>Generate Report</span>
@@ -3584,67 +3905,10 @@ export default function App() {
   };
 
   const renderAdminReportsPage = () => {
-    // Calculate real statistics
-    const totalAppointments = adminAppointments.length;
-    const activePatients = adminPatients.length;
-    const totalDoctors = doctors.length;
-    const avgRating = totalDoctors > 0 ? (doctors.reduce((sum, d) => sum + (parseFloat(d.rating) || 0), 0) / totalDoctors).toFixed(1) : 0;
-
-    // Calculate appointment types from real data
-    const appointmentTypeData = {
-      "Checkup": adminAppointments.filter(a => a.type === "Checkup").length,
-      "Consultation": adminAppointments.filter(a => a.type === "Consultation").length,
-      "Follow-up": adminAppointments.filter(a => a.type === "Follow-up").length,
-      "Emergency": adminAppointments.filter(a => a.type === "Emergency").length,
-    };
-    const totalTypes = Object.values(appointmentTypeData).reduce((a, b) => a + b, 0) || 1;
-    const appointmentTypes = {
-      "Checkup": Math.round((appointmentTypeData["Checkup"] / totalTypes) * 100),
-      "Consultation": Math.round((appointmentTypeData["Consultation"] / totalTypes) * 100),
-      "Follow-up": Math.round((appointmentTypeData["Follow-up"] / totalTypes) * 100),
-      "Emergency": Math.round((appointmentTypeData["Emergency"] / totalTypes) * 100),
-    };
-
-    // Calculate department patient load from real doctors data
-    const deptLoad = {};
-    doctors.forEach(doc => {
-      const dept = doc.department || "General";
-      const count = adminAppointments.filter(a => a.doctor_id === doc.id).length;
-      deptLoad[dept] = (deptLoad[dept] || 0) + count;
-    });
-    const maxDeptLoad = Math.max(...Object.values(deptLoad), 1);
-
-    // Calculate age demographics from real patient data
-    const ageGroups = {
-      "0-18": 0,
-      "19-35": 0,
-      "36-50": 0,
-      "51-65": 0,
-      "65+": 0,
-    };
-    adminPatients.forEach(patient => {
-      if (patient.dateOfBirth) {
-        const age = new Date().getFullYear() - new Date(patient.dateOfBirth).getFullYear();
-        if (age < 18) ageGroups["0-18"]++;
-        else if (age < 36) ageGroups["19-35"]++;
-        else if (age < 51) ageGroups["36-50"]++;
-        else if (age < 66) ageGroups["51-65"]++;
-        else ageGroups["65+"]++;
-      }
-    });
-    const maxAge = Math.max(...Object.values(ageGroups), 1);
-
-    // Monthly trend - group appointments by month
-    const monthlyTrend = {};
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
-    months.forEach((m, i) => monthlyTrend[m] = 0);
-    adminAppointments.forEach(apt => {
-      if (apt.date) {
-        const month = new Date(apt.date).toLocaleString("en-US", { month: "short" });
-        if (monthlyTrend.hasOwnProperty(month)) monthlyTrend[month]++;
-      }
-    });
-    const maxMonthly = Math.max(...Object.values(monthlyTrend), 1);
+    const analytics = buildReportAnalytics(demographicsPeriod);
+    const maxDeptLoad = Math.max(...Object.values(analytics.deptLoad), 1);
+    const maxAge = Math.max(...Object.values(analytics.ageGroups), 1);
+    const maxMonthly = Math.max(...analytics.trendMonths.map((item) => item.value), 1);
 
     return (
       <div className="p-9">
@@ -3653,41 +3917,58 @@ export default function App() {
             <h2 className="text-[28px] font-bold">Reports & Analytics</h2>
             <p className="mt-2 text-[18px] text-slate-500">Comprehensive insights and statistics.</p>
           </div>
-          <select className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-slate-700">
-            <option>This Month</option>
-            <option>Last Month</option>
-            <option>Last Quarter</option>
-            <option>This Year</option>
-          </select>
+          <div className="flex items-center gap-3">
+            <select
+              value={demographicsPeriod}
+              onChange={(e) => setDemographicsPeriod(e.target.value)}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-slate-700"
+            >
+              <option>This Month</option>
+              <option>Last Month</option>
+              <option>Last Quarter</option>
+              <option>This Year</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                generateAdminReport(analytics);
+                showSuccessPopup("Report Generated Successfully");
+              }}
+              className="flex items-center gap-2 rounded-xl bg-teal-600 px-5 py-3 font-semibold text-white shadow-sm transition hover:bg-teal-700"
+            >
+              <FileText size={18} />
+              <span>Generate Report</span>
+            </button>
+          </div>
         </div>
 
         {/* Stat Cards */}
         <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-4 mb-8">
           <StatCard
             title="Total Appointments"
-            value={totalAppointments}
-            change="13.6%"
+            value={analytics.totalAppointments}
+            change={analytics.changes.appointments}
             icon={<CalendarDays size={32} className="text-blue-500" />}
             bgColor="bg-blue-50"
           />
           <StatCard
             title="Active Patients"
-            value={activePatients}
-            change="16.2%"
+            value={analytics.activePatients}
+            change={analytics.changes.patients}
             icon={<Users size={32} className="text-emerald-500" />}
             bgColor="bg-emerald-50"
           />
           <StatCard
             title="Total Doctors"
-            value={totalDoctors}
-            change="2.7%"
+            value={analytics.totalDoctors}
+            change={analytics.changes.doctors}
             icon={<Stethoscope size={32} className="text-purple-500" />}
             bgColor="bg-purple-50"
           />
           <StatCard
-            title="Avg. Rating"
-            value={avgRating}
-            change="25.5%"
+            title="Medical Records"
+            value={analytics.filteredRecords.length}
+            change={analytics.changes.records}
             icon={<BarChart3 size={32} className="text-amber-500" />}
             bgColor="bg-amber-50"
           />
@@ -3699,15 +3980,15 @@ export default function App() {
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-[18px] font-semibold text-slate-900 mb-4">Monthly Appointments Trend</h3>
             <div className="h-64 flex items-end gap-2 px-2 py-4">
-              {Object.entries(monthlyTrend).map(([month, value]) => (
-                <div key={month} className="flex-1 flex flex-col items-center">
+              {analytics.trendMonths.map(({ label, value, year, month }) => (
+                <div key={`${year}-${month}`} className="flex-1 flex flex-col items-center">
                   <div className="w-full relative">
                     <div
                       className="w-full bg-gradient-to-t from-blue-400 to-blue-500 rounded-t-lg transition-all"
                       style={{ height: `${(value / maxMonthly) * 200}px` }}
                     />
                   </div>
-                  <span className="text-xs text-slate-500 mt-2">{month}</span>
+                  <span className="text-xs text-slate-500 mt-2">{label}</span>
                 </div>
               ))}
             </div>
@@ -3723,25 +4004,25 @@ export default function App() {
             <div className="flex flex-col items-center justify-center">
               <div className="w-32 h-32 rounded-full" style={{
                 background: `conic-gradient(
-                  #3b82f6 0deg ${(appointmentTypes.Checkup / 100) * 360}deg,
-                  #8b5cf6 ${(appointmentTypes.Checkup / 100) * 360}deg ${((appointmentTypes.Checkup + appointmentTypes["Follow-up"]) / 100) * 360}deg,
-                  #10b981 ${((appointmentTypes.Checkup + appointmentTypes["Follow-up"]) / 100) * 360}deg ${((appointmentTypes.Checkup + appointmentTypes["Follow-up"] + appointmentTypes.Consultation) / 100) * 360}deg,
-                  #f97316 ${((appointmentTypes.Checkup + appointmentTypes["Follow-up"] + appointmentTypes.Consultation) / 100) * 360}deg 360deg
+                  #3b82f6 0deg ${(analytics.appointmentTypes.Checkup / 100) * 360}deg,
+                  #8b5cf6 ${(analytics.appointmentTypes.Checkup / 100) * 360}deg ${((analytics.appointmentTypes.Checkup + analytics.appointmentTypes["Follow-up"]) / 100) * 360}deg,
+                  #10b981 ${((analytics.appointmentTypes.Checkup + analytics.appointmentTypes["Follow-up"]) / 100) * 360}deg ${((analytics.appointmentTypes.Checkup + analytics.appointmentTypes["Follow-up"] + analytics.appointmentTypes.Consultation) / 100) * 360}deg,
+                  #f97316 ${((analytics.appointmentTypes.Checkup + analytics.appointmentTypes["Follow-up"] + analytics.appointmentTypes.Consultation) / 100) * 360}deg 360deg
                 )`
               }}></div>
             </div>
             <div className="mt-6 space-y-2 text-sm">
               <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-blue-500 rounded-full"></span>Checkup {appointmentTypes.Checkup}%</span>
+                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-blue-500 rounded-full"></span>Checkup {analytics.appointmentTypes.Checkup}%</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-purple-500 rounded-full"></span>Follow-up {appointmentTypes["Follow-up"]}%</span>
+                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-purple-500 rounded-full"></span>Follow-up {analytics.appointmentTypes["Follow-up"]}%</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-green-500 rounded-full"></span>Consultation {appointmentTypes.Consultation}%</span>
+                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-green-500 rounded-full"></span>Consultation {analytics.appointmentTypes.Consultation}%</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-orange-500 rounded-full"></span>Emergency {appointmentTypes.Emergency}%</span>
+                <span className="flex items-center gap-2"><span className="w-2 h-2 bg-orange-500 rounded-full"></span>Emergency {analytics.appointmentTypes.Emergency}%</span>
               </div>
             </div>
           </div>
@@ -3753,8 +4034,8 @@ export default function App() {
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-[18px] font-semibold text-slate-900 mb-4">Department Patient Load</h3>
             <div className="h-64 flex items-end gap-3 px-2 py-4">
-              {Object.entries(deptLoad).length > 0 ? (
-                Object.entries(deptLoad).map(([dept, value]) => (
+              {Object.entries(analytics.deptLoad).length > 0 ? (
+                Object.entries(analytics.deptLoad).map(([dept, value]) => (
                   <div key={dept} className="flex-1 flex flex-col items-center">
                     <div
                       className="w-full bg-gradient-to-t from-purple-400 to-purple-500 rounded-t-lg transition-all"
@@ -3777,7 +4058,7 @@ export default function App() {
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-[18px] font-semibold text-slate-900 mb-4">Patient Demographics by Age</h3>
             <div className="h-64 flex items-end gap-3 px-2 py-4">
-              {Object.entries(ageGroups).map(([label, value]) => (
+              {Object.entries(analytics.ageGroups).map(([label, value]) => (
                 <div key={label} className="flex-1 flex flex-col items-center">
                   <div
                     className="w-full bg-gradient-to-t from-emerald-400 to-emerald-500 rounded-t-lg transition-all"
@@ -3804,7 +4085,7 @@ export default function App() {
           <div>
             <p className="text-sm text-slate-600 font-medium">{title}</p>
             <p className="mt-3 text-[32px] font-bold text-slate-900">{value}</p>
-            <p className="mt-3 text-xs text-teal-600 font-medium">+{change} vs last month</p>
+            <p className="mt-3 text-xs text-teal-600 font-medium">{change} vs previous period</p>
           </div>
           <div className={`rounded-lg ${bgColor} p-3`}>
             {icon}
@@ -3864,7 +4145,8 @@ export default function App() {
           newPassword,
           confirmPassword,
         });
-        setPasswordMessage(response.data.message || " Password changed successfully!");
+        showSuccessPopup("Password Updated Successfully");
+        setPasswordMessage("");
         setPasswordError(false);
         setCurrentPassword("");
         setNewPassword("");
@@ -3886,7 +4168,7 @@ export default function App() {
           smsNotifications,
           pushNotifications,
         });
-        setMessage("  All changes saved successfully!");
+        showSuccessPopup("All Changes Saved Successfully");
         setIsError(false);
       } catch (err) {
         setMessage("❌ Failed to save changes");
@@ -4061,12 +4343,28 @@ export default function App() {
   );
 
   if (loggedInUser && loggedInUser.role === "doctor") {
-    return <DoctorDashboard loggedInUser={loggedInUser} setLoggedInUser={setLoggedInUser} onLogout={handleLogout} />;
+    return (
+      <>
+        <SuccessPopup
+          open={successPopup.open}
+          title={successPopup.title}
+          message={successPopup.message}
+          onClose={closeSuccessPopup}
+        />
+        <DoctorDashboard loggedInUser={loggedInUser} setLoggedInUser={setLoggedInUser} onLogout={handleLogout} />
+      </>
+    );
   }
 
   if (loggedInUser && loggedInUser.role === "patient") {
     return (
       <>
+        <SuccessPopup
+          open={successPopup.open}
+          title={successPopup.title}
+          message={successPopup.message}
+          onClose={closeSuccessPopup}
+        />
         {renderTopToast()}
         <div className="flex min-h-screen">
           <aside className={`flex flex-col justify-between border-r transition-all duration-300 ${patientSidebarCollapsed ? "w-20" : "w-[260px]"} ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
@@ -4315,8 +4613,9 @@ export default function App() {
                     darkMode={darkMode}
                     loggedInUser={loggedInUser}
                     onBookingSuccess={() => {
+                      showSuccessPopup("Appointment Booked Successfully");
                       setActivePage("appointments");
-                      // Refresh appointments
+                      fetchPatientData();
                     }}
                   />
                 </div>
@@ -4771,6 +5070,12 @@ export default function App() {
   if (loggedInUser && loggedInUser.role === "admin") {
     return (
       <>
+        <SuccessPopup
+          open={successPopup.open}
+          title={successPopup.title}
+          message={successPopup.message}
+          onClose={closeSuccessPopup}
+        />
         {renderTopToast()}
         <div className="flex min-h-screen">
           <aside className={`flex flex-col justify-between border-r transition-all duration-300 ${adminSidebarCollapsed ? "w-20" : "w-[260px]"} ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
@@ -5796,6 +6101,12 @@ export default function App() {
 
   return (
     <>
+      <SuccessPopup
+        open={successPopup.open}
+        title={successPopup.title}
+        message={successPopup.message}
+        onClose={closeSuccessPopup}
+      />
       {renderTopToast()}
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-r from-slate-100 via-teal-50 to-blue-100 px-4">
         <div className="w-full max-w-[460px] rounded-2xl border border-gray-200 bg-white px-8 py-10 shadow-sm">

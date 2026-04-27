@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import api from "./api";
+import SuccessPopup from "./SuccessPopup";
 import {
   LayoutDashboard,
   Users,
@@ -83,6 +84,11 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const [loadingAppointmentDetails, setLoadingAppointmentDetails] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSaveMessage, setProfileSaveMessage] = useState(null);
+  const [profileSuccessPopupOpen, setProfileSuccessPopupOpen] = useState(false);
+  const [doctorSuccessPopup, setDoctorSuccessPopup] = useState({
+    open: false,
+    message: "",
+  });
   const [error, setError] = useState(null);
   const [profileForm, setProfileForm] = useState({
     fullName: loggedInUser?.name || "Dr. Sarah Jenkins",
@@ -99,6 +105,43 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       ...record,
       patientName: record.patientName || record.patient_name || "Unknown Patient",
     }));
+
+  const downloadWordDocument = (filename, title, bodyHtml) => {
+    const documentHtml = `<!DOCTYPE html>
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+  <head>
+    <meta charset="utf-8" />
+    <title>${title}</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
+      h1 { font-size: 26px; margin-bottom: 8px; }
+      p { font-size: 14px; line-height: 1.6; }
+      .card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 20px; }
+      .label { font-weight: 700; color: #334155; }
+    </style>
+  </head>
+  <body>
+    ${bodyHtml}
+  </body>
+</html>`;
+
+    const blob = new Blob(["\ufeff", documentHtml], { type: "application/msword" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename.endsWith(".doc") ? filename : `${filename}.doc`;
+    link.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const showDoctorSuccessPopup = (message) => {
+    setDoctorSuccessPopup({
+      open: true,
+      message,
+    });
+  };
 
   const parseDosage = (dosage = "") => {
     const parts = String(dosage).trim().split(/\s+/);
@@ -482,6 +525,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         type: "success",
         text: response.data?.message || "Profile updated successfully!",
       });
+      setProfileSuccessPopupOpen(true);
 
       // Clear success message after 3 seconds
       setTimeout(() => setProfileSaveMessage(null), 3000);
@@ -540,6 +584,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         instructions: "",
       });
       setShowAddPrescriptionModal(false);
+      showDoctorSuccessPopup("Prescription Added Successfully");
     } catch (err) {
       console.error("Error adding prescription:", err);
       alert(err.response?.data?.message || "Failed to add prescription.");
@@ -620,45 +665,25 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   };
 
   const handlePrintPrescription = (prescription) => {
-    const printContent = `
-      <html>
-        <head>
-          <title>Prescription</title>
-          <style>
-            body { font-family: Arial, sans-serif; padding: 24px; }
-            .header { margin-bottom: 24px; }
-            .header h2 { margin: 0; }
-            .card { border: 1px solid #d1d5db; border-radius: 16px; padding: 24px; }
-            .row { margin-bottom: 16px; }
-            .label { font-weight: 600; color: #334155; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h2>Prescription</h2>
-            <p>Dr. ${loggedInUser?.name || 'Doctor'}</p>
-          </div>
-          <div class="card">
-            <div class="row"><span class="label">Patient:</span> ${prescription.patient_name || "Unknown"}</div>
-            <div class="row"><span class="label">Medication:</span> ${prescription.medication}</div>
-            <div class="row"><span class="label">Dosage:</span> ${prescription.dosage}</div>
-            <div class="row"><span class="label">Frequency:</span> ${prescription.frequency || "N/A"}</div>
-            <div class="row"><span class="label">Duration:</span> ${prescription.duration || "N/A"}</div>
-            <div class="row"><span class="label">Instructions:</span> ${prescription.instructions || "N/A"}</div>
-            <div class="row"><span class="label">Date:</span> ${new Date(prescription.prescribed_date).toLocaleDateString()}</div>
-            <div class="row"><span class="label">Medical Record:</span> ${prescription.medical_record_diagnosis || prescription.medical_record_title || "N/A"}</div>
-          </div>
-        </body>
-      </html>
-    `;
-
-    const printWindow = window.open("", "PRINT", "height=650,width=900,top=100,left=150");
-    if (printWindow) {
-      printWindow.document.write(printContent);
-      printWindow.document.close();
-      printWindow.focus();
-      printWindow.print();
-    }
+    downloadWordDocument(
+      `prescription-${prescription.patient_name || "patient"}-${prescription.id}.doc`,
+      "Prescription",
+      `
+        <h1>Prescription</h1>
+        <p><span class="label">Doctor:</span> Dr. ${loggedInUser?.name || "Doctor"}</p>
+        <div class="card">
+          <p><span class="label">Patient:</span> ${prescription.patient_name || "Unknown"}</p>
+          <p><span class="label">Medication:</span> ${prescription.medication}</p>
+          <p><span class="label">Dosage:</span> ${prescription.dosage}</p>
+          <p><span class="label">Frequency:</span> ${prescription.frequency || "N/A"}</p>
+          <p><span class="label">Duration:</span> ${prescription.duration || "N/A"}</p>
+          <p><span class="label">Instructions:</span> ${prescription.instructions || "N/A"}</p>
+          <p><span class="label">Date:</span> ${new Date(prescription.prescribed_date).toLocaleDateString()}</p>
+          <p><span class="label">Medical Record:</span> ${prescription.medical_record_diagnosis || prescription.medical_record_title || "N/A"}</p>
+        </div>
+      `
+    );
+    showDoctorSuccessPopup("Report Generated Successfully");
   };
 
   const handleUpdateRecordStatus = async (recordId, newStatus) => {
@@ -700,6 +725,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         status: "Active",
       });
       setShowAddRecordModal(false);
+      showDoctorSuccessPopup("Medical Record Added Successfully");
     } catch (err) {
       console.error("Error adding medical record:", err);
       alert("Failed to add medical record.");
@@ -2321,14 +2347,16 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           />
         </div>
 
-        {profileSaveMessage && (
+        <SuccessPopup
+          open={profileSuccessPopupOpen}
+          message="Successfully edited profile."
+          onClose={() => setProfileSuccessPopupOpen(false)}
+        />
+
+        {profileSaveMessage && profileSaveMessage.type !== "success" && (
           <div
             className={`mt-6 rounded-lg px-6 py-4 font-medium ${
-              profileSaveMessage.type === "success"
-                ? darkMode
-                  ? "bg-emerald-500/15 text-emerald-300"
-                  : "bg-emerald-100 text-emerald-700"
-                : darkMode
+              darkMode
                 ? "bg-red-500/15 text-red-300"
                 : "bg-red-100 text-red-700"
             }`}
@@ -2409,6 +2437,11 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
   return (
     <div className={appClasses}>
+      <SuccessPopup
+        open={doctorSuccessPopup.open}
+        message={doctorSuccessPopup.message}
+        onClose={() => setDoctorSuccessPopup({ open: false, message: "" })}
+      />
       <div className="flex min-h-screen">
         <aside className={sidebarClasses}>
           <div>
