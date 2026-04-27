@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import api from "./api";
+import { downloadWordDocument } from "./wordExport";
 import SuccessPopup from "./SuccessPopup";
 import {
   LayoutDashboard,
@@ -105,36 +106,6 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       ...record,
       patientName: record.patientName || record.patient_name || "Unknown Patient",
     }));
-
-  const downloadWordDocument = (filename, title, bodyHtml) => {
-    const documentHtml = `<!DOCTYPE html>
-<html xmlns:o="urn:schemas-microsoft-com:office:office"
-      xmlns:w="urn:schemas-microsoft-com:office:word"
-      xmlns="http://www.w3.org/TR/REC-html40">
-  <head>
-    <meta charset="utf-8" />
-    <title>${title}</title>
-    <style>
-      body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
-      h1 { font-size: 26px; margin-bottom: 8px; }
-      p { font-size: 14px; line-height: 1.6; }
-      .card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 20px; }
-      .label { font-weight: 700; color: #334155; }
-    </style>
-  </head>
-  <body>
-    ${bodyHtml}
-  </body>
-</html>`;
-
-    const blob = new Blob(["\ufeff", documentHtml], { type: "application/msword" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename.endsWith(".doc") ? filename : `${filename}.doc`;
-    link.click();
-    window.URL.revokeObjectURL(url);
-  };
 
   const showDoctorSuccessPopup = (message) => {
     setDoctorSuccessPopup({

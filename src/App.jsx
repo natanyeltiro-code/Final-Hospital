@@ -1,4 +1,5 @@
 ﻿import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy } from "react";
 import api, { setAuthToken } from "./api";
 import {
   Mail,
@@ -37,12 +38,13 @@ import {
   Info,
   X,
 } from "lucide-react";
-import DoctorDashboard from "./DoctorDashboard";
-import AvailableDoctorsList from "./AvailableDoctorsList";
-import SimpleDoctorList from "./SimpleDoctorList";
-import AvailableSlotsSelector from "./AvailableSlotsSelector";
-import SimpleAppointmentBooking from "./SimpleAppointmentBooking";
 import SuccessPopup from "./SuccessPopup";
+import { buildReportAnalytics } from "./reportUtils";
+import { downloadWordDocument } from "./wordExport";
+
+const DoctorDashboard = lazy(() => import("./DoctorDashboard"));
+const SimpleDoctorList = lazy(() => import("./SimpleDoctorList"));
+const SimpleAppointmentBooking = lazy(() => import("./SimpleAppointmentBooking"));
 
 export default function App() {
   const [isLogin, setIsLogin] = useState(true);
@@ -570,248 +572,6 @@ export default function App() {
     }
   };
 
-  const parseDateSafe = (value) => {
-    if (!value) return null;
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? null : date;
-  };
-
-  const getReportPeriodRange = (period, now = new Date()) => {
-    const current = new Date(now);
-    current.setHours(23, 59, 59, 999);
-
-    let start;
-    let end;
-    let previousStart;
-    let previousEnd;
-
-    if (period === "This Month") {
-      start = new Date(current.getFullYear(), current.getMonth(), 1);
-      end = new Date(current);
-      previousStart = new Date(current.getFullYear(), current.getMonth() - 1, 1);
-      previousEnd = new Date(current.getFullYear(), current.getMonth(), 0, 23, 59, 59, 999);
-    } else if (period === "Last Month") {
-      start = new Date(current.getFullYear(), current.getMonth() - 1, 1);
-      end = new Date(current.getFullYear(), current.getMonth(), 0, 23, 59, 59, 999);
-      previousStart = new Date(current.getFullYear(), current.getMonth() - 2, 1);
-      previousEnd = new Date(current.getFullYear(), current.getMonth() - 1, 0, 23, 59, 59, 999);
-    } else if (period === "Last Quarter") {
-      const currentQuarter = Math.floor(current.getMonth() / 3);
-      const quarterStartMonth = currentQuarter * 3;
-      start = new Date(current.getFullYear(), quarterStartMonth - 3, 1);
-      end = new Date(current.getFullYear(), quarterStartMonth, 0, 23, 59, 59, 999);
-      previousStart = new Date(current.getFullYear(), quarterStartMonth - 6, 1);
-      previousEnd = new Date(current.getFullYear(), quarterStartMonth - 3, 0, 23, 59, 59, 999);
-    } else {
-      start = new Date(current.getFullYear(), 0, 1);
-      end = new Date(current);
-      previousStart = new Date(current.getFullYear() - 1, 0, 1);
-      previousEnd = new Date(current.getFullYear() - 1, current.getMonth(), current.getDate(), 23, 59, 59, 999);
-    }
-
-    start.setHours(0, 0, 0, 0);
-    previousStart.setHours(0, 0, 0, 0);
-
-    return { start, end, previousStart, previousEnd };
-  };
-
-  const isDateWithinRange = (value, start, end) => {
-    const date = parseDateSafe(value);
-    if (!date) return false;
-    return date >= start && date <= end;
-  };
-
-  const formatTrendChange = (currentValue, previousValue) => {
-    if (!previousValue) {
-      if (!currentValue) return "0.0%";
-      return "+100.0%";
-    }
-
-    const change = ((currentValue - previousValue) / previousValue) * 100;
-    const sign = change > 0 ? "+" : "";
-    return `${sign}${change.toFixed(1)}%`;
-  };
-
-  const buildReportAnalytics = (period = demographicsPeriod) => {
-    const { start, end, previousStart, previousEnd } = getReportPeriodRange(period);
-
-    const filteredAppointments = adminAppointments.filter((apt) =>
-      isDateWithinRange(apt.date, start, end)
-    );
-    const previousAppointments = adminAppointments.filter((apt) =>
-      isDateWithinRange(apt.date, previousStart, previousEnd)
-    );
-
-    const filteredRecords = adminMedicalRecords.filter((record) =>
-      isDateWithinRange(record.record_date, start, end)
-    );
-    const previousRecords = adminMedicalRecords.filter((record) =>
-      isDateWithinRange(record.record_date, previousStart, previousEnd)
-    );
-
-    const uniquePatientIds = new Set(
-      filteredAppointments
-        .map((apt) => apt.patient_id)
-        .filter(Boolean)
-    );
-    const previousUniquePatientIds = new Set(
-      previousAppointments
-        .map((apt) => apt.patient_id)
-        .filter(Boolean)
-    );
-
-    const totalDoctors = doctors.length;
-    const avgRating =
-      totalDoctors > 0
-        ? (
-            doctors.reduce((sum, doctor) => sum + (parseFloat(doctor.rating) || 0), 0) / totalDoctors
-          ).toFixed(1)
-        : "0.0";
-
-    const appointmentTypeData = {
-      Checkup: filteredAppointments.filter((apt) => apt.type === "Checkup").length,
-      Consultation: filteredAppointments.filter((apt) => apt.type === "Consultation").length,
-      "Follow-up": filteredAppointments.filter((apt) => apt.type === "Follow-up").length,
-      Emergency: filteredAppointments.filter((apt) => apt.type === "Emergency").length,
-    };
-    const totalTypes = Object.values(appointmentTypeData).reduce((sum, value) => sum + value, 0) || 1;
-    const appointmentTypes = Object.fromEntries(
-      Object.entries(appointmentTypeData).map(([key, value]) => [key, Math.round((value / totalTypes) * 100)])
-    );
-
-    const deptPatientIds = {};
-    filteredAppointments.forEach((apt) => {
-      const doctor = doctors.find((doc) => doc.id === apt.doctor_id);
-      const department = doctor?.department || "General";
-      if (!deptPatientIds[department]) {
-        deptPatientIds[department] = new Set();
-      }
-      if (apt.patient_id) {
-        deptPatientIds[department].add(apt.patient_id);
-      }
-    });
-
-    const deptLoad = Object.fromEntries(
-      Object.entries(deptPatientIds).map(([department, patientIds]) => [department, patientIds.size])
-    );
-
-    const ageGroups = {
-      "0-18": 0,
-      "19-35": 0,
-      "36-50": 0,
-      "51-65": 0,
-      "65+": 0,
-    };
-    adminPatients.forEach((patient) => {
-      const dob = patient.dateOfBirth || patient.date_of_birth;
-      const birthDate = parseDateSafe(dob);
-      if (!birthDate) return;
-
-      let age = end.getFullYear() - birthDate.getFullYear();
-      const hadBirthdayThisYear =
-        end.getMonth() > birthDate.getMonth() ||
-        (end.getMonth() === birthDate.getMonth() && end.getDate() >= birthDate.getDate());
-      if (!hadBirthdayThisYear) age -= 1;
-
-      if (age <= 18) ageGroups["0-18"] += 1;
-      else if (age <= 35) ageGroups["19-35"] += 1;
-      else if (age <= 50) ageGroups["36-50"] += 1;
-      else if (age <= 65) ageGroups["51-65"] += 1;
-      else ageGroups["65+"] += 1;
-    });
-
-    const trendMonths = [];
-    const trendBase =
-      period === "This Year"
-        ? new Date(end.getFullYear(), 0, 1)
-        : new Date(end.getFullYear(), end.getMonth() - 5, 1);
-    const trendCount = period === "This Year" ? 12 : 6;
-
-    for (let i = 0; i < trendCount; i += 1) {
-      const bucketDate = new Date(trendBase.getFullYear(), trendBase.getMonth() + i, 1);
-      const label = bucketDate.toLocaleString("en-US", { month: "short" });
-      trendMonths.push({
-        label,
-        year: bucketDate.getFullYear(),
-        month: bucketDate.getMonth(),
-        value: 0,
-      });
-    }
-
-    filteredAppointments.forEach((apt) => {
-      const aptDate = parseDateSafe(apt.date);
-      if (!aptDate) return;
-      const bucket = trendMonths.find(
-        (item) => item.year === aptDate.getFullYear() && item.month === aptDate.getMonth()
-      );
-      if (bucket) bucket.value += 1;
-    });
-
-    const conditionCounts = {};
-    adminPatients.forEach((patient) => {
-      const condition = patient.condition || "No Condition";
-      conditionCounts[condition] = (conditionCounts[condition] || 0) + 1;
-    });
-
-    return {
-      period,
-      range: { start, end, previousStart, previousEnd },
-      filteredAppointments,
-      previousAppointments,
-      filteredRecords,
-      previousRecords,
-      totalAppointments: filteredAppointments.length,
-      activePatients: uniquePatientIds.size,
-      totalDoctors,
-      avgRating,
-      appointmentTypeData,
-      appointmentTypes,
-      deptLoad,
-      ageGroups,
-      trendMonths,
-      conditionCounts,
-      changes: {
-        appointments: formatTrendChange(filteredAppointments.length, previousAppointments.length),
-        patients: formatTrendChange(uniquePatientIds.size, previousUniquePatientIds.size),
-        doctors: "0.0%",
-        records: formatTrendChange(filteredRecords.length, previousRecords.length),
-      },
-    };
-  };
-
-  const downloadWordDocument = (filename, title, bodyHtml) => {
-    const documentHtml = `<!DOCTYPE html>
-<html xmlns:o="urn:schemas-microsoft-com:office:office"
-      xmlns:w="urn:schemas-microsoft-com:office:word"
-      xmlns="http://www.w3.org/TR/REC-html40">
-  <head>
-    <meta charset="utf-8" />
-    <title>${title}</title>
-    <style>
-      body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
-      h1 { font-size: 26px; margin-bottom: 8px; }
-      h2 { font-size: 18px; margin: 24px 0 8px; }
-      p, li { font-size: 14px; line-height: 1.6; }
-      .card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-      .muted { color: #475569; }
-      .divider { border-top: 1px solid #cbd5e1; margin: 16px 0; }
-      ul { margin: 8px 0 0 18px; padding: 0; }
-    </style>
-  </head>
-  <body>
-    ${bodyHtml}
-  </body>
-</html>`;
-
-    const blob = new Blob(["\ufeff", documentHtml], { type: "application/msword" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename.endsWith(".doc") ? filename : `${filename}.doc`;
-    link.click();
-    window.URL.revokeObjectURL(url);
-  };
-
   const handleBookAppointment = async (e) => {
     e.preventDefault();
     if (!bookingData.doctorId || !bookingData.date || !bookingData.time) {
@@ -1049,7 +809,15 @@ export default function App() {
     });
   };
 
-  const generateAdminReport = (analytics = buildReportAnalytics()) => {
+  const generateAdminReport = (
+    analytics = buildReportAnalytics({
+      period: demographicsPeriod,
+      adminAppointments,
+      adminMedicalRecords,
+      adminPatients,
+      doctors,
+    })
+  ) => {
     const now = new Date();
     const reportDate = now.toLocaleString("en-US", {
       month: "long",
@@ -2041,14 +1809,16 @@ export default function App() {
                 <div>
                   <p className={`mb-3 text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Available Doctors</p>
                   {/* Available doctor list filtered by the selected department. */}
-                  <SimpleDoctorList 
-                    selectedSpecialty={bookingSpecialty}
-                    darkMode={darkMode}
-                    onDoctorSelect={(doctor) => {
-                      setBookingData({...bookingData, doctorId: doctor.id.toString()});
-                      setSelectedSlot(null);
-                    }}
-                  />
+                  <Suspense fallback={renderLazyFallback("Loading doctors...")}>
+                    <SimpleDoctorList 
+                      selectedSpecialty={bookingSpecialty}
+                      darkMode={darkMode}
+                      onDoctorSelect={(doctor) => {
+                        setBookingData({...bookingData, doctorId: doctor.id.toString()});
+                        setSelectedSlot(null);
+                      }}
+                    />
+                  </Suspense>
                 </div>
               )}
             </div>
@@ -2473,9 +2243,9 @@ export default function App() {
                           <thead className={darkMode ? "bg-slate-800 text-slate-300" : "bg-slate-50 text-slate-700"}>
                             <tr>
                               <th className="px-5 py-4 text-base font-semibold">Patient</th>
+                              <th className="px-5 py-4 text-base font-semibold">Medication</th>
                               <th className="px-5 py-4 text-base font-semibold">Frequency</th>
                               <th className="px-5 py-4 text-base font-semibold">Duration</th>
-                              <th className="px-5 py-4 text-base font-semibold">Medication</th>
                               <th className="px-5 py-4 text-base font-semibold">Dosage</th>
                               <th className="px-5 py-4 text-base font-semibold">Clinical Notes</th>
                               <th className="px-5 py-4 text-base font-semibold">Date</th>
@@ -2488,6 +2258,9 @@ export default function App() {
                                   <p className="text-[18px] font-semibold leading-tight">{prescription.patient_name || loggedInUser?.name || "Patient"}</p>
                                 </td>
                                 <td className="px-5 py-5 align-top">
+                                  <p className="text-[18px] font-semibold leading-tight">{prescription.medication || "Medication"}</p>
+                                </td>
+                                <td className="px-5 py-5 align-top">
                                   <span className={`inline-flex rounded-xl px-3 py-1 text-sm ${darkMode ? "bg-slate-700 text-slate-200" : "bg-slate-100 text-slate-600"}`}>
                                     {prescription.frequency || "No frequency set"}
                                   </span>
@@ -2496,9 +2269,6 @@ export default function App() {
                                   <span className={`inline-flex rounded-xl px-3 py-1 text-sm ${darkMode ? "bg-slate-700 text-slate-200" : "bg-slate-100 text-slate-600"}`}>
                                     {prescription.duration || "No duration set"}
                                   </span>
-                                </td>
-                                <td className="px-5 py-5 align-top">
-                                  <p className="text-[18px] font-semibold leading-tight">{prescription.medication || "Medication"}</p>
                                 </td>
                                 <td className="px-5 py-5 align-top text-[18px] leading-tight">{prescription.dosage || "Not set"}</td>
                                 <td className="px-5 py-5 align-top text-[16px] leading-relaxed">
@@ -3044,7 +2814,15 @@ export default function App() {
         </div>
         <button 
           onClick={() => {
-            generateAdminReport(buildReportAnalytics(demographicsPeriod));
+            generateAdminReport(
+              buildReportAnalytics({
+                period: demographicsPeriod,
+                adminAppointments,
+                adminMedicalRecords,
+                adminPatients,
+                doctors,
+              })
+            );
             showSuccessPopup("Report Generated Successfully");
           }}
           className="flex items-center gap-2 rounded-2xl bg-teal-600 px-6 py-3 text-white shadow-md hover:bg-teal-700 transition">
@@ -3905,7 +3683,13 @@ export default function App() {
   };
 
   const renderAdminReportsPage = () => {
-    const analytics = buildReportAnalytics(demographicsPeriod);
+    const analytics = buildReportAnalytics({
+      period: demographicsPeriod,
+      adminAppointments,
+      adminMedicalRecords,
+      adminPatients,
+      doctors,
+    });
     const maxDeptLoad = Math.max(...Object.values(analytics.deptLoad), 1);
     const maxAge = Math.max(...Object.values(analytics.ageGroups), 1);
     const maxMonthly = Math.max(...analytics.trendMonths.map((item) => item.value), 1);
@@ -4113,6 +3897,14 @@ export default function App() {
       </div>
     );
   };
+
+  const renderLazyFallback = (label = "Loading...") => (
+    <div className="flex min-h-[240px] items-center justify-center p-8">
+      <div className="rounded-2xl border border-slate-200 bg-white px-6 py-4 text-sm font-medium text-slate-600 shadow-sm">
+        {label}
+      </div>
+    </div>
+  );
 
   const renderAdminSettingsPage = () => {
     const handleUpdatePassword = async () => {
@@ -4351,7 +4143,9 @@ export default function App() {
           message={successPopup.message}
           onClose={closeSuccessPopup}
         />
-        <DoctorDashboard loggedInUser={loggedInUser} setLoggedInUser={setLoggedInUser} onLogout={handleLogout} />
+        <Suspense fallback={renderLazyFallback("Loading doctor dashboard...")}>
+          <DoctorDashboard loggedInUser={loggedInUser} setLoggedInUser={setLoggedInUser} onLogout={handleLogout} />
+        </Suspense>
       </>
     );
   }
@@ -4609,15 +4403,17 @@ export default function App() {
               {activePage === "dashboard" && renderPatientDashboard()}
               {activePage === "book-appointment" && (
                 <div className="p-6">
-                  <SimpleAppointmentBooking 
-                    darkMode={darkMode}
-                    loggedInUser={loggedInUser}
-                    onBookingSuccess={() => {
-                      showSuccessPopup("Appointment Booked Successfully");
-                      setActivePage("appointments");
-                      fetchPatientData();
-                    }}
-                  />
+                  <Suspense fallback={renderLazyFallback("Loading appointment booking...")}>
+                    <SimpleAppointmentBooking 
+                      darkMode={darkMode}
+                      loggedInUser={loggedInUser}
+                      onBookingSuccess={() => {
+                        showSuccessPopup("Appointment Booked Successfully");
+                        setActivePage("appointments");
+                        fetchPatientData();
+                      }}
+                    />
+                  </Suspense>
                 </div>
               )}
               {activePage === "appointments" && renderAppointmentsPage()}
