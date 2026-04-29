@@ -452,14 +452,25 @@ const generateAppointmentNotifications = (appointmentId, patientId, doctorId, em
       SELECT id, ?, ?, ?, ? FROM users WHERE role = 'admin'
     `;
     
-    const adminMsg = emergencyPatientName
-      ? `New emergency appointment: ${emergencyPatientName} with Dr. ${doctorName}`
-      : `Dr. ${doctorName} accepted new appointment`;
-    
-    db.query(adminNotificationSql, ["New Appointment", adminMsg, "appointment", appointmentId], (err) => {
-      if (err) console.log("⚠️  Could not create admin notifications:", err.message);
-      else console.log("✅ Admin notifications created");
-    });
+    const sendAdminNotification = (adminMsg) => {
+      db.query(adminNotificationSql, ["New Appointment", adminMsg, "appointment", appointmentId], (err) => {
+        if (err) console.log("⚠️  Could not create admin notifications:", err.message);
+        else console.log("✅ Admin notifications created");
+      });
+    };
+
+    if (emergencyPatientName) {
+      sendAdminNotification(`New emergency appointment: ${emergencyPatientName} with Dr. ${doctorName}`);
+    } else if (patientId && patientId > 0) {
+      db.query("SELECT name FROM users WHERE id = ?", [patientId], (err, patientResults) => {
+        const patientName = patientResults && patientResults.length > 0
+          ? patientResults[0].name
+          : "a patient";
+        sendAdminNotification(`A new appointment for Dr. ${doctorName} with ${patientName}`);
+      });
+    } else {
+      sendAdminNotification(`Dr. ${doctorName} has a new appointment`);
+    }
   });
 };
 
@@ -978,7 +989,7 @@ app.post("/forgot-password/reset", async (req, res) => {
 
 /* GET ALL PATIENTS */
 app.get("/patients", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
-  const sql = "SELECT id, name, email, role, age, gender, phone, blood_group, `condition` FROM users WHERE role = 'patient'";
+  const sql = "SELECT id, name, email, role, age, gender, phone, blood_group, `condition`, date_of_birth, created_at FROM users WHERE role = 'patient'";
   
   db.query(sql, (err, results) => {
     if (err) {

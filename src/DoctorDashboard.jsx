@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import api from "./api";
 import { downloadWordDocument } from "./wordExport";
 import SuccessPopup from "./SuccessPopup";
@@ -39,6 +39,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [notificationsList, setNotificationsList] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -100,6 +101,28 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     yearsExperience: "12",
     bio: "",
   });
+  const accountMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showAccountMenu && accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
+        setShowAccountMenu(false);
+      }
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setShowAccountMenu(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [showAccountMenu]);
 
   const normalizeMedicalRecords = (items = []) =>
     items.map((record) => ({
@@ -767,6 +790,34 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       });
     } catch (err) {
       return timeString;
+    }
+  };
+
+  const formatNotificationTimestamp = (dateString) => {
+    if (!dateString) return "";
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const isSameDay = date.toDateString() === now.toDateString();
+
+      if (isSameDay) {
+        return date.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        });
+      }
+
+      return date.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    } catch (err) {
+      return dateString;
     }
   };
 
@@ -2586,7 +2637,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                               <div>
                                 <p className="font-semibold">{item.title}</p>
                                 <p className={`mt-1 text-sm ${textSoft}`}>{item.message}</p>
-                                <p className={`mt-2 text-xs ${textMuted}`}>{new Date(item.created_at).toLocaleString()}</p>
+                                <p className={`mt-2 text-xs ${textMuted}`}>{formatNotificationTimestamp(item.created_at)}</p>
                               </div>
                               <div className="flex items-center gap-2 ml-2">
                                 {item.unread && <span className="mt-1 h-2.5 w-2.5 rounded-full bg-blue-500" />}
@@ -2612,14 +2663,37 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 )}
               </div>
 
-              <div className={`flex items-center gap-3 border-l pl-6 ${borderSoft} hidden md:flex`}>
-                <div className="text-right">
-                  <p className="text-sm font-semibold">Dr. {loggedInUser?.name || 'Doctor'}</p>
-                  <p className={`text-xs ${textMuted}`}>Doctor</p>
+              <div className={`relative hidden border-l pl-6 md:block ${borderSoft}`} ref={accountMenuRef}>
+                <div className="flex items-center gap-3 px-2 py-1">
+                  <div className="text-right">
+                    <p className="text-sm font-semibold">Doctor</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAccountMenu((prev) => !prev)}
+                    className={`rounded-full p-1 transition ${darkMode ? "hover:bg-slate-800" : "hover:bg-slate-100"}`}
+                  >
+                    <span className={darkMode ? "text-slate-300" : "text-slate-600"}>
+                      <ChevronDown size={20} />
+                    </span>
+                  </button>
                 </div>
-                <button className={darkMode ? "text-slate-300" : "text-slate-600"}>
-                  <ChevronDown size={20} />
-                </button>
+
+                {showAccountMenu && (
+                  <div className={`absolute right-0 top-full z-50 mt-2 w-44 rounded-2xl border p-2 shadow-xl ${darkMode ? `${panelBg} ${borderSoft}` : "border-slate-200 bg-white"}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAccountMenu(false);
+                        onLogout();
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition ${darkMode ? "text-slate-200 hover:bg-slate-700" : "text-slate-700 hover:bg-slate-100"}`}
+                    >
+                      <LogOut size={16} />
+                      <span>Logout</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

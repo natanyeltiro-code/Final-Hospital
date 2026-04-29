@@ -39,7 +39,7 @@ import {
   X,
 } from "lucide-react";
 import SuccessPopup from "./SuccessPopup";
-import { buildReportAnalytics } from "./reportUtils";
+import { buildReportAnalytics, normalizeConditionLabel } from "./reportUtils";
 import { downloadWordDocument } from "./wordExport";
 
 const DoctorDashboard = lazy(() => import("./DoctorDashboard"));
@@ -66,6 +66,7 @@ export default function App() {
 
   const notificationsRef = useRef(null);
   const detailsRef = useRef(null);
+  const accountMenuRef = useRef(null);
 
   const [appointments, setAppointments] = useState([]);
   const [medicalRecords, setMedicalRecords] = useState([]);
@@ -147,6 +148,7 @@ export default function App() {
   const [editingProfile, setEditingProfile] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAppointmentDetails, setShowAppointmentDetails] = useState(false);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
 
   // Settings state
   const [emailNotifications, setEmailNotifications] = useState(true);
@@ -218,6 +220,12 @@ export default function App() {
     }
   }, [message]);
 
+  useEffect(() => {
+    const pageBackground = darkMode ? "#0f172a" : "#ffffff";
+    document.documentElement.style.backgroundColor = pageBackground;
+    document.body.style.backgroundColor = pageBackground;
+  }, [darkMode]);
+
   const showSuccessPopup = (popupMessage, title = "Success!") => {
     if (!popupMessage) return;
 
@@ -248,6 +256,9 @@ export default function App() {
         setSelectedDetail(null);
         setSelectedDetailType("");
       }
+      if (showAccountMenu && accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
+        setShowAccountMenu(false);
+      }
     };
 
     const handleEscape = (event) => {
@@ -256,6 +267,7 @@ export default function App() {
         setShowAppointmentDetails(false);
         setSelectedDetail(null);
         setSelectedDetailType("");
+        setShowAccountMenu(false);
       }
     };
 
@@ -265,7 +277,7 @@ export default function App() {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [showNotifications, showAppointmentDetails]);
+  }, [showNotifications, showAppointmentDetails, showAccountMenu]);
 
   // Auto-refresh notifications every 15 seconds
   useEffect(() => {
@@ -569,6 +581,34 @@ export default function App() {
       });
     } catch (err) {
       return timeString;
+    }
+  };
+
+  const formatNotificationTimestamp = (dateString) => {
+    if (!dateString) return "";
+    try {
+      const date = new Date(dateString);
+      const now = new Date();
+      const isSameDay = date.toDateString() === now.toDateString();
+
+      if (isSameDay) {
+        return date.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        });
+      }
+
+      return date.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    } catch (err) {
+      return dateString;
     }
   };
 
@@ -1466,6 +1506,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    setShowAccountMenu(false);
     setAuthToken("");
     setToken("");
     setLoggedInUser(null);
@@ -2600,36 +2641,36 @@ export default function App() {
     const paginatedPatients = filteredPatients.slice(startIndex, endIndex);
 
     return (
-    <div className="p-9">
+    <div className={`p-9 ${darkMode ? "bg-slate-900 text-slate-100" : ""}`}>
       <div className="mb-8">
         <div>
-          <h2 className="text-[28px] font-bold">Manage Patients</h2>
-          <p className="mt-2 text-[18px] text-slate-500">
+          <h2 className={`text-[28px] font-bold ${darkMode ? "text-slate-100" : ""}`}>Manage Patients</h2>
+          <p className={`mt-2 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
             View and manage all registered patients.
           </p>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-200 p-5">
-          <div className="flex w-full max-w-[360px] items-center gap-3 rounded-xl border border-slate-200 px-4 py-3">
-            <Search size={18} className="text-slate-400" />
+      <div className={`overflow-hidden rounded-[24px] border shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+        <div className={`flex items-center justify-between border-b p-5 ${darkMode ? "border-slate-800" : "border-slate-200"}`}>
+          <div className={`flex w-full max-w-[360px] items-center gap-3 rounded-xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-900" : "border-slate-200"}`}>
+            <Search size={18} className={darkMode ? "text-slate-500" : "text-slate-400"} />
             <input
               type="text"
               placeholder="Search patients by name..."
               value={patientSearchFilter}
               onChange={(e) => setPatientSearchFilter(e.target.value)}
-              className="w-full border-none bg-transparent outline-none text-slate-900 placeholder-slate-400"
+              className={`w-full border-none bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-900 placeholder-slate-400"}`}
             />
           </div>
 
-          <button className="flex items-center gap-2 rounded-xl border border-slate-200 px-5 py-3 text-slate-700 hover:bg-slate-50">
+          <button className={`flex items-center gap-2 rounded-xl border px-5 py-3 ${darkMode ? "border-slate-700 text-slate-300 hover:bg-slate-800" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
             <Filter size={18} />
             <span>Filter</span>
           </button>
         </div>
 
-        <div className="grid gap-4 border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-500" style={{gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1.2fr 1fr'}}>
+        <div className={`grid gap-4 border-b px-5 py-4 text-sm font-semibold ${darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"}`} style={{gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1.2fr 1fr'}}>
           <div>PATIENT</div>
           <div>AGE/GENDER</div>
           <div>BLOOD GROUP</div>
@@ -2642,29 +2683,29 @@ export default function App() {
           <div
             key={patient.id}
             className={`grid items-center gap-4 px-5 py-5 ${
-              index !== paginatedPatients.length - 1 ? "border-b border-slate-200" : ""
+              index !== paginatedPatients.length - 1 ? (darkMode ? "border-b border-slate-800" : "border-b border-slate-200") : ""
             }`}
             style={{gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1.2fr 1fr'}}
           >
             <div className="flex items-center gap-4 min-w-0">
-              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-slate-200">
-                <User size={18} className="text-slate-500" />
+              <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full ${darkMode ? "bg-slate-800" : "bg-slate-200"}`}>
+                <User size={18} className={darkMode ? "text-slate-300" : "text-slate-500"} />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[18px] font-medium text-slate-900">{patient.name}</p>
-                <p className="truncate text-sm text-slate-500">{patient.email}</p>
+                <p className={`truncate text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{patient.name}</p>
+                <p className={`truncate text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{patient.email}</p>
               </div>
             </div>
 
-            <div className="truncate text-[17px] text-slate-700">
+            <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
               {patient.age && patient.gender ? `${patient.age} / ${patient.gender}` : 'N/A'}
             </div>
 
-            <div className="truncate text-[17px] text-slate-700">{patient.blood_group || 'N/A'}</div>
+            <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{patient.blood_group || 'N/A'}</div>
 
-            <div className="truncate text-[17px] text-slate-700">{patient.condition || 'N/A'}</div>
+            <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{patient.condition || 'N/A'}</div>
 
-            <div className="truncate text-[17px] text-slate-700">{patient.phone || 'N/A'}</div>
+            <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{patient.phone || 'N/A'}</div>
 
             <div className="relative flex items-center justify-end">
               <button
@@ -2672,7 +2713,7 @@ export default function App() {
                   e.stopPropagation();
                   setOpenPatientActionsMenuId((prev) => (prev === patient.id ? null : patient.id));
                 }}
-                className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+                className={`rounded-lg p-2 transition ${darkMode ? "text-slate-400 hover:bg-slate-800 hover:text-slate-100" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
                 title="Patient actions"
               >
                 <MoreVertical size={18} />
@@ -2681,7 +2722,7 @@ export default function App() {
               {openPatientActionsMenuId === patient.id && (
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className="absolute bottom-10 right-0 z-20 w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+                  className={`absolute bottom-10 right-0 z-20 w-56 rounded-xl border p-1.5 shadow-lg ${darkMode ? "border-slate-700 bg-slate-900" : "border-slate-200 bg-white"}`}
                 >
                   <button
                     onClick={() => {
@@ -2727,7 +2768,7 @@ export default function App() {
                       setSelectedDetail(patient);
                       setShowAppointmentDetails(true);
                     }}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+                    className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-700 hover:bg-slate-100"}`}
                   >
                     <Eye size={16} />
                     View Details
@@ -2749,13 +2790,13 @@ export default function App() {
         ))}
 
         {filteredPatients.length === 0 && (
-          <div className="px-5 py-8 text-center text-slate-500">
+          <div className={`px-5 py-8 text-center ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
             {patientSearchFilter ? "No patients match your search." : "No patients found."}
           </div>
         )}
 
         {filteredPatients.length > 0 && (
-          <div className="flex items-center justify-between border-t border-slate-200 px-5 py-5 text-slate-500">
+          <div className={`flex items-center justify-between border-t px-5 py-5 ${darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"}`}>
             <p>Showing {startIndex + 1} to {Math.min(endIndex, filteredPatients.length)} of {filteredPatients.length} entries</p>
 
             <div className="flex items-center gap-2">
@@ -2773,7 +2814,7 @@ export default function App() {
                   className={`rounded-lg px-4 py-2 ${
                     adminPatientsPage === page
                       ? "bg-teal-50 text-teal-700"
-                      : "text-slate-700 hover:bg-slate-50"
+                      : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-700 hover:bg-slate-50"
                   }`}
                 >
                   {page}
@@ -2795,22 +2836,41 @@ export default function App() {
   };
 
   const renderAdminPlaceholderPage = (title, description) => (
-    <div className="p-9">
-      <h2 className="text-[28px] font-bold">{title}</h2>
-      <p className="mt-2 text-[18px] text-slate-500">{description}</p>
+    <div className={`p-9 ${darkMode ? "bg-slate-900 text-slate-100" : ""}`}>
+      <h2 className={`text-[28px] font-bold ${darkMode ? "text-slate-100" : ""}`}>{title}</h2>
+      <p className={`mt-2 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{description}</p>
 
-      <div className="mt-8 rounded-[24px] border border-slate-200 bg-white p-8 shadow-sm">
-        <p className="text-[18px] text-slate-600">{title} page content goes here.</p>
+      <div className={`mt-8 rounded-[24px] border p-8 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+        <p className={`text-[18px] ${darkMode ? "text-slate-400" : "text-slate-600"}`}>{title} page content goes here.</p>
       </div>
     </div>
   );
 
   const renderAdminDashboard = () => (
-    <div className="space-y-9 p-9">
+    (() => {
+      const analytics = buildReportAnalytics({
+        period: demographicsPeriod,
+        adminAppointments,
+        adminMedicalRecords,
+        adminPatients,
+        doctors,
+      });
+      const sortedConditions = Object.entries(analytics.conditionCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12);
+
+      if (sortedConditions.length === 0) {
+        sortedConditions.push(["No Data", 0]);
+      }
+
+      const maxCount = Math.max(...sortedConditions.map((c) => c[1]), 1);
+
+      return (
+    <div className={`space-y-9 p-9 ${darkMode ? "bg-slate-900 text-slate-100" : ""}`}>
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="text-[28px] font-bold">Admin Dashboard</h2>
-          <p className="mt-2 text-[18px] text-slate-500">Overview of hospital operations and statistics.</p>
+          <h2 className={`text-[28px] font-bold ${darkMode ? "text-slate-100" : ""}`}>Admin Dashboard</h2>
+          <p className={`mt-2 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Overview of hospital operations and statistics.</p>
         </div>
         <button 
           onClick={() => {
@@ -2862,13 +2922,13 @@ export default function App() {
       {/* Charts and Recent Appointments Row */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Patient Demographics Chart */}
-        <div className="col-span-2 rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className={`col-span-2 rounded-[24px] border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-[20px] font-bold">Patient Demographics</h3>
+            <h3 className={`text-[20px] font-bold ${darkMode ? "text-slate-100" : ""}`}>Patient Demographics</h3>
             <select 
               value={demographicsPeriod}
               onChange={(e) => setDemographicsPeriod(e.target.value)}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600"
+              className={`rounded-lg border px-4 py-2 text-sm ${darkMode ? "border-slate-700 bg-slate-800 text-slate-200" : "border-slate-200 text-slate-600"}`}
             >
               <option>This Year</option>
               <option>Last Year</option>
@@ -2876,26 +2936,6 @@ export default function App() {
             </select>
           </div>
           {(() => {
-            // Calculate patient demographics by condition
-            const conditionCounts = {};
-            adminPatients.forEach(patient => {
-              const condition = patient.condition || 'No Condition';
-              conditionCounts[condition] = (conditionCounts[condition] || 0) + 1;
-            });
-            
-            // Get top 12 conditions
-            const sortedConditions = Object.entries(conditionCounts)
-              .sort((a, b) => b[1] - a[1])
-              .slice(0, 12);
-            
-            // If no conditions, show months
-            if (sortedConditions.length === 0) {
-              sortedConditions.push(['No Data', 0]);
-            }
-            
-            // Find max value for scaling
-            const maxCount = Math.max(...sortedConditions.map(c => c[1]), 1);
-            
             // Color palette for variety
             const colors = [
               'from-teal-600 to-emerald-400',
@@ -2918,7 +2958,7 @@ export default function App() {
                   {sortedConditions.length > 0 ? sortedConditions.map(([condition, count], i) => (
                     <div key={condition} className="flex flex-col items-center gap-3 flex-1 group">
                       <div className="text-center">
-                        <span className="text-sm font-semibold text-slate-900">{count}</span>
+                        <span className={`text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{count}</span>
                       </div>
                       <div 
                         className={`w-full bg-gradient-to-t ${colors[i % colors.length]} rounded-t-xl shadow-lg hover:shadow-2xl transition-all duration-300 hover:scale-y-110 cursor-pointer transform origin-bottom`}
@@ -2928,28 +2968,28 @@ export default function App() {
                         }}
                         title={`${condition}: ${count} patients`}
                       ></div>
-                      <span className="text-xs text-slate-600 font-medium text-center truncate w-full px-1 group-hover:text-slate-900" title={condition}>
-                        {condition.length > 10 ? condition.substring(0, 9) + '.' : condition}
+                      <span className={`text-xs font-medium text-center w-full px-1 break-words leading-snug ${darkMode ? "text-slate-400 group-hover:text-slate-200" : "text-slate-600 group-hover:text-slate-900"}`} title={condition}>
+                        {condition}
                       </span>
                     </div>
                   )) : (
-                    <div className="w-full flex items-center justify-center text-slate-400">
+                    <div className={`w-full flex items-center justify-center ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
                       No patient data available
                     </div>
                   )}
                 </div>
-                <div className="grid grid-cols-3 gap-4 pt-4 border-t border-slate-200">
+                <div className={`grid grid-cols-3 gap-4 pt-4 border-t ${darkMode ? "border-slate-800" : "border-slate-200"}`}>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-slate-900">{adminPatients.length}</p>
-                    <p className="text-sm text-slate-500">Total Patients</p>
+                    <p className={`text-2xl font-bold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{analytics.filteredPatients.length}</p>
+                    <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Total Patients</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-slate-900">{Object.keys(conditionCounts).length}</p>
-                    <p className="text-sm text-slate-500">Conditions</p>
+                    <p className={`text-2xl font-bold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{Object.keys(analytics.conditionCounts).length}</p>
+                    <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Conditions</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-slate-900">{sortedConditions.length > 0 ? Math.max(...sortedConditions.map(c => c[1])) : 0}</p>
-                    <p className="text-sm text-slate-500">Most Common</p>
+                    <p className={`text-2xl font-bold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{sortedConditions.length > 0 ? Math.max(...sortedConditions.map(c => c[1])) : 0}</p>
+                    <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Most Common</p>
                   </div>
                 </div>
               </div>
@@ -2958,9 +2998,9 @@ export default function App() {
         </div>
 
         {/* Recent Appointments */}
-        <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className={`rounded-[24px] border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[20px] font-bold">Recent Appointments</h3>
+            <h3 className={`text-[20px] font-bold ${darkMode ? "text-slate-100" : ""}`}>Recent Appointments</h3>
             <button
               type="button"
               onClick={() => setAdminPage("appointments")}
@@ -2989,13 +3029,13 @@ export default function App() {
               }
               
               return (
-                <div key={apt.id || idx} className="flex items-center gap-3 pb-4 border-b border-slate-100 last:border-b-0">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200">
-                    <User size={16} className="text-slate-600" />
+                <div key={apt.id || idx} className={`flex items-center gap-3 pb-4 border-b last:border-b-0 ${darkMode ? "border-slate-800" : "border-slate-100"}`}>
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-full ${darkMode ? "bg-slate-800" : "bg-slate-200"}`}>
+                    <User size={16} className={darkMode ? "text-slate-300" : "text-slate-600"} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm text-slate-900">{patientName}</p>
-                    <p className="text-xs text-slate-500">{doctorName}</p>
+                    <p className={`font-medium text-sm ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{patientName}</p>
+                    <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{doctorName}</p>
                   </div>
                   <div className="flex items-center gap-2 whitespace-nowrap">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[apt.status] || statusColors['Pending']}`}>
@@ -3006,12 +3046,14 @@ export default function App() {
               );
             })}
             {adminAppointments.length === 0 && (
-              <p className="text-center text-sm text-slate-500 py-4">No recent appointments</p>
+              <p className={`text-center text-sm py-4 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>No recent appointments</p>
             )}
           </div>
         </div>
       </div>
     </div>
+      );
+    })()
   );
 
   const StatCardWithChange = ({ title, value, change, isPositive }) => {
@@ -3021,11 +3063,11 @@ export default function App() {
     if (title.includes('Cases')) IconComponent = BarChart3;
     
     return (
-      <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+      <div className={`rounded-[24px] border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-sm text-slate-600">{title}</p>
-            <p className="mt-2 text-[32px] font-bold text-slate-900">{value}</p>
+            <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-600"}`}>{title}</p>
+            <p className={`mt-2 text-[32px] font-bold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{value}</p>
             <p className={`mt-2 text-sm font-medium ${isPositive ? 'text-teal-600' : 'text-rose-600'}`}>
               {change} vs last month
             </p>
@@ -3078,11 +3120,11 @@ export default function App() {
     const paginatedDoctors = filteredDoctors.slice(startIndex, endIndex);
 
     return (
-      <div className="p-9">
+      <div className={`p-9 ${darkMode ? "bg-slate-900 text-slate-100" : ""}`}>
         <div className="mb-8 flex items-start justify-between">
           <div>
-            <h2 className="text-[28px] font-bold">Manage Doctors</h2>
-            <p className="mt-2 text-[18px] text-slate-500">
+            <h2 className={`text-[28px] font-bold ${darkMode ? "text-slate-100" : ""}`}>Manage Doctors</h2>
+            <p className={`mt-2 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
               View and manage all registered doctors.
             </p>
           </div>
@@ -3096,9 +3138,9 @@ export default function App() {
           </button>
         </div>
 
-        <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-200 p-5">
-            <div className="flex w-full max-w-[360px] items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-slate-400">
+        <div className={`overflow-hidden rounded-[24px] border shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+          <div className={`flex items-center justify-between border-b p-5 ${darkMode ? "border-slate-800" : "border-slate-200"}`}>
+            <div className={`flex w-full max-w-[360px] items-center gap-3 rounded-xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-900 text-slate-500" : "border-slate-200 text-slate-400"}`}>
               <Search size={18} />
               <input
                 type="text"
@@ -3108,17 +3150,17 @@ export default function App() {
                   setDoctorSearchFilter(e.target.value);
                   setAdminDoctorsPage(1);
                 }}
-                className="w-full bg-transparent outline-none text-slate-900"
+                className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-900"}`}
               />
             </div>
 
-            <button className="flex items-center gap-2 rounded-xl border border-slate-200 px-5 py-3 text-slate-700 hover:bg-slate-50">
+            <button className={`flex items-center gap-2 rounded-xl border px-5 py-3 ${darkMode ? "border-slate-700 text-slate-300 hover:bg-slate-800" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
               <Filter size={18} />
               <span>Filter</span>
             </button>
           </div>
 
-          <div className="grid gap-4 border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-500" style={{gridTemplateColumns: '2fr 1.2fr 1.2fr 1fr 1fr 1fr'}}>
+          <div className={`grid gap-4 border-b px-5 py-4 text-sm font-semibold ${darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"}`} style={{gridTemplateColumns: '2fr 1.2fr 1.2fr 1fr 1fr 1fr'}}>
             <div>DOCTOR</div>
             <div>SPECIALIZATION</div>
             <div>DEPARTMENT</div>
@@ -3142,7 +3184,7 @@ export default function App() {
             <div
               key={doctor.id}
               className={`grid items-center gap-4 px-5 py-5 ${
-                index !== paginatedDoctors.length - 1 ? "border-b border-slate-200" : ""
+                index !== paginatedDoctors.length - 1 ? (darkMode ? "border-b border-slate-800" : "border-b border-slate-200") : ""
               }`}
               style={{gridTemplateColumns: '2fr 1.2fr 1.2fr 1fr 1fr 1fr'}}
             >
@@ -3151,16 +3193,16 @@ export default function App() {
                   <Stethoscope size={18} className="text-white" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[18px] font-medium text-slate-900">{doctor.name}</p>
-                  <p className="truncate text-sm text-slate-500">{doctor.email}</p>
+                  <p className={`truncate text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{doctor.name}</p>
+                  <p className={`truncate text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{doctor.email}</p>
                 </div>
               </div>
 
-              <div className="truncate text-[17px] text-slate-700">{doctor.specialty ?? 'N/A'}</div>
+              <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{doctor.specialty ?? 'N/A'}</div>
 
-              <div className="truncate text-[17px] text-slate-700">{doctor.department ?? 'N/A'}</div>
+              <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{doctor.department ?? 'N/A'}</div>
 
-              <div className="truncate text-[17px] text-slate-700">{(doctor.experience !== null && doctor.experience !== undefined) ? `${doctor.experience} years` : 'N/A'}</div>
+              <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{(doctor.experience !== null && doctor.experience !== undefined) ? `${doctor.experience} years` : 'N/A'}</div>
 
               <div className="truncate text-[17px] text-teal-600 font-medium">{patientCount}</div>
 
@@ -3170,7 +3212,7 @@ export default function App() {
                     e.stopPropagation();
                     setOpenDoctorActionsMenuId((prev) => (prev === doctor.id ? null : doctor.id));
                   }}
-                  className="rounded-lg p-2 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+                  className={`rounded-lg p-2 transition ${darkMode ? "text-slate-400 hover:bg-slate-800 hover:text-slate-100" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
                   title="Doctor actions"
                 >
                   <MoreVertical size={18} />
@@ -3179,7 +3221,7 @@ export default function App() {
                 {openDoctorActionsMenuId === doctor.id && (
                   <div
                     onClick={(e) => e.stopPropagation()}
-                    className="absolute bottom-10 right-0 z-20 w-56 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+                    className={`absolute bottom-10 right-0 z-20 w-56 rounded-xl border p-1.5 shadow-lg ${darkMode ? "border-slate-700 bg-slate-900" : "border-slate-200 bg-white"}`}
                   >
                     <button
                       onClick={() => {
@@ -3220,7 +3262,7 @@ export default function App() {
                         setSelectedDetail(doctor);
                         setShowAppointmentDetails(true);
                       }}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+                      className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-700 hover:bg-slate-100"}`}
                     >
                       <Eye size={16} />
                       View Details
@@ -3243,13 +3285,13 @@ export default function App() {
           })}
 
           {filteredDoctors.length === 0 && (
-            <div className="px-5 py-8 text-center text-slate-500">
+            <div className={`px-5 py-8 text-center ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
               No doctors found.
             </div>
           )}
 
           {filteredDoctors.length > 0 && (
-            <div className="flex items-center justify-between border-t border-slate-200 px-5 py-5 text-slate-500">
+            <div className={`flex items-center justify-between border-t px-5 py-5 ${darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"}`}>
               <p>Showing {startIndex + 1} to {Math.min(endIndex, filteredDoctors.length)} of {filteredDoctors.length} entries</p>
               <div className="flex items-center gap-2">
                 <button
@@ -3266,7 +3308,7 @@ export default function App() {
                     className={`rounded-lg px-3 py-2 font-medium ${
                       adminDoctorsPage === page
                         ? "bg-teal-600 text-white"
-                        : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                        : darkMode ? "border border-slate-700 text-slate-300 hover:bg-slate-800" : "border border-slate-200 text-slate-600 hover:bg-slate-50"
                     }`}
                   >
                     {page}
@@ -3337,11 +3379,11 @@ export default function App() {
     };
 
     return (
-      <div className="p-9">
+      <div className={`p-9 ${darkMode ? "bg-slate-900 text-slate-100" : ""}`}>
         <div className="mb-8 flex items-start justify-between">
           <div>
-            <h2 className="text-[28px] font-bold">All Appointments</h2>
-            <p className="mt-2 text-[18px] text-slate-500">
+            <h2 className={`text-[28px] font-bold ${darkMode ? "text-slate-100" : ""}`}>All Appointments</h2>
+            <p className={`mt-2 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
               View and manage all hospital appointments. Book appointments for registered patients or emergency walk-in patients.
             </p>
           </div>
@@ -3375,7 +3417,7 @@ export default function App() {
               className={`rounded-full px-5 py-2 font-medium transition-colors ${
                 appointmentFilter === status
                   ? "bg-teal-600 text-white"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  : darkMode ? "bg-slate-800 text-slate-300 hover:bg-slate-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
               }`}
             >
               {status}
@@ -3383,11 +3425,11 @@ export default function App() {
           ))}
         </div>
 
-        <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+        <div className={`overflow-hidden rounded-[24px] border shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
           {/* Search Bar */}
-          <div className="border-b border-slate-200 p-5">
-            <div className="flex items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 bg-slate-50">
-              <Search size={18} className="text-slate-400" />
+          <div className={`border-b p-5 ${darkMode ? "border-slate-800" : "border-slate-200"}`}>
+            <div className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-900" : "border-slate-200 bg-slate-50"}`}>
+              <Search size={18} className={darkMode ? "text-slate-500" : "text-slate-400"} />
               <input
                 type="text"
                 placeholder="Search appointments..."
@@ -3396,13 +3438,13 @@ export default function App() {
                   setAppointmentSearch(e.target.value);
                   setAdminAppointmentsPage(1);
                 }}
-                className="w-full bg-transparent outline-none"
+                className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : ""}`}
               />
             </div>
           </div>
 
           {/* Table Header */}
-          <div className="grid gap-4 border-b border-slate-200 px-5 py-4 text-sm font-semibold text-slate-500" style={{gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr 0.8fr 0.8fr'}}>
+          <div className={`grid gap-4 border-b px-5 py-4 text-sm font-semibold ${darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"}`} style={{gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr 0.8fr 0.8fr'}}>
             <div>PATIENT</div>
             <div>DOCTOR</div>
             <div>DATE</div>
@@ -3417,7 +3459,7 @@ export default function App() {
               <div
                 key={apt.id}
                 className={`grid items-center gap-4 px-5 py-5 ${
-                  index !== paginatedAppointments.length - 1 ? "border-b border-slate-200" : ""
+                  index !== paginatedAppointments.length - 1 ? (darkMode ? "border-b border-slate-800" : "border-b border-slate-200") : ""
                 }`}
                 style={{gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr 0.8fr 0.8fr'}}
               >
@@ -3429,10 +3471,10 @@ export default function App() {
                     </span>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] font-medium text-slate-900">
+                    <p className={`truncate text-[15px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
                       {apt.patient_name || "Unknown"}
                     </p>
-                    <p className="truncate text-xs text-slate-500">
+                    <p className={`truncate text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                       {apt.patient_email || ""}
                     </p>
                   </div>
@@ -3444,23 +3486,23 @@ export default function App() {
                     <Stethoscope size={16} className="text-white" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] font-medium text-slate-900">
+                    <p className={`truncate text-[15px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
                       {apt.doctor_name || "Unassigned"}
                     </p>
-                    <p className="truncate text-xs text-slate-500">
+                    <p className={`truncate text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                       {apt.specialty || ""}
                     </p>
                   </div>
                 </div>
 
                 {/* Date */}
-                <div className="text-[15px] text-slate-700">
+                <div className={`text-[15px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
                   <div>{formatDate(apt.date)}</div>
-                  <div className="text-xs text-slate-500">{formatTime(apt.time)}</div>
+                  <div className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{formatTime(apt.time)}</div>
                 </div>
 
                 {/* Type */}
-                <div className="text-[15px] text-slate-700">
+                <div className={`text-[15px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
                   {apt.type || "General"}
                 </div>
 
@@ -3505,13 +3547,13 @@ export default function App() {
             ))
           ) : (
             <div className="px-5 py-12 text-center">
-              <p className="text-slate-500 text-[15px]">No appointments found.</p>
+              <p className={`text-[15px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>No appointments found.</p>
             </div>
           )}
 
           {/* Pagination */}
           {filteredAppointments.length > 0 && (
-            <div className="flex items-center justify-between border-t border-slate-200 px-5 py-5 text-slate-600">
+            <div className={`flex items-center justify-between border-t px-5 py-5 ${darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-600"}`}>
               <p className="text-sm">Showing {startIndex + 1} to {Math.min(endIndex, filteredAppointments.length)} of {filteredAppointments.length} entries</p>
               <div className="flex items-center gap-2">
                 <button
@@ -3528,7 +3570,7 @@ export default function App() {
                     className={`rounded-lg px-3 py-2 font-medium ${
                       adminAppointmentsPage === page
                         ? "bg-teal-600 text-white"
-                        : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                        : darkMode ? "border border-slate-700 text-slate-300 hover:bg-slate-800" : "border border-slate-200 text-slate-600 hover:bg-slate-50"
                     }`}
                   >
                     {page}
@@ -3561,10 +3603,10 @@ export default function App() {
     });
 
     return (
-      <div className="p-9">
+      <div className={`p-9 ${darkMode ? "bg-slate-900 text-slate-100" : ""}`}>
         <div className="mb-8">
-          <h2 className="text-[28px] font-bold">Medical History</h2>
-          <p className="mt-2 text-[18px] text-slate-500">Browse all patient medical records.</p>
+          <h2 className={`text-[28px] font-bold ${darkMode ? "text-slate-100" : ""}`}>Medical History</h2>
+          <p className={`mt-2 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Browse all patient medical records.</p>
         </div>
 
         {/* Search Bar */}
@@ -3574,7 +3616,7 @@ export default function App() {
             placeholder="Search by patient name or diagnosis..."
             value={medicalRecordsSearch}
             onChange={(e) => setMedicalRecordsSearch(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700 placeholder-slate-400 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
+            className={`w-full rounded-xl border px-4 py-3 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 ${darkMode ? "border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500" : "border-slate-200 bg-slate-50 text-slate-700 placeholder-slate-400"}`}
           />
         </div>
 
@@ -3584,31 +3626,31 @@ export default function App() {
             filteredRecords.map((record) => (
               <div
                 key={record.id}
-                className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow"
+                className={`rounded-2xl border shadow-sm hover:shadow-md transition-shadow ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}
               >
                 <button
                   onClick={() => setExpandedRecordId(expandedRecordId === record.id ? null : record.id)}
-                  className="w-full flex items-start justify-between p-5 text-left hover:bg-slate-50 transition-colors rounded-2xl"
+                  className={`w-full flex items-start justify-between p-5 text-left transition-colors rounded-2xl ${darkMode ? "hover:bg-slate-900" : "hover:bg-slate-50"}`}
                 >
                   <div className="flex items-start gap-4 flex-1 min-w-0">
                     {/* File Icon */}
                     <div className="flex-shrink-0 mt-1">
-                      <FileText size={24} className="text-slate-400" />
+                      <FileText size={24} className={darkMode ? "text-slate-500" : "text-slate-400"} />
                     </div>
 
                     {/* Record Info */}
                     <div className="min-w-0 flex-1">
-                      <h3 className="text-[18px] font-semibold text-slate-900">{record.diagnosis}</h3>
-                      <p className="mt-1 text-sm text-slate-600">
+                      <h3 className={`text-[18px] font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{record.diagnosis}</h3>
+                      <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
                         Patient: <span className="font-medium">{record.patient_name}</span> • Doctor: <span className="font-medium">{record.doctor_name}</span>
                       </p>
-                      <p className="mt-2 text-sm text-slate-600 line-clamp-1">{record.treatment || "No treatment details"}</p>
+                      <p className={`mt-2 text-sm line-clamp-1 ${darkMode ? "text-slate-400" : "text-slate-600"}`}>{record.treatment || "No treatment details"}</p>
                     </div>
                   </div>
 
                   {/* Date and Chevron */}
                   <div className="flex items-center gap-4 flex-shrink-0 ml-4">
-                    <span className="text-sm font-medium text-slate-500">
+                    <span className={`text-sm font-medium ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
                       {record.record_date 
                         ? new Date(record.record_date).toLocaleDateString("en-US", {
                             year: "numeric",
@@ -3619,7 +3661,7 @@ export default function App() {
                     </span>
                     <ChevronDown
                       size={20}
-                      className={`text-slate-400 transition-transform ${
+                      className={`${darkMode ? "text-slate-500" : "text-slate-400"} transition-transform ${
                         expandedRecordId === record.id ? "rotate-180" : ""
                       }`}
                     />
@@ -3628,23 +3670,23 @@ export default function App() {
 
                 {/* Expanded Details */}
                 {expandedRecordId === record.id && (
-                  <div className="border-t border-slate-200 px-5 py-4 space-y-3 bg-slate-50 rounded-b-2xl">
+                  <div className={`border-t px-5 py-4 space-y-3 rounded-b-2xl ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-slate-50"}`}>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <p className="text-xs font-semibold text-slate-500 uppercase">Patient</p>
-                        <p className="mt-1 text-sm text-slate-700">{record.patient_name}</p>
+                        <p className={`text-xs font-semibold uppercase ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Patient</p>
+                        <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{record.patient_name}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold text-slate-500 uppercase">Doctor</p>
-                        <p className="mt-1 text-sm text-slate-700">{record.doctor_name}</p>
+                        <p className={`text-xs font-semibold uppercase ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Doctor</p>
+                        <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{record.doctor_name}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold text-slate-500 uppercase">Diagnosis</p>
-                        <p className="mt-1 text-sm text-slate-700">{record.diagnosis}</p>
+                        <p className={`text-xs font-semibold uppercase ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Diagnosis</p>
+                        <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{record.diagnosis}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-semibold text-slate-500 uppercase">Record Date</p>
-                        <p className="mt-1 text-sm text-slate-700">
+                        <p className={`text-xs font-semibold uppercase ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Record Date</p>
+                        <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
                           {record.record_date 
                             ? new Date(record.record_date).toLocaleDateString("en-US", {
                                 year: "numeric",
@@ -3656,8 +3698,8 @@ export default function App() {
                       </div>
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-slate-500 uppercase">Treatment</p>
-                      <p className="mt-1 text-sm text-slate-700">{record.treatment || "No treatment details"}</p>
+                      <p className={`text-xs font-semibold uppercase ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Treatment</p>
+                      <p className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{record.treatment || "No treatment details"}</p>
                     </div>
                     <div className="flex gap-3 pt-2">
                       <button
@@ -3693,24 +3735,26 @@ export default function App() {
     const maxDeptLoad = Math.max(...Object.values(analytics.deptLoad), 1);
     const maxAge = Math.max(...Object.values(analytics.ageGroups), 1);
     const maxMonthly = Math.max(...analytics.trendMonths.map((item) => item.value), 1);
+    const totalAgePatients = Object.values(analytics.ageGroups).reduce((sum, value) => sum + value, 0);
 
     return (
-      <div className="p-9">
+      <div className={`p-9 ${darkMode ? "bg-slate-900 text-slate-100" : ""}`}>
         <div className="mb-8 flex items-center justify-between">
           <div>
-            <h2 className="text-[28px] font-bold">Reports & Analytics</h2>
-            <p className="mt-2 text-[18px] text-slate-500">Comprehensive insights and statistics.</p>
+            <h2 className={`text-[28px] font-bold ${darkMode ? "text-slate-100" : ""}`}>Reports & Analytics</h2>
+            <p className={`mt-2 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Comprehensive insights and statistics.</p>
           </div>
           <div className="flex items-center gap-3">
             <select
               value={demographicsPeriod}
               onChange={(e) => setDemographicsPeriod(e.target.value)}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-slate-700"
+              className={`rounded-lg border px-4 py-2 ${darkMode ? "border-slate-700 bg-slate-800 text-slate-200" : "border-slate-200 bg-white text-slate-700"}`}
             >
               <option>This Month</option>
               <option>Last Month</option>
               <option>Last Quarter</option>
               <option>This Year</option>
+              <option>Last Year</option>
             </select>
             <button
               type="button"
@@ -3761,8 +3805,8 @@ export default function App() {
         {/* Charts Row 1 */}
         <div className="grid gap-6 grid-cols-1 lg:grid-cols-2 mb-8">
           {/* Line Chart - Monthly Trend */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-[18px] font-semibold text-slate-900 mb-4">Monthly Appointments Trend</h3>
+          <div className={`rounded-2xl border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+            <h3 className={`text-[18px] font-semibold mb-4 ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Monthly Appointments Trend</h3>
             <div className="h-64 flex items-end gap-2 px-2 py-4">
               {analytics.trendMonths.map(({ label, value, year, month }) => (
                 <div key={`${year}-${month}`} className="flex-1 flex flex-col items-center">
@@ -3772,19 +3816,19 @@ export default function App() {
                       style={{ height: `${(value / maxMonthly) * 200}px` }}
                     />
                   </div>
-                  <span className="text-xs text-slate-500 mt-2">{label}</span>
+                  <span className={`text-xs mt-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{label}</span>
                 </div>
               ))}
             </div>
-            <div className="mt-4 text-center text-xs text-slate-600 flex items-center justify-center gap-2">
+            <div className={`mt-4 text-center text-xs flex items-center justify-center gap-2 ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
               <span className="w-3 h-3 bg-blue-500 rounded-full"></span>
               appointments
             </div>
           </div>
 
           {/* Pie Chart - Appointment Types */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-[18px] font-semibold text-slate-900 mb-6">Appointments by Type</h3>
+          <div className={`rounded-2xl border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+            <h3 className={`text-[18px] font-semibold mb-6 ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Appointments by Type</h3>
             <div className="flex flex-col items-center justify-center">
               <div className="w-32 h-32 rounded-full" style={{
                 background: `conic-gradient(
@@ -3795,7 +3839,7 @@ export default function App() {
                 )`
               }}></div>
             </div>
-            <div className="mt-6 space-y-2 text-sm">
+            <div className={`mt-6 space-y-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2"><span className="w-2 h-2 bg-blue-500 rounded-full"></span>Checkup {analytics.appointmentTypes.Checkup}%</span>
               </div>
@@ -3815,8 +3859,8 @@ export default function App() {
         {/* Charts Row 2 */}
         <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
           {/* Bar Chart - Department Load */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-[18px] font-semibold text-slate-900 mb-4">Department Patient Load</h3>
+          <div className={`rounded-2xl border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+            <h3 className={`text-[18px] font-semibold mb-4 ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Department Patient Load</h3>
             <div className="h-64 flex items-end gap-3 px-2 py-4">
               {Object.entries(analytics.deptLoad).length > 0 ? (
                 Object.entries(analytics.deptLoad).map(([dept, value]) => (
@@ -3825,34 +3869,44 @@ export default function App() {
                       className="w-full bg-gradient-to-t from-purple-400 to-purple-500 rounded-t-lg transition-all"
                       style={{ height: `${(value / maxDeptLoad) * 200}px` }}
                     />
-                    <span className="text-xs text-slate-500 mt-2 text-center line-clamp-2">{dept}</span>
+                    <span className={`text-xs mt-2 text-center line-clamp-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{dept}</span>
                   </div>
                 ))
               ) : (
-                <div className="text-slate-500 text-center w-full">No department data</div>
+                <div className={`text-center w-full ${darkMode ? "text-slate-400" : "text-slate-500"}`}>No department data</div>
               )}
             </div>
-            <div className="mt-2 text-center text-xs text-slate-600 flex items-center justify-center gap-2">
+            <div className={`mt-2 text-center text-xs flex items-center justify-center gap-2 ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
               <span className="w-3 h-3 bg-purple-500 rounded-full"></span>
               Patients
             </div>
           </div>
 
           {/* Bar Chart - Age Demographics */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-[18px] font-semibold text-slate-900 mb-4">Patient Demographics by Age</h3>
+          <div className={`rounded-2xl border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+            <h3 className={`text-[18px] font-semibold mb-4 ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Patient Demographics by Age</h3>
             <div className="h-64 flex items-end gap-3 px-2 py-4">
-              {Object.entries(analytics.ageGroups).map(([label, value]) => (
-                <div key={label} className="flex-1 flex flex-col items-center">
-                  <div
-                    className="w-full bg-gradient-to-t from-emerald-400 to-emerald-500 rounded-t-lg transition-all"
-                    style={{ height: `${(value / maxAge) * 200}px` }}
-                  />
-                  <span className="text-xs text-slate-500 mt-2">{label}</span>
+              {totalAgePatients > 0 ? (
+                Object.entries(analytics.ageGroups).map(([label, value]) => (
+                  <div key={label} className="flex-1 flex flex-col items-center">
+                    <span className={`mb-2 text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{value}</span>
+                    <div
+                      className="w-full bg-gradient-to-t from-emerald-400 to-emerald-500 rounded-t-lg transition-all"
+                      style={{
+                        height: `${(value / maxAge) * 200}px`,
+                        minHeight: value > 0 ? "16px" : "0px",
+                      }}
+                    />
+                    <span className={`text-xs mt-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{label}</span>
+                  </div>
+                ))
+              ) : (
+                <div className={`flex w-full items-center justify-center rounded-2xl border border-dashed text-center ${darkMode ? "border-slate-700 bg-slate-900 text-slate-400" : "border-slate-200 bg-slate-50 text-slate-500"}`}>
+                  No patient age data for this period
                 </div>
-              ))}
+              )}
             </div>
-            <div className="mt-2 text-center text-xs text-slate-600 flex items-center justify-center gap-2">
+            <div className={`mt-2 text-center text-xs flex items-center justify-center gap-2 ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
               <span className="w-3 h-3 bg-emerald-500 rounded-full"></span>
               Count
             </div>
@@ -3864,11 +3918,11 @@ export default function App() {
 
   const StatCard = ({ title, value, change, icon, bgColor = "bg-blue-50" }) => {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className={`rounded-2xl border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
         <div className="flex items-start justify-between">
           <div>
-            <p className="text-sm text-slate-600 font-medium">{title}</p>
-            <p className="mt-3 text-[32px] font-bold text-slate-900">{value}</p>
+            <p className={`text-sm font-medium ${darkMode ? "text-slate-400" : "text-slate-600"}`}>{title}</p>
+            <p className={`mt-3 text-[32px] font-bold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{value}</p>
             <p className="mt-3 text-xs text-teal-600 font-medium">{change} vs previous period</p>
           </div>
           <div className={`rounded-lg ${bgColor} p-3`}>
@@ -3969,19 +4023,19 @@ export default function App() {
     };
 
     return (
-      <div className="p-9">
+      <div className={`p-9 ${darkMode ? "bg-slate-900 text-slate-100" : ""}`}>
         {/* Notification Preferences */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm mb-6">
+        <div className={`rounded-2xl border p-6 shadow-sm mb-6 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
           <div className="flex items-center gap-3 mb-6">
             <Bell size={24} className="text-amber-500" />
-            <h3 className="text-[20px] font-semibold">Notification Preferences</h3>
+            <h3 className={`text-[20px] font-semibold ${darkMode ? "text-slate-100" : ""}`}>Notification Preferences</h3>
           </div>
           
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-900">Email Notifications</p>
-                <p className="text-xs text-slate-600">Receive appointment and system updates via email</p>
+                <p className={`text-sm font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Email Notifications</p>
+                <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Receive appointment and system updates via email</p>
               </div>
               <button
                 onClick={() => setEmailNotifications(!emailNotifications)}
@@ -3993,8 +4047,8 @@ export default function App() {
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-900">SMS Notifications</p>
-                <p className="text-xs text-slate-600">Get text messages for urgent updates</p>
+                <p className={`text-sm font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>SMS Notifications</p>
+                <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Get text messages for urgent updates</p>
               </div>
               <button
                 onClick={() => setSmsNotifications(!smsNotifications)}
@@ -4006,8 +4060,8 @@ export default function App() {
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-900">Push Notifications</p>
-                <p className="text-xs text-slate-600">Browser notifications for real-time alerts</p>
+                <p className={`text-sm font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Push Notifications</p>
+                <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Browser notifications for real-time alerts</p>
               </div>
               <button
                 onClick={() => setPushNotifications(!pushNotifications)}
@@ -4020,40 +4074,40 @@ export default function App() {
         </div>
 
         {/* Security */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm mb-6">
+        <div className={`rounded-2xl border p-6 shadow-sm mb-6 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
           <div className="flex items-center gap-3 mb-6">
             <Lock size={24} className="text-red-500" />
-            <h3 className="text-[20px] font-semibold">Security</h3>
+            <h3 className={`text-[20px] font-semibold ${darkMode ? "text-slate-100" : ""}`}>Security</h3>
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-slate-900">Current Password</label>
+              <label className={`text-sm font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Current Password</label>
               <input
                 type="password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
-                className="mt-2 w-full rounded-lg border border-slate-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                className={`mt-2 w-full rounded-lg border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 ${darkMode ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-200"}`}
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-slate-900">New Password</label>
+                <label className={`text-sm font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>New Password</label>
                 <input
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="mt-2 w-full rounded-lg border border-slate-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className={`mt-2 w-full rounded-lg border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 ${darkMode ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-200"}`}
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-slate-900">Confirm Password</label>
+                <label className={`text-sm font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Confirm Password</label>
                 <input
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="mt-2 w-full rounded-lg border border-slate-200 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className={`mt-2 w-full rounded-lg border px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 ${darkMode ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-200"}`}
                 />
               </div>
             </div>
@@ -4075,27 +4129,27 @@ export default function App() {
         </div>
 
         {/* System Information */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm mb-6">
+        <div className={`rounded-2xl border p-6 shadow-sm mb-6 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
           <div className="flex items-center gap-3 mb-6">
             <Info size={24} className="text-purple-500" />
-            <h3 className="text-[20px] font-semibold">System Information</h3>
+            <h3 className={`text-[20px] font-semibold ${darkMode ? "text-slate-100" : ""}`}>System Information</h3>
           </div>
 
           <div className="grid grid-cols-2 gap-6">
             <div>
-              <p className="text-xs text-slate-600">Version</p>
-              <p className="text-sm font-semibold text-slate-900 mt-1">v2.4.1</p>
+              <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Version</p>
+              <p className={`text-sm font-semibold mt-1 ${darkMode ? "text-slate-100" : "text-slate-900"}`}>v2.4.1</p>
             </div>
             <div>
-              <p className="text-xs text-slate-600">Last Updated</p>
-              <p className="text-sm font-semibold text-slate-900 mt-1">December 15, 2023</p>
+              <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Last Updated</p>
+              <p className={`text-sm font-semibold mt-1 ${darkMode ? "text-slate-100" : "text-slate-900"}`}>December 15, 2023</p>
             </div>
             <div>
-              <p className="text-xs text-slate-600">Database</p>
-              <p className="text-sm font-semibold text-slate-900 mt-1">PostgreSQL 14.2</p>
+              <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Database</p>
+              <p className={`text-sm font-semibold mt-1 ${darkMode ? "text-slate-100" : "text-slate-900"}`}>PostgreSQL 14.2</p>
             </div>
             <div>
-              <p className="text-xs text-slate-600">Server Status</p>
+              <p className={`text-xs ${darkMode ? "text-slate-400" : "text-slate-600"}`}>Server Status</p>
               <p className="text-sm font-semibold text-teal-600 mt-1">Online</p>
             </div>
           </div>
@@ -4160,7 +4214,7 @@ export default function App() {
           onClose={closeSuccessPopup}
         />
         {renderTopToast()}
-        <div className="flex min-h-screen">
+        <div className={`flex min-h-screen ${darkMode ? 'bg-slate-900 text-slate-100' : 'bg-white text-slate-900'}`}>
           <aside className={`flex flex-col justify-between border-r transition-all duration-300 ${patientSidebarCollapsed ? "w-20" : "w-[260px]"} ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
             <div>
               <div className={`flex h-[72px] items-center ${patientSidebarCollapsed ? "justify-center" : "justify-between"} transition-all duration-300 gap-3 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-6`}>
@@ -4238,7 +4292,7 @@ export default function App() {
             </div>
           </aside>
 
-          <main className="flex-1">
+          <main className={`flex-1 min-h-screen ${darkMode ? 'bg-slate-900 text-slate-100' : 'bg-white text-slate-900'}`}>
             <div className={`flex h-[72px] items-center justify-between border-b transition-colors ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'} px-9`}>
               <div className="flex items-center gap-6">
               </div>
@@ -4347,7 +4401,7 @@ export default function App() {
                                     <p className={`text-sm font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{notif.title}</p>
                                     <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{notif.message}</p>
                                     <p className={`mt-2 text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                                      {new Date(notif.created_at).toLocaleString()}
+                                      {formatNotificationTimestamp(notif.created_at)}
                                     </p>
                                     </div>
                                   </div>
@@ -4380,21 +4434,39 @@ export default function App() {
 
                 <div className={`h-8 w-px transition-colors ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`} />
 
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-200">
-                    <User size={18} className="text-slate-500" />
+                <div className="relative" ref={accountMenuRef}>
+                  <div className="flex items-center gap-3 px-2 py-1">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-200">
+                      <User size={18} className="text-slate-500" />
+                    </div>
+
+                    <div>
+                      <p className={`text-[18px] font-medium leading-none capitalize ${darkMode ? 'text-slate-200' : 'text-slate-900'}`}>
+                        {loggedInUser.role}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowAccountMenu((prev) => !prev)}
+                      className={`rounded-full p-1 transition hover:bg-slate-100/70 ${darkMode ? 'hover:bg-slate-800' : ''}`}
+                    >
+                      <ChevronDown size={18} className={darkMode ? 'text-slate-400' : 'text-slate-500'} />
+                    </button>
                   </div>
 
-                  <div>
-                    <p className={`text-[18px] font-medium leading-none ${darkMode ? 'text-slate-200' : 'text-slate-900'}`}>
-                      {loggedInUser.name}
-                    </p>
-                    <p className={`mt-1 text-sm capitalize ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                      {loggedInUser.role}
-                    </p>
-                  </div>
-
-                  <ChevronDown size={18} className={darkMode ? 'text-slate-400' : 'text-slate-500'} />
+                  {showAccountMenu && (
+                    <div className={`absolute right-0 top-full z-50 mt-2 w-44 rounded-2xl border p-2 shadow-xl ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition ${darkMode ? 'text-slate-200 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-100'}`}
+                      >
+                        <LogOut size={16} />
+                        <span>Logout</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -5096,7 +5168,7 @@ export default function App() {
                                     <p className={`text-sm font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{notif.title}</p>
                                     <p className={`mt-1 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{notif.message}</p>
                                     <p className={`mt-2 text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                                      {new Date(notif.created_at).toLocaleString()}
+                                      {formatNotificationTimestamp(notif.created_at)}
                                     </p>
                                     </div>
                                   </div>
@@ -5127,23 +5199,41 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="h-8 w-px bg-slate-200" />
+                <div className={`h-8 w-px ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`} />
 
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-200">
-                    <User size={18} className="text-slate-500" />
+                <div className="relative" ref={accountMenuRef}>
+                  <div className="flex items-center gap-3 px-2 py-1">
+                    <div className={`flex h-11 w-11 items-center justify-center rounded-full ${darkMode ? 'bg-slate-700' : 'bg-slate-200'}`}>
+                      <User size={18} className={darkMode ? 'text-slate-200' : 'text-slate-500'} />
+                    </div>
+
+                    <div>
+                      <p className={`text-[18px] font-medium leading-none capitalize ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {loggedInUser.role}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowAccountMenu((prev) => !prev)}
+                      className={`rounded-full p-1 transition ${darkMode ? 'hover:bg-slate-700' : 'hover:bg-slate-100'}`}
+                    >
+                      <ChevronDown size={18} className={darkMode ? 'text-slate-300' : 'text-slate-500'} />
+                    </button>
                   </div>
 
-                  <div>
-                    <p className="text-[18px] font-medium leading-none">
-                      {loggedInUser.name}
-                    </p>
-                    <p className="mt-1 text-sm capitalize text-slate-500">
-                      {loggedInUser.role}
-                    </p>
-                  </div>
-
-                  <ChevronDown size={18} className="text-slate-500" />
+                  {showAccountMenu && (
+                    <div className={`absolute right-0 top-full z-50 mt-2 w-44 rounded-2xl border p-2 shadow-xl ${darkMode ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-white'}`}>
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition ${darkMode ? 'text-slate-200 hover:bg-slate-700' : 'text-slate-700 hover:bg-slate-100'}`}
+                      >
+                        <LogOut size={16} />
+                        <span>Logout</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

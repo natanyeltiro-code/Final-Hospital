@@ -18,6 +18,11 @@ export const getReportPeriodRange = (period, now = new Date()) => {
     end = new Date(current);
     previousStart = new Date(current.getFullYear(), current.getMonth() - 1, 1);
     previousEnd = new Date(current.getFullYear(), current.getMonth(), 0, 23, 59, 59, 999);
+  } else if (period === "Last Year") {
+    start = new Date(current.getFullYear() - 1, 0, 1);
+    end = new Date(current.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
+    previousStart = new Date(current.getFullYear() - 2, 0, 1);
+    previousEnd = new Date(current.getFullYear() - 2, 11, 31, 23, 59, 59, 999);
   } else if (period === "Last Month") {
     start = new Date(current.getFullYear(), current.getMonth() - 1, 1);
     end = new Date(current.getFullYear(), current.getMonth(), 0, 23, 59, 59, 999);
@@ -68,6 +73,32 @@ export const formatTrendChange = (currentValue, previousValue) => {
   return `${sign}${change.toFixed(1)}%`;
 };
 
+export const normalizeConditionLabel = (value) => {
+  const rawValue = typeof value === "string" ? value.trim() : "";
+  if (!rawValue) return "No Condition";
+
+  const normalizedValue = rawValue.toLowerCase();
+  const emptyLikeValues = new Set([
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "undefined",
+    "unknown",
+    "no condition",
+    "no conditions",
+    "no condition noted",
+    "no known condition",
+    "wew",
+  ]);
+
+  if (emptyLikeValues.has(normalizedValue)) {
+    return "No Condition";
+  }
+
+  return rawValue;
+};
+
 export const buildReportAnalytics = ({
   period,
   adminAppointments,
@@ -89,6 +120,12 @@ export const buildReportAnalytics = ({
   );
   const previousRecords = adminMedicalRecords.filter((record) =>
     isDateWithinRange(record.record_date, previousStart, previousEnd)
+  );
+  const filteredPatients = adminPatients.filter((patient) =>
+    isDateWithinRange(patient.created_at, start, end)
+  );
+  const previousPatients = adminPatients.filter((patient) =>
+    isDateWithinRange(patient.created_at, previousStart, previousEnd)
   );
 
   const uniquePatientIds = new Set(
@@ -140,16 +177,23 @@ export const buildReportAnalytics = ({
     "51-65": 0,
     "65+": 0,
   };
-  adminPatients.forEach((patient) => {
+  filteredPatients.forEach((patient) => {
     const dob = patient.dateOfBirth || patient.date_of_birth;
     const birthDate = parseDateSafe(dob);
-    if (!birthDate) return;
+    let age = null;
 
-    let age = end.getFullYear() - birthDate.getFullYear();
-    const hadBirthdayThisYear =
-      end.getMonth() > birthDate.getMonth() ||
-      (end.getMonth() === birthDate.getMonth() && end.getDate() >= birthDate.getDate());
-    if (!hadBirthdayThisYear) age -= 1;
+    if (birthDate) {
+      age = end.getFullYear() - birthDate.getFullYear();
+      const hadBirthdayThisYear =
+        end.getMonth() > birthDate.getMonth() ||
+        (end.getMonth() === birthDate.getMonth() && end.getDate() >= birthDate.getDate());
+      if (!hadBirthdayThisYear) age -= 1;
+    } else {
+      const numericAge = Number.parseInt(patient.age, 10);
+      age = Number.isNaN(numericAge) ? null : numericAge;
+    }
+
+    if (age === null) return;
 
     if (age <= 18) ageGroups["0-18"] += 1;
     else if (age <= 35) ageGroups["19-35"] += 1;
@@ -160,10 +204,10 @@ export const buildReportAnalytics = ({
 
   const trendMonths = [];
   const trendBase =
-    period === "This Year"
+    period === "This Year" || period === "Last Year"
       ? new Date(end.getFullYear(), 0, 1)
       : new Date(end.getFullYear(), end.getMonth() - 5, 1);
-  const trendCount = period === "This Year" ? 12 : 6;
+  const trendCount = period === "This Year" || period === "Last Year" ? 12 : 6;
 
   for (let i = 0; i < trendCount; i += 1) {
     const bucketDate = new Date(trendBase.getFullYear(), trendBase.getMonth() + i, 1);
@@ -186,8 +230,8 @@ export const buildReportAnalytics = ({
   });
 
   const conditionCounts = {};
-  adminPatients.forEach((patient) => {
-    const condition = patient.condition || "No Condition";
+  filteredPatients.forEach((patient) => {
+    const condition = normalizeConditionLabel(patient.condition);
     conditionCounts[condition] = (conditionCounts[condition] || 0) + 1;
   });
 
@@ -198,6 +242,8 @@ export const buildReportAnalytics = ({
     previousAppointments,
     filteredRecords,
     previousRecords,
+    filteredPatients,
+    previousPatients,
     totalAppointments: filteredAppointments.length,
     activePatients: uniquePatientIds.size,
     totalDoctors,
@@ -210,7 +256,7 @@ export const buildReportAnalytics = ({
     conditionCounts,
     changes: {
       appointments: formatTrendChange(filteredAppointments.length, previousAppointments.length),
-      patients: formatTrendChange(uniquePatientIds.size, previousUniquePatientIds.size),
+      patients: formatTrendChange(filteredPatients.length, previousPatients.length),
       doctors: "0.0%",
       records: formatTrendChange(filteredRecords.length, previousRecords.length),
     },
