@@ -66,7 +66,9 @@ export default function App() {
 
   const notificationsRef = useRef(null);
   const detailsRef = useRef(null);
+  const bookingModalRef = useRef(null);
   const accountMenuRef = useRef(null);
+  const loginRolePickerRef = useRef(null);
 
   const [appointments, setAppointments] = useState([]);
   const [medicalRecords, setMedicalRecords] = useState([]);
@@ -179,12 +181,19 @@ export default function App() {
   const [loadingNotifications, setLoadingNotifications] = useState(false);
 
   const [registerData, setRegisterData] = useState({
+    role: "",
     name: "",
     email: "",
+    phone: "",
     password: "",
+    specialty: "",
+    department: "",
+    yearsExperience: "",
+    bio: "",
   });
 
   const [loginData, setLoginData] = useState({
+    role: "",
     email: "",
     password: "",
   });
@@ -240,6 +249,14 @@ export default function App() {
     setSuccessPopup((prev) => ({ ...prev, open: false }));
   };
 
+  const resetBookingModal = () => {
+    setShowBookingModal(false);
+    setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
+    setSelectedSlot(null);
+    setBookingSpecialty("");
+    setMessage("");
+  };
+
   useEffect(() => {
     const closeMenu = () => setOpenPatientActionsMenuId(null);
     document.addEventListener("click", closeMenu);
@@ -256,8 +273,20 @@ export default function App() {
         setSelectedDetail(null);
         setSelectedDetailType("");
       }
+      if (showBookingModal && bookingModalRef.current && !bookingModalRef.current.contains(event.target)) {
+        resetBookingModal();
+      }
       if (showAccountMenu && accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
         setShowAccountMenu(false);
+      }
+      if (
+        isLogin &&
+        !showForgotPassword &&
+        loginData.role &&
+        loginRolePickerRef.current &&
+        !loginRolePickerRef.current.contains(event.target)
+      ) {
+        setLoginData((prev) => ({ ...prev, role: "" }));
       }
     };
 
@@ -267,6 +296,9 @@ export default function App() {
         setShowAppointmentDetails(false);
         setSelectedDetail(null);
         setSelectedDetailType("");
+        if (showBookingModal) {
+          resetBookingModal();
+        }
         setShowAccountMenu(false);
       }
     };
@@ -277,7 +309,7 @@ export default function App() {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [showNotifications, showAppointmentDetails, showAccountMenu]);
+  }, [showNotifications, showAppointmentDetails, showBookingModal, showAccountMenu, isLogin, showForgotPassword, loginData.role]);
 
   // Auto-refresh notifications every 15 seconds
   useEffect(() => {
@@ -659,8 +691,7 @@ export default function App() {
       
       setIsError(false);
       showSuccessPopup("Appointment Booked Successfully");
-      setShowBookingModal(false);
-      setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
+      resetBookingModal();
       fetchPatientData();
       // Refresh notifications immediately after booking
       if (loggedInUser && loggedInUser.id) {
@@ -996,22 +1027,81 @@ export default function App() {
     e.preventDefault();
     setMessage("");
 
-    const { name, email, password } = registerData;
+    const { role, name, email, phone, password, specialty, department, yearsExperience, bio } = registerData;
+    const trimmedRole = role.trim();
     const trimmedName = name.trim();
     const trimmedEmail = email.trim();
+    const trimmedPhone = phone.trim();
     const trimmedPassword = password.trim();
+    const trimmedSpecialty = specialty.trim();
+    const trimmedDepartment = department.trim();
+    const trimmedYearsExperience = yearsExperience.toString().trim();
+    const trimmedBio = bio.trim();
 
-    if (!trimmedName || !trimmedEmail || !trimmedPassword) {
+    if (!trimmedRole) {
       setIsError(true);
-      setMessage("❌ Please fill in all registration fields.");
+      setMessage("❌ Role is required.");
+      return;
+    }
+
+    if (!trimmedName) {
+      setIsError(true);
+      setMessage("❌ Full name is required.");
+      return;
+    }
+
+    if (!trimmedEmail) {
+      setIsError(true);
+      setMessage("❌ Email address is required.");
+      return;
+    }
+
+    if (!trimmedPhone) {
+      setIsError(true);
+      setMessage("❌ Phone number is required.");
+      return;
+    }
+
+    if (!trimmedPassword) {
+      setIsError(true);
+      setMessage("❌ Password is required.");
+      return;
+    }
+
+    if (
+      trimmedRole === "doctor" &&
+      (!trimmedSpecialty || !trimmedDepartment || !trimmedYearsExperience)
+    ) {
+      setIsError(true);
+      setMessage("❌ Please complete all doctor registration fields.");
       return;
     }
 
     try {
-      const res = await api.post("/register", { name: trimmedName, email: trimmedEmail, password: trimmedPassword });
+      const res = await api.post("/register", {
+        role: trimmedRole,
+        name: trimmedName,
+        email: trimmedEmail,
+        phone: trimmedPhone,
+        password: trimmedPassword,
+        specialty: trimmedRole === "doctor" ? trimmedSpecialty : "",
+        department: trimmedRole === "doctor" ? trimmedDepartment : "",
+        yearsExperience: trimmedRole === "doctor" ? trimmedYearsExperience : "",
+        bio: trimmedRole === "doctor" ? trimmedBio : "",
+      });
       setIsError(false);
       setMessage(res.data.message || "Registration successful!");
-      setRegisterData({ name: "", email: "", password: "" });
+      setRegisterData({
+        role: "",
+        name: "",
+        email: "",
+        phone: "",
+        password: "",
+        specialty: "",
+        department: "",
+        yearsExperience: "",
+        bio: "",
+      });
       setIsLogin(true);
       setShowForgotPassword(false);
     } catch (err) {
@@ -1025,16 +1115,30 @@ export default function App() {
     e.preventDefault();
     setMessage("");
 
-    const { email, password } = loginData;
+    const { role, email, password } = loginData;
+    const trimmedRole = role.trim();
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
 
-    if (!email || !password) {
+    if (!trimmedEmail) {
       setIsError(true);
-      setMessage("❌ Please enter email and password.");
+      setMessage("❌ Email address is required.");
+      return;
+    }
+
+    if (!trimmedPassword) {
+      setIsError(true);
+      setMessage("❌ Password is required.");
       return;
     }
 
     try {
-      const res = await api.post("/login", { email, password });
+      const res = await api.post("/login", { email: trimmedEmail, password: trimmedPassword });
+      if (trimmedRole && res.data.user?.role !== trimmedRole) {
+        setIsError(true);
+        setMessage(`❌ This account is registered as ${res.data.user?.role || "another"} user.`);
+        return;
+      }
       setAuthToken(res.data.token);
       setToken(res.data.token);
       setLoggedInUser(res.data.user);
@@ -1819,132 +1923,6 @@ export default function App() {
         </button>
       </div>
 
-      {showBookingModal && (
-        <div className={`mb-8 rounded-2xl border p-8 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
-          <h3 className={`mb-6 text-[24px] font-bold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Book New Appointment</h3>
-          
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-2 mb-6">
-            {/* Left: Department Selection & Available Doctors */}
-            <div>
-              <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Select Department</label>
-              <select 
-                value={bookingSpecialty}
-                onChange={(e) => {
-                  setBookingSpecialty(e.target.value);
-                  setBookingData({...bookingData, doctorId: ""});
-                  setSelectedSlot(null);
-                }}
-                className={`mb-4 w-full rounded-lg border px-4 py-3 focus:border-teal-500 focus:outline-none ${
-                  darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-slate-200 text-slate-900"
-                }`}>
-                <option value="">Choose a department...</option>
-                <option value="Cardiology">Cardiology</option>
-                <option value="Neurology">Neurology</option>
-                <option value="Orthopedics">Orthopedics</option>
-                <option value="Pediatrics">Pediatrics</option>
-                <option value="Dermatology">Dermatology</option>
-                <option value="Psychiatry">Psychiatry</option>
-              </select>
-
-              {bookingSpecialty && (
-                <div>
-                  <p className={`mb-3 text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Available Doctors</p>
-                  {/* Available doctor list filtered by the selected department. */}
-                  <Suspense fallback={renderLazyFallback("Loading doctors...")}>
-                    <SimpleDoctorList 
-                      selectedSpecialty={bookingSpecialty}
-                      darkMode={darkMode}
-                      onDoctorSelect={(doctor) => {
-                        setBookingData({...bookingData, doctorId: doctor.id.toString()});
-                        setSelectedSlot(null);
-                      }}
-                    />
-                  </Suspense>
-                </div>
-              )}
-            </div>
-
-            {/* Right: Date & Time Selection */}
-            <div>
-              {bookingData.doctorId ? (
-                <>
-                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Select Date</label>
-                  <input 
-                    type="date"
-                    value={bookingData.date}
-                    onChange={(e) => {
-                      setBookingData({...bookingData, date: e.target.value});
-                    }}
-                    min={new Date().toISOString().split('T')[0]}
-                    className={`mb-4 w-full rounded-lg border px-4 py-3 focus:border-teal-500 focus:outline-none ${
-                      darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-slate-200 text-slate-900"
-                    }`}
-                  />
-                  
-                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Select Time</label>
-                  <input 
-                    type="time"
-                    value={bookingData.time}
-                    onChange={(e) => {
-                      setBookingData({...bookingData, time: e.target.value});
-                    }}
-                    className={`w-full rounded-lg border px-4 py-3 focus:border-teal-500 focus:outline-none ${
-                      darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-slate-200 text-slate-900"
-                    }`}
-                  />
-                </>
-              ) : (
-                <div className={`flex h-full items-center justify-center rounded-lg border border-dashed p-4 text-center ${
-                  darkMode ? "border-slate-700 bg-slate-800" : "border-slate-300 bg-slate-50"
-                }`}>
-                  <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Select a doctor first</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Appointment Type and Submit */}
-          <form onSubmit={handleBookAppointment} className="space-y-4">
-            <div>
-              <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Appointment Type</label>
-              <select 
-                value={bookingData.type}
-                onChange={(e) => setBookingData({...bookingData, type: e.target.value})}
-                className={`w-full rounded-lg border px-4 py-3 focus:border-teal-500 focus:outline-none ${
-                  darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-slate-200 text-slate-900"
-                }`}>
-                <option>Consultation</option>
-                <option>Follow-up</option>
-                <option>Checkup</option>
-              </select>
-            </div>
-
-            {/* Selected Doctor & Time Summary */}
-            {bookingData.doctorId && bookingData.date && bookingData.time && (
-              <div className="p-4 rounded-lg bg-teal-50 border border-teal-200">
-                <p className="text-sm text-teal-800">
-                  <strong>✓ Ready to book:</strong> {bookingData.date} at {bookingData.time}
-                </p>
-              </div>
-            )}
-
-            {/* Buttons */}
-            <div className="flex gap-3 pt-2">
-              <button type="submit" disabled={!bookingData.doctorId || !bookingData.date || !bookingData.time} className="flex-1 rounded-lg bg-teal-600 px-4 py-3 text-white font-semibold hover:bg-teal-700 transition disabled:opacity-50 disabled:cursor-not-allowed">Book Appointment</button>
-              <button type="button" onClick={() => {
-                setShowBookingModal(false);
-                setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
-                setSelectedSlot(null);
-                setBookingSpecialty("");
-                setMessage("");
-              }} className={`flex-1 rounded-lg border px-4 py-3 transition ${
-                darkMode ? "border-slate-700 text-slate-200 hover:bg-slate-800" : "border-slate-200 text-slate-700 hover:bg-slate-50"
-              }`}>Cancel</button>
-            </div>
-          </form>
-        </div>
-      )}
-
       <div className="space-y-5">
         {sortedAppointments.length === 0 ? (
           <p className={`rounded-2xl border p-6 text-center ${darkMode ? "border-slate-800 bg-slate-900 text-slate-400" : "border-slate-200 bg-white text-slate-500"}`}>No appointments booked yet</p>
@@ -2025,6 +2003,183 @@ export default function App() {
           ))
         )}
       </div>
+
+      {showBookingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+          <div
+            ref={bookingModalRef}
+            className={`flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-[28px] border shadow-2xl ${
+              darkMode ? "border-slate-700 bg-slate-900" : "border-slate-200 bg-white"
+            }`}
+          >
+            <div className={`flex flex-shrink-0 items-center justify-between border-b px-8 py-6 ${
+              darkMode ? "border-slate-700" : "border-slate-200"
+            }`}>
+              <div>
+                <h3 className={`text-[24px] font-bold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Book New Appointment</h3>
+                <p className={`mt-1 text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                  Choose a department, pick a doctor, then confirm your date and time.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={resetBookingModal}
+                className={`transition ${darkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-500 hover:text-slate-900"}`}
+                aria-label="Close booking modal"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8">
+              <div className="mb-6 grid grid-cols-1 gap-8 md:grid-cols-2">
+                <div>
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Select Department</label>
+                  <select
+                    value={bookingSpecialty}
+                    onChange={(e) => {
+                      setBookingSpecialty(e.target.value);
+                      setBookingData({ ...bookingData, doctorId: "" });
+                      setSelectedSlot(null);
+                    }}
+                    className={`mb-4 w-full rounded-lg border px-4 py-3 focus:border-teal-500 focus:outline-none ${
+                      darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-slate-200 text-slate-900"
+                    }`}
+                  >
+                    <option value="">Choose a department...</option>
+                    <option value="Cardiology">Cardiology</option>
+                    <option value="Neurology">Neurology</option>
+                    <option value="Orthopedics">Orthopedics</option>
+                    <option value="Pediatrics">Pediatrics</option>
+                    <option value="Dermatology">Dermatology</option>
+                    <option value="Psychiatry">Psychiatry</option>
+                  </select>
+
+                  {bookingData.doctorId ? (
+                    <>
+                      <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Select Date</label>
+                      <input
+                        type="date"
+                        value={bookingData.date}
+                        onChange={(e) => {
+                          setBookingData({ ...bookingData, date: e.target.value });
+                        }}
+                        min={new Date().toISOString().split("T")[0]}
+                        className={`mb-4 w-full rounded-lg border px-4 py-3 focus:border-teal-500 focus:outline-none ${
+                          darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-slate-200 text-slate-900"
+                        }`}
+                      />
+
+                      <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Select Time</label>
+                      <input
+                        type="time"
+                        value={bookingData.time}
+                        onChange={(e) => {
+                          setBookingData({ ...bookingData, time: e.target.value });
+                        }}
+                        className={`w-full rounded-lg border px-4 py-3 focus:border-teal-500 focus:outline-none ${
+                          darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-slate-200 text-slate-900"
+                        }`}
+                      />
+                    </>
+                  ) : (
+                    <div className={`mt-6 flex min-h-[220px] items-center justify-center rounded-2xl border border-dashed p-6 text-center ${
+                      darkMode ? "border-slate-700 bg-slate-800/80" : "border-slate-300 bg-slate-50"
+                    }`}>
+                      <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Select a doctor first</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  {bookingSpecialty && (
+                    <div>
+                      <p className={`mb-3 text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Available Doctors</p>
+                      <Suspense fallback={renderLazyFallback("Loading doctors...")}>
+                        <SimpleDoctorList
+                          selectedSpecialty={bookingSpecialty}
+                          darkMode={darkMode}
+                          onDoctorSelect={(doctor) => {
+                            setBookingData({ ...bookingData, doctorId: doctor.id.toString() });
+                            setSelectedSlot(null);
+                          }}
+                        />
+                      </Suspense>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <form onSubmit={handleBookAppointment} className="space-y-4">
+                <div className={`rounded-2xl border p-5 shadow-sm ${
+                  darkMode ? "border-teal-900/70 bg-teal-950/20" : "border-teal-200 bg-teal-50/70"
+                }`}>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <label className={`block text-base font-bold ${
+                      darkMode ? "text-teal-100" : "text-teal-800"
+                    }`}>
+                      Appointment Type
+                    </label>
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+                      darkMode ? "bg-teal-900 text-teal-100" : "bg-white text-teal-700"
+                    }`}>
+                      Required
+                    </span>
+                  </div>
+                  <select
+                    value={bookingData.type}
+                    onChange={(e) => setBookingData({ ...bookingData, type: e.target.value })}
+                    className={`w-full rounded-xl border px-4 py-3 focus:border-teal-500 focus:outline-none ${
+                      darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-white bg-white text-slate-900"
+                    }`}
+                  >
+                    <option>Consultation</option>
+                    <option>Follow-up</option>
+                    <option>Checkup</option>
+                  </select>
+                  <p className={`mt-3 text-sm ${
+                    darkMode ? "text-slate-300" : "text-slate-600"
+                  }`}>
+                    Choose what kind of visit you want to book.
+                  </p>
+                </div>
+
+                {bookingData.doctorId && bookingData.date && bookingData.time && (
+                  <div className={`rounded-xl border p-4 ${
+                    darkMode ? "border-teal-900 bg-teal-950/40" : "border-teal-200 bg-teal-50"
+                  }`}>
+                    <p className={`text-sm ${darkMode ? "text-teal-100" : "text-teal-800"}`}>
+                      <strong>Ready to book:</strong> {bookingData.date} at {bookingData.time}
+                    </p>
+                  </div>
+                )}
+
+                <div className={`flex flex-shrink-0 gap-3 border-t pt-6 ${
+                  darkMode ? "border-slate-700" : "border-slate-200"
+                }`}>
+                  <button
+                    type="submit"
+                    disabled={!bookingData.doctorId || !bookingData.date || !bookingData.time}
+                    className="flex-1 rounded-lg bg-teal-600 px-4 py-3 font-semibold text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Book Appointment
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetBookingModal}
+                    className={`flex-1 rounded-lg border px-4 py-3 transition ${
+                      darkMode ? "border-slate-700 text-slate-200 hover:bg-slate-800" : "border-slate-200 text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
   };
@@ -2340,7 +2495,7 @@ export default function App() {
   };
 
   const renderProfilePage = () => (
-    <div className="p-9">
+    <div className={`p-9 ${darkMode ? "bg-slate-900 text-slate-100" : ""}`}>
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-[28px] font-bold">My Profile</h2>
@@ -2364,9 +2519,13 @@ export default function App() {
             }
             setEditingProfile(!editingProfile);
           }}
-          className="rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700"
+          className={`inline-flex items-center gap-3 rounded-2xl px-7 py-4 text-base font-semibold text-white shadow-lg transition hover:-translate-y-0.5 ${
+            editingProfile
+              ? "bg-slate-500 hover:bg-slate-600"
+              : "bg-teal-600 ring-4 ring-teal-100 hover:bg-teal-700"
+          }`}
         >
-          {editingProfile ? "Cancel" : "Edit Profile"}
+          {editingProfile ? "Cancel Editing" : "Edit Profile"}
         </button>
       </div>
 
@@ -2378,7 +2537,7 @@ export default function App() {
                 <Stethoscope size={50} className="text-white" />
               </div>
               <div>
-                <h3 className="text-[28px] font-semibold">{loggedInUser.name}</h3>
+                <h3 className={`text-[28px] font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.name}</h3>
                 <p className={`mt-1 text-[17px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{loggedInUser.email}</p>
                 <div className="mt-4 flex flex-wrap items-center gap-3">
                   <span className={`rounded-full px-4 py-2 text-sm font-medium ${darkMode ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-700"}`}>{loggedInUser.age ? `${loggedInUser.age} years` : 'Age not set'}</span>
@@ -2388,7 +2547,7 @@ export default function App() {
               </div>
             </div>
             <div className="flex flex-wrap gap-3">
-              <span className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-700">
+              <span className={`inline-flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold ${darkMode ? "bg-teal-950/50 text-teal-300" : "bg-teal-50 text-teal-700"}`}>
                 <Phone size={16} /> {loggedInUser.phone || 'No phone'}
               </span>
               <span className={`inline-flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold ${darkMode ? "bg-slate-800 text-slate-200" : "bg-slate-50 text-slate-700"}`}>
@@ -2416,7 +2575,7 @@ export default function App() {
         <div className={`rounded-[32px] border p-8 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
           <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h3 className="text-[22px] font-bold">Personal Information</h3>
+              <h3 className={`text-[22px] font-bold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Personal Information</h3>
               <p className={`mt-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Update your contact and emergency details.</p>
             </div>
           </div>
@@ -2425,28 +2584,28 @@ export default function App() {
             <form onSubmit={handleEditProfile} className="grid grid-cols-1 gap-6">
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Full Name</label>
-                  <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <User size={16} className="mr-3 text-slate-400" />
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Full Name</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <User size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <input
                       type="text"
                       value={profileData.name || loggedInUser.name}
                       onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
-                      className="w-full bg-transparent text-slate-900 outline-none"
+                      className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100" : "text-slate-900"}`}
                       required
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Email Address</label>
-                  <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <Mail size={16} className="mr-3 text-slate-400" />
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Email Address</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <Mail size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <input
                       type="email"
                       value={profileData.email || loggedInUser.email}
                       onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
-                      className="w-full bg-transparent text-slate-900 outline-none"
+                      className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100" : "text-slate-900"}`}
                       required
                     />
                   </div>
@@ -2455,27 +2614,27 @@ export default function App() {
 
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Phone Number</label>
-                  <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <Phone size={16} className="mr-3 text-slate-400" />
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Phone Number</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <Phone size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <input
                       type="tel"
                       placeholder="+1 987-654-3210"
                       value={profileData.phone || loggedInUser.phone || ''}
                       onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
-                      className="w-full bg-transparent text-slate-900 outline-none"
+                      className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-900"}`}
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Blood Group</label>
-                  <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <FileHeart size={16} className="mr-3 text-slate-400" />
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Blood Group</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <FileHeart size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <select
                       value={profileData.bloodGroup || loggedInUser.bloodGroup || ''}
                       onChange={(e) => setProfileData({ ...profileData, bloodGroup: e.target.value })}
-                      className="w-full bg-transparent text-slate-900 outline-none"
+                      className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100" : "text-slate-900"}`}
                     >
                       <option value="">Select blood group</option>
                       <option value="O+">O+</option>
@@ -2493,28 +2652,28 @@ export default function App() {
 
               <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Age</label>
-                  <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <Clock3 size={16} className="mr-3 text-slate-400" />
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Age</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <Clock3 size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <input
                       type="number"
                       min="0"
                       placeholder="45"
                       value={profileData.age || loggedInUser.age || ''}
                       onChange={(e) => setProfileData({ ...profileData, age: e.target.value })}
-                      className="w-full bg-transparent text-slate-900 outline-none"
+                      className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-900"}`}
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Gender</label>
-                  <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <UserCog size={16} className="mr-3 text-slate-400" />
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Gender</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <UserCog size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <select
                       value={profileData.gender || loggedInUser.gender || ''}
                       onChange={(e) => setProfileData({ ...profileData, gender: e.target.value })}
-                      className="w-full bg-transparent text-slate-900 outline-none"
+                      className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100" : "text-slate-900"}`}
                     >
                       <option value="">Select gender</option>
                       <option value="Male">Male</option>
@@ -2525,14 +2684,14 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Date of Birth</label>
-                  <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <CalendarRange size={16} className="mr-3 text-slate-400" />
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Date of Birth</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <CalendarRange size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <input
                       type="date"
                       value={profileData.dateOfBirth || loggedInUser.dateOfBirth || ''}
                       onChange={(e) => setProfileData({ ...profileData, dateOfBirth: e.target.value })}
-                      className="w-full bg-transparent text-slate-900 outline-none"
+                      className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100" : "text-slate-900"}`}
                     />
                   </div>
                 </div>
@@ -2540,28 +2699,28 @@ export default function App() {
 
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-semibold">Address</label>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Address</label>
+                  <div className={`rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
                     <textarea
                       rows="3"
                       value={profileData.address || loggedInUser.address || ''}
                       onChange={(e) => setProfileData({ ...profileData, address: e.target.value })}
-                      className="w-full resize-none bg-transparent text-slate-900 outline-none"
+                      className={`w-full resize-none bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-900"}`}
                       placeholder="123 Main St, City"
                     />
                   </div>
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-semibold">Emergency Contact</label>
-                  <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <Phone size={16} className="mr-3 text-slate-400" />
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Emergency Contact</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <Phone size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <input
                       type="tel"
                       placeholder="+1 234-567-8900"
                       value={profileData.emergencyContact || loggedInUser.emergencyContact || ''}
                       onChange={(e) => setProfileData({ ...profileData, emergencyContact: e.target.value })}
-                      className="w-full bg-transparent text-slate-900 outline-none"
+                      className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-900"}`}
                     />
                   </div>
                 </div>
@@ -2573,37 +2732,37 @@ export default function App() {
             </form>
           ) : (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                <p className="text-sm text-slate-500">Full Name</p>
-                <p className="mt-3 text-[18px] font-medium text-slate-900">{loggedInUser.name}</p>
+              <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Full Name</p>
+                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.name}</p>
               </div>
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                <p className="text-sm text-slate-500">Email Address</p>
-                <p className="mt-3 text-[18px] font-medium text-slate-900">{loggedInUser.email}</p>
+              <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Email Address</p>
+                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.email}</p>
               </div>
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                <p className="text-sm text-slate-500">Phone Number</p>
-                <p className="mt-3 text-[18px] font-medium text-slate-900">{loggedInUser.phone || 'Not set'}</p>
+              <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Phone Number</p>
+                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.phone || 'Not set'}</p>
               </div>
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                <p className="text-sm text-slate-500">Blood Group</p>
-                <p className="mt-3 text-[18px] font-medium text-slate-900">{loggedInUser.bloodGroup || 'Not set'}</p>
+              <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Blood Group</p>
+                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.bloodGroup || 'Not set'}</p>
               </div>
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                <p className="text-sm text-slate-500">Age</p>
-                <p className="mt-3 text-[18px] font-medium text-slate-900">{loggedInUser.age || 'Not set'}</p>
+              <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Age</p>
+                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.age || 'Not set'}</p>
               </div>
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                <p className="text-sm text-slate-500">Gender</p>
-                <p className="mt-3 text-[18px] font-medium text-slate-900">{loggedInUser.gender || 'Not set'}</p>
+              <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Gender</p>
+                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.gender || 'Not set'}</p>
               </div>
-              <div className="md:col-span-2 rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                <p className="text-sm text-slate-500">Address</p>
-                <p className="mt-3 text-[18px] font-medium text-slate-900">{loggedInUser.address || 'Not set'}</p>
+              <div className={`md:col-span-2 rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Address</p>
+                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.address || 'Not set'}</p>
               </div>
-              <div className="md:col-span-2 rounded-3xl border border-slate-200 bg-slate-50 p-6">
-                <p className="text-sm text-slate-500">Emergency Contact</p>
-                <p className="mt-3 text-[18px] font-medium text-slate-900">{loggedInUser.emergencyContact || 'Not set'}</p>
+              <div className={`md:col-span-2 rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Emergency Contact</p>
+                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.emergencyContact || 'Not set'}</p>
               </div>
             </div>
           )}
@@ -4225,6 +4384,7 @@ export default function App() {
                 <button
                   onClick={() => setPatientSidebarCollapsed(!patientSidebarCollapsed)}
                   className={`p-2 rounded-lg transition-all flex-shrink-0 ${darkMode ? "hover:bg-slate-700 text-slate-400" : "hover:bg-slate-100 text-slate-600"}`}
+                  title={patientSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                 >
                   <ChevronLeft size={20} style={{ transform: patientSidebarCollapsed ? "scaleX(-1)" : "scaleX(1)", transition: "transform 300ms ease-in-out" }} />
                 </button>
@@ -4233,7 +4393,7 @@ export default function App() {
               <nav className="px-3 py-6">
                 <button
                   onClick={() => setActivePage("dashboard")}
-                  className={`mb-3 flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`group relative mb-3 flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     activePage === "dashboard"
                       ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
                       : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
@@ -4241,11 +4401,18 @@ export default function App() {
                 >
                   <LayoutDashboard size={22} />
                   {!patientSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Dashboard</span>}
+                  {patientSidebarCollapsed && (
+                    <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                      darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                    }`}>
+                      Dashboard
+                    </span>
+                  )}
                 </button>
 
                 <button
                   onClick={() => setActivePage("appointments")}
-                  className={`mb-3 flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`group relative mb-3 flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     activePage === "appointments"
                       ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
                       : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
@@ -4253,11 +4420,18 @@ export default function App() {
                 >
                   <CalendarDays size={22} />
                   {!patientSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>My Appointments</span>}
+                  {patientSidebarCollapsed && (
+                    <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                      darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                    }`}>
+                      My Appointments
+                    </span>
+                  )}
                 </button>
 
                 <button
                   onClick={() => setActivePage("records")}
-                  className={`mb-3 flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`group relative mb-3 flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     activePage === "records"
                       ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
                       : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
@@ -4265,11 +4439,18 @@ export default function App() {
                 >
                   <FileHeart size={22} />
                   {!patientSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Medical History</span>}
+                  {patientSidebarCollapsed && (
+                    <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                      darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                    }`}>
+                      Medical History
+                    </span>
+                  )}
                 </button>
 
                 <button
                   onClick={() => setActivePage("profile")}
-                  className={`flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`group relative flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     activePage === "profile"
                       ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
                       : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
@@ -4277,6 +4458,13 @@ export default function App() {
                 >
                   <UserCircle size={22} />
                   {!patientSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Profile</span>}
+                  {patientSidebarCollapsed && (
+                    <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                      darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                    }`}>
+                      Profile
+                    </span>
+                  )}
                 </button>
               </nav>
             </div>
@@ -4284,10 +4472,17 @@ export default function App() {
             <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} p-4`}>
               <button
                 onClick={handleLogout}
-                className={`flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${darkMode ? 'text-red-400 hover:bg-red-950' : 'text-red-600 hover:bg-red-50'}`}
+                className={`group relative flex w-full items-center ${patientSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${darkMode ? 'text-red-400 hover:bg-red-950' : 'text-red-600 hover:bg-red-50'}`}
               >
                 <LogOut size={22} />
                 {!patientSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Logout</span>}
+                {patientSidebarCollapsed && (
+                  <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                    darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                  }`}>
+                    Logout
+                  </span>
+                )}
               </button>
             </div>
           </aside>
@@ -4956,6 +5151,7 @@ export default function App() {
                 <button
                   onClick={() => setAdminSidebarCollapsed(!adminSidebarCollapsed)}
                   className={`p-2 rounded-lg transition-all flex-shrink-0 ${darkMode ? "hover:bg-slate-700 text-slate-400" : "hover:bg-slate-100 text-slate-600"}`}
+                  title={adminSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
                 >
                   <ChevronLeft size={20} style={{ transform: adminSidebarCollapsed ? "scaleX(-1)" : "scaleX(1)", transition: "transform 300ms ease-in-out" }} />
                 </button>
@@ -4964,7 +5160,7 @@ export default function App() {
               <nav className="px-3 py-6">
                 <button
                   onClick={() => setAdminPage("dashboard")}
-                  className={`mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`group relative mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "dashboard"
                       ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
                       : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
@@ -4972,11 +5168,18 @@ export default function App() {
                 >
                   <LayoutDashboard size={22} />
                   {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Dashboard</span>}
+                  {adminSidebarCollapsed && (
+                    <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                      darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                    }`}>
+                      Dashboard
+                    </span>
+                  )}
                 </button>
 
                 <button
                   onClick={() => setAdminPage("patients")}
-                  className={`mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`group relative mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "patients"
                       ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
                       : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
@@ -4984,11 +5187,18 @@ export default function App() {
                 >
                   <Users size={22} />
                   {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Patients</span>}
+                  {adminSidebarCollapsed && (
+                    <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                      darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                    }`}>
+                      Patients
+                    </span>
+                  )}
                 </button>
 
                 <button
                   onClick={() => setAdminPage("doctors")}
-                  className={`mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`group relative mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "doctors"
                       ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
                       : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
@@ -4996,11 +5206,18 @@ export default function App() {
                 >
                   <UserCog size={22} />
                   {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Doctors</span>}
+                  {adminSidebarCollapsed && (
+                    <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                      darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                    }`}>
+                      Doctors
+                    </span>
+                  )}
                 </button>
 
                 <button
                   onClick={() => setAdminPage("appointments")}
-                  className={`mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`group relative mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "appointments"
                       ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
                       : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
@@ -5008,11 +5225,18 @@ export default function App() {
                 >
                   <CalendarRange size={22} />
                   {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Appointments</span>}
+                  {adminSidebarCollapsed && (
+                    <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                      darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                    }`}>
+                      Appointments
+                    </span>
+                  )}
                 </button>
 
                 <button
                   onClick={() => setAdminPage("history")}
-                  className={`mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`group relative mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "history"
                       ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
                       : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
@@ -5020,11 +5244,18 @@ export default function App() {
                 >
                   <FileHeart size={22} />
                   {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Medical History</span>}
+                  {adminSidebarCollapsed && (
+                    <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                      darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                    }`}>
+                      Medical History
+                    </span>
+                  )}
                 </button>
 
                 <button
                   onClick={() => setAdminPage("reports")}
-                  className={`mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`group relative mb-3 flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "reports"
                       ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
                       : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
@@ -5032,11 +5263,18 @@ export default function App() {
                 >
                   <BarChart3 size={22} />
                   {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Reports</span>}
+                  {adminSidebarCollapsed && (
+                    <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                      darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                    }`}>
+                      Reports
+                    </span>
+                  )}
                 </button>
 
                 <button
                   onClick={() => setAdminPage("settings")}
-                  className={`flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
+                  className={`group relative flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${
                     adminPage === "settings"
                       ? darkMode ? "bg-teal-900 text-teal-300" : "bg-teal-50 text-teal-700"
                       : darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
@@ -5044,6 +5282,13 @@ export default function App() {
                 >
                   <Settings size={22} />
                   {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Settings</span>}
+                  {adminSidebarCollapsed && (
+                    <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                      darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                    }`}>
+                      Settings
+                    </span>
+                  )}
                 </button>
               </nav>
             </div>
@@ -5051,10 +5296,17 @@ export default function App() {
             <div className={`border-t ${darkMode ? 'border-slate-700' : 'border-slate-200'} p-4`}>
               <button
                 onClick={handleLogout}
-                className={`flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${darkMode ? 'text-red-400 hover:bg-red-950' : 'text-red-600 hover:bg-red-50'}`}
+                className={`group relative flex w-full items-center ${adminSidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left ${darkMode ? 'text-red-400 hover:bg-red-950' : 'text-red-600 hover:bg-red-50'}`}
               >
                 <LogOut size={22} />
                 {!adminSidebarCollapsed && <span className={`text-[18px] transition-all duration-300 inline-block`}>Logout</span>}
+                {adminSidebarCollapsed && (
+                  <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                    darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                  }`}>
+                    Logout
+                  </span>
+                )}
               </button>
             </div>
           </aside>
@@ -5994,10 +6246,10 @@ export default function App() {
         onClose={closeSuccessPopup}
       />
       {renderTopToast()}
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-r from-slate-100 via-teal-50 to-blue-100 px-4">
-        <div className="w-full max-w-[460px] rounded-2xl border border-gray-200 bg-white px-8 py-10 shadow-sm">
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4">
+        <div className="w-full max-w-[460px] rounded-3xl border border-gray-200 bg-white px-8 py-8 shadow-2xl">
         <div className="flex flex-col items-center">
-          <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-100">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-100">
             <Activity className="text-teal-600" size={28} />
           </div>
 
@@ -6012,35 +6264,6 @@ export default function App() {
               : "Create an account to continue"}
           </p>
         </div>
-
-        {!showForgotPassword && (
-          <div className="mt-6 flex rounded-lg bg-gray-100 p-1">
-            <button
-              onClick={() => {
-                setIsLogin(true);
-                setShowForgotPassword(false);
-                setMessage("");
-              }}
-              className={`w-1/2 rounded-md py-2 text-sm font-medium transition ${
-                isLogin ? "bg-white shadow text-teal-600" : "text-gray-600"
-              }`}
-            >
-              Login
-            </button>
-            <button
-              onClick={() => {
-                setIsLogin(false);
-                setShowForgotPassword(false);
-                setMessage("");
-              }}
-              className={`w-1/2 rounded-md py-2 text-sm font-medium transition ${
-                !isLogin ? "bg-white shadow text-teal-600" : "text-gray-600"
-              }`}
-            >
-              Register
-            </button>
-          </div>
-        )}
 
         {showForgotPassword ? (
           <form onSubmit={handleForgotPassword} className="mt-6">
@@ -6086,6 +6309,39 @@ export default function App() {
           <form onSubmit={handleLogin} className="mt-6">          
             <div className="mt-5">
               <label className="mb-2 block text-sm font-medium text-gray-800">
+                Login As
+              </label>
+              <div ref={loginRolePickerRef} className="grid grid-cols-2 gap-3">
+                {[
+                  { value: "patient", label: "Patient" },
+                  { value: "doctor", label: "Doctor" },
+                ].map((roleOption) => (
+                  <button
+                    key={roleOption.value}
+                    type="button"
+                    onClick={() =>
+                      setLoginData((prev) => ({
+                        ...prev,
+                        role: prev.role === roleOption.value ? "" : roleOption.value,
+                      }))
+                    }
+                    className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                      loginData.role === roleOption.value
+                        ? "border-teal-600 bg-teal-50 text-teal-700"
+                        : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    {roleOption.label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                Select `Patient` or `Doctor`. Leave it unselected if you are signing in as admin.
+              </p>
+            </div>
+
+            <div className="mt-5">
+              <label className="mb-2 block text-sm font-medium text-gray-800">
                 Email Address
               </label>
               <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
@@ -6118,6 +6374,35 @@ export default function App() {
               </div>
             </div>
 
+            <div className="mt-5 flex rounded-lg bg-gray-100 p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLogin(true);
+                  setShowForgotPassword(false);
+                  setMessage("");
+                }}
+                className={`w-1/2 rounded-md py-2 text-sm font-medium transition ${
+                  isLogin ? "bg-white shadow text-teal-600" : "text-gray-600"
+                }`}
+              >
+                Login
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLogin(false);
+                  setShowForgotPassword(false);
+                  setMessage("");
+                }}
+                className={`w-1/2 rounded-md py-2 text-sm font-medium transition ${
+                  !isLogin ? "bg-white shadow text-teal-600" : "text-gray-600"
+                }`}
+              >
+                Register
+              </button>
+            </div>
+
             <div className="mt-4 flex items-center justify-between text-sm">
               <label className="flex items-center gap-2 text-gray-600">
                 <input type="checkbox" className="h-4 w-4" />
@@ -6143,6 +6428,40 @@ export default function App() {
           </form>
         ) : (
           <form onSubmit={handleRegister} className="mt-6">           
+            <div className="mt-5">
+              <label className="mb-2 block text-sm font-medium text-gray-800">
+                Register As
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { value: "patient", label: "Patient" },
+                  { value: "doctor", label: "Doctor" },
+                ].map((roleOption) => (
+                  <button
+                    key={roleOption.value}
+                    type="button"
+                    onClick={() =>
+                      setRegisterData((prev) => ({
+                        ...prev,
+                        role: roleOption.value,
+                        specialty: roleOption.value === "doctor" ? prev.specialty : "",
+                        department: roleOption.value === "doctor" ? prev.department : "",
+                        yearsExperience: roleOption.value === "doctor" ? prev.yearsExperience : "",
+                        bio: roleOption.value === "doctor" ? prev.bio : "",
+                      }))
+                    }
+                    className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                      registerData.role === roleOption.value
+                        ? "border-teal-600 bg-teal-50 text-teal-700"
+                        : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    {roleOption.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="mt-5">
               <label className="mb-2 block text-sm font-medium text-gray-800">
                 Full Name
@@ -6181,6 +6500,104 @@ export default function App() {
 
             <div className="mt-5">
               <label className="mb-2 block text-sm font-medium text-gray-800">
+                Phone Number
+              </label>
+              <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
+                <Phone size={18} className="mr-3 text-gray-400" />
+                <input
+                  type="tel"
+                  name="phone"
+                  value={registerData.phone}
+                  onChange={handleRegisterChange}
+                  placeholder="Enter your phone number"
+                  required
+                  className="w-full outline-none placeholder:text-gray-400"
+                />
+              </div>
+            </div>
+
+            {registerData.role === "doctor" && (
+              <>
+                <div className="mt-5">
+                  <label className="mb-2 block text-sm font-medium text-gray-800">
+                    Specialization
+                  </label>
+                  <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
+                    <Stethoscope size={18} className="mr-3 text-gray-400" />
+                    <input
+                      type="text"
+                      name="specialty"
+                      value={registerData.specialty}
+                      onChange={handleRegisterChange}
+                      placeholder="Enter your specialization"
+                      required
+                      className="w-full outline-none placeholder:text-gray-400"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <label className="mb-2 block text-sm font-medium text-gray-800">
+                    Department
+                  </label>
+                  <select
+                    name="department"
+                    value={registerData.department}
+                    onChange={handleRegisterChange}
+                    required
+                    className="w-full rounded-lg border border-gray-300 px-3 py-3 outline-none"
+                  >
+                    <option value="">Select department</option>
+                    <option>Cardiology</option>
+                    <option>Neurology</option>
+                    <option>Orthopedics</option>
+                    <option>Pediatrics</option>
+                    <option>Dermatology</option>
+                    <option>General Medicine</option>
+                    <option>Surgery</option>
+                    <option>Internal Medicine</option>
+                    <option>Pathology</option>
+                    <option>Psychiatry</option>
+                  </select>
+                </div>
+
+                <div className="mt-5">
+                  <label className="mb-2 block text-sm font-medium text-gray-800">
+                    Years of Experience
+                  </label>
+                  <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
+                    <User size={18} className="mr-3 text-gray-400" />
+                    <input
+                      type="number"
+                      min="0"
+                      name="yearsExperience"
+                      value={registerData.yearsExperience}
+                      onChange={handleRegisterChange}
+                      placeholder="Enter years of experience"
+                      required
+                      className="w-full outline-none placeholder:text-gray-400"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <label className="mb-2 block text-sm font-medium text-gray-800">
+                    Bio
+                  </label>
+                  <textarea
+                    name="bio"
+                    value={registerData.bio}
+                    onChange={handleRegisterChange}
+                    placeholder="Tell patients about yourself"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-3 outline-none placeholder:text-gray-400"
+                    rows="3"
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="mt-5">
+              <label className="mb-2 block text-sm font-medium text-gray-800">
                 Password
               </label>
               <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
@@ -6195,6 +6612,35 @@ export default function App() {
                   className="w-full outline-none placeholder:text-gray-400"
                 />
               </div>
+            </div>
+
+            <div className="mt-5 flex rounded-lg bg-gray-100 p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLogin(true);
+                  setShowForgotPassword(false);
+                  setMessage("");
+                }}
+                className={`w-1/2 rounded-md py-2 text-sm font-medium transition ${
+                  isLogin ? "bg-white shadow text-teal-600" : "text-gray-600"
+                }`}
+              >
+                Login
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLogin(false);
+                  setShowForgotPassword(false);
+                  setMessage("");
+                }}
+                className={`w-1/2 rounded-md py-2 text-sm font-medium transition ${
+                  !isLogin ? "bg-white shadow text-teal-600" : "text-gray-600"
+                }`}
+              >
+                Register
+              </button>
             </div>
 
             <button type="submit" className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 py-3 text-white transition hover:bg-teal-700">

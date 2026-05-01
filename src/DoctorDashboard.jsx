@@ -2268,11 +2268,49 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               </div>
             </div>
           </div>
+
+          <div className={`rounded-2xl border px-5 py-4 shadow-sm ${
+            darkMode ? "border-teal-900 bg-teal-950/30" : "border-teal-200 bg-teal-50"
+          }`}>
+            <p className={`text-xs font-bold uppercase tracking-[0.2em] ${
+              darkMode ? "text-teal-200" : "text-teal-700"
+            }`}>
+              Profile Action
+            </p>
+            <p className={`mt-2 text-sm ${
+              darkMode ? "text-slate-300" : "text-slate-600"
+            }`}>
+              Need to update your information? Edit the fields below, then save your profile.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const profileSection = document.getElementById("doctor-profile-form");
+                profileSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
+            >
+              <Pencil size={16} />
+              Edit Profile Below
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className={`rounded-2xl border ${borderSoft} ${panelBg} p-8 shadow-sm`}>
-        <h3 className="mb-8 text-[24px] font-bold">Professional Information</h3>
+      <div id="doctor-profile-form" className={`rounded-2xl border ${borderSoft} ${panelBg} p-8 shadow-sm`}>
+        <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="text-[24px] font-bold">Professional Information</h3>
+            <p className={`mt-2 text-sm ${textMuted}`}>Update your profile details here.</p>
+          </div>
+
+          <div className={`inline-flex items-center gap-2 self-start rounded-full px-4 py-2 text-sm font-semibold ${
+            darkMode ? "bg-teal-900/40 text-teal-200" : "bg-teal-100 text-teal-700"
+          }`}>
+            <Pencil size={16} />
+            Editable Section
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div>
@@ -2387,7 +2425,10 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           </div>
         )}
 
-        <div className="mt-8 flex justify-end">
+        <div className="mt-8 flex justify-between gap-4 border-t pt-6">
+          <div className={`max-w-sm text-sm ${textMuted}`}>
+            Review your changes, then press the button on the right to update your doctor profile.
+          </div>
           <button
             onClick={handleSaveProfile}
             disabled={savingProfile}
@@ -2475,6 +2516,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               <button
                 onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
                 className={`p-2 rounded-lg transition-all flex-shrink-0 ${darkMode ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-600"}`}
+                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               >
                 <ChevronLeft size={20} style={{ transform: sidebarCollapsed ? "scaleX(-1)" : "scaleX(1)", transition: "transform 300ms ease-in-out" }} />
               </button>
@@ -2483,68 +2525,104 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
             <nav className="px-3 py-6 space-y-3">
               <button
                 onClick={() => setActivePage("dashboard")}
-                title="Dashboard"
-                className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
+                className={`group relative flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                   activePage === "dashboard" ? activeNav : inactiveNav
                 }`}
               >
                 <LayoutDashboard size={22} />
                 <span className={`text-[18px] font-medium transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Dashboard</span>
+                {sidebarCollapsed && (
+                  <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                    darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                  }`}>
+                    Dashboard
+                  </span>
+                )}
               </button>
 
               <button
                 onClick={() => setActivePage("patients")}
-                title="My Patients"
-                className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
+                className={`group relative flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                   activePage === "patients" ? activeNav : inactiveNav
                 }`}
               >
                 <Users size={22} />
                 <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>My Patients</span>
+                {sidebarCollapsed && (
+                  <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                    darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                  }`}>
+                    My Patients
+                  </span>
+                )}
               </button>
 
               <button
                 onClick={() => setActivePage("appointments")}
-                title="Appointments"
-                className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
+                className={`group relative flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                   activePage === "appointments" ? activeNav : inactiveNav
                 }`}
               >
                 <CalendarDays size={22} />
                 <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Appointments</span>
+                {sidebarCollapsed && (
+                  <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                    darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                  }`}>
+                    Appointments
+                  </span>
+                )}
               </button>
 
               <button
                 onClick={() => setActivePage("prescriptions")}
-                title="Prescriptions"
-                className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
+                className={`group relative flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                   activePage === "prescriptions" ? activeNav : inactiveNav
                 }`}
               >
                 <ClipboardList size={22} />
                 <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Prescriptions</span>
+                {sidebarCollapsed && (
+                  <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                    darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                  }`}>
+                    Prescriptions
+                  </span>
+                )}
               </button>
 
               <button
                 onClick={() => setActivePage("records")}
-                title="Medical History"
-                className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
+                className={`group relative flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                   activePage === "records" ? activeNav : inactiveNav
                 }`}
               >
                 <FileText size={22} />
                 <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Medical History</span>
+                {sidebarCollapsed && (
+                  <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                    darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                  }`}>
+                    Medical History
+                  </span>
+                )}
               </button>
 
               <button
                 onClick={() => setActivePage("settings")}
-                title="Settings"
-                className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
+                className={`group relative flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                   activePage === "settings" ? activeNav : inactiveNav
                 }`}
               >
                 <Settings size={22} />
                 <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Settings</span>
+                {sidebarCollapsed && (
+                  <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                    darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                  }`}>
+                    Settings
+                  </span>
+                )}
               </button>
             </nav>
           </div>
@@ -2552,8 +2630,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           <div className={`border-t p-4 ${borderSoft}`}>
             <button
               onClick={onLogout}
-              title="Logout"
-              className={`flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
+              className={`group relative flex items-center ${sidebarCollapsed ? "justify-center" : "justify-start"} gap-3 rounded-2xl px-4 py-4 text-left w-full transition-all duration-300 ${
                 darkMode
                   ? "text-red-300 hover:bg-red-500/10"
                   : "text-red-600 hover:bg-red-50"
@@ -2561,6 +2638,13 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
             >
               <LogOut size={22} />
               <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Logout</span>
+              {sidebarCollapsed && (
+                <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
+                  darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
+                }`}>
+                  Logout
+                </span>
+              )}
             </button>
           </div>
         </aside>
