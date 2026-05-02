@@ -128,7 +128,7 @@ export default function App() {
     doctorId: "",
     date: "",
     time: "",
-    type: "Consultation",
+    type: "Follow-up",
   });
   const [doctorUnavailableDates, setDoctorUnavailableDates] = useState([]);
   const [calendarMonth, setCalendarMonth] = useState(new Date()); // For calendar navigation
@@ -251,7 +251,7 @@ export default function App() {
 
   const resetBookingModal = () => {
     setShowBookingModal(false);
-    setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
+    setBookingData({ doctorId: "", date: "", time: "", type: "Follow-up" });
     setSelectedSlot(null);
     setBookingSpecialty("");
     setMessage("");
@@ -279,15 +279,6 @@ export default function App() {
       if (showAccountMenu && accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
         setShowAccountMenu(false);
       }
-      if (
-        isLogin &&
-        !showForgotPassword &&
-        loginData.role &&
-        loginRolePickerRef.current &&
-        !loginRolePickerRef.current.contains(event.target)
-      ) {
-        setLoginData((prev) => ({ ...prev, role: "" }));
-      }
     };
 
     const handleEscape = (event) => {
@@ -309,7 +300,7 @@ export default function App() {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [showNotifications, showAppointmentDetails, showBookingModal, showAccountMenu, isLogin, showForgotPassword, loginData.role]);
+  }, [showNotifications, showAppointmentDetails, showBookingModal, showAccountMenu]);
 
   // Auto-refresh notifications every 15 seconds
   useEffect(() => {
@@ -1616,7 +1607,7 @@ export default function App() {
     setLoggedInUser(null);
     setActivePage("dashboard");
     setAdminPage("dashboard");
-    setLoginData({ email: "", password: "" });
+    setLoginData({ role: "", email: "", password: "" });
     setIsError(false);
     showSuccessPopup("Logged out successfully.");
   };
@@ -1916,7 +1907,10 @@ export default function App() {
         </div>
 
         <button 
-          onClick={() => setShowBookingModal(true)}
+          onClick={() => {
+            setBookingData({ doctorId: "", date: "", time: "", type: "Follow-up" });
+            setShowBookingModal(true);
+          }}
           className="flex items-center gap-3 rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700">
           <CalendarPlus size={20} />
           <span>Book Appointment</span>
@@ -2134,7 +2128,6 @@ export default function App() {
                       darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-white bg-white text-slate-900"
                     }`}
                   >
-                    <option>Consultation</option>
                     <option>Follow-up</option>
                     <option>Checkup</option>
                   </select>
@@ -2783,6 +2776,7 @@ export default function App() {
       
       const searchLower = patientSearchFilter.toLowerCase().trim();
       return (
+        String(patient.id).includes(searchLower) ||
         patient.name.toLowerCase().includes(searchLower) ||
         patient.email.toLowerCase().includes(searchLower) ||
         (patient.phone && patient.phone.includes(searchLower))
@@ -2798,6 +2792,29 @@ export default function App() {
     const startIndex = (adminPatientsPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
     const paginatedPatients = filteredPatients.slice(startIndex, endIndex);
+    const getPatientStatusClasses = (status) => {
+      if (status === "Active") {
+        return darkMode
+          ? "bg-emerald-500/15 text-emerald-300"
+          : "bg-emerald-100 text-emerald-700";
+      }
+
+      if (status === "Completed") {
+        return darkMode
+          ? "bg-blue-500/15 text-blue-300"
+          : "bg-blue-100 text-blue-700";
+      }
+
+      if (status === "Inactive") {
+        return darkMode
+          ? "bg-rose-500/15 text-rose-300"
+          : "bg-rose-100 text-rose-700";
+      }
+
+      return darkMode
+        ? "bg-amber-500/15 text-amber-300"
+        : "bg-amber-100 text-amber-700";
+    };
 
     return (
     <div className={`p-9 ${darkMode ? "bg-slate-900 text-slate-100" : ""}`}>
@@ -2816,7 +2833,7 @@ export default function App() {
             <Search size={18} className={darkMode ? "text-slate-500" : "text-slate-400"} />
             <input
               type="text"
-              placeholder="Search patients by name..."
+              placeholder="Search patients by ID, name, or phone..."
               value={patientSearchFilter}
               onChange={(e) => setPatientSearchFilter(e.target.value)}
               className={`w-full border-none bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-900 placeholder-slate-400"}`}
@@ -2829,124 +2846,156 @@ export default function App() {
           </button>
         </div>
 
-        <div className={`grid gap-4 border-b px-5 py-4 text-sm font-semibold ${darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"}`} style={{gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1.2fr 1fr'}}>
-          <div>PATIENT</div>
-          <div>AGE/GENDER</div>
-          <div>BLOOD GROUP</div>
-          <div>CONDITION</div>
-          <div>PHONE</div>
-          <div className="text-right">Actions</div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full table-fixed">
+            <thead className={`${darkMode ? "bg-slate-900 text-slate-300" : "bg-slate-50 text-slate-600"}`}>
+              <tr className={`border-b ${darkMode ? "border-slate-800" : "border-slate-200"}`}>
+                <th className="w-[90px] px-5 py-4 text-left text-sm font-semibold uppercase tracking-wide">ID</th>
+                <th className="w-[260px] px-5 py-4 text-left text-sm font-semibold uppercase tracking-wide">Name</th>
+                <th className="w-[150px] px-5 py-4 text-left text-sm font-semibold uppercase tracking-wide">Age/Gender</th>
+                <th className="w-[170px] px-5 py-4 text-left text-sm font-semibold uppercase tracking-wide">Phone</th>
+                <th className="w-[150px] px-5 py-4 text-left text-sm font-semibold uppercase tracking-wide">Status</th>
+                <th className="w-[220px] px-5 py-4 text-left text-sm font-semibold uppercase tracking-wide">Doctor</th>
+                <th className="w-[160px] px-5 py-4 text-left text-sm font-semibold uppercase tracking-wide">Last Visit</th>
+                <th className="w-[110px] px-5 py-4 text-right text-sm font-semibold uppercase tracking-wide">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginatedPatients.map((patient, index) => {
+                const patientAppointments = [...adminAppointments]
+                  .filter((appointment) => String(appointment.patient_id) === String(patient.id))
+                  .sort((a, b) => new Date(`${b.date || ""}T${b.time || "00:00"}`) - new Date(`${a.date || ""}T${a.time || "00:00"}`));
+                const latestAppointment = patientAppointments[0];
+                const matchedDoctor = latestAppointment
+                  ? doctors.find((doctor) => String(doctor.id) === String(latestAppointment.doctor_id))
+                  : null;
+                const doctorName = matchedDoctor
+                  ? (matchedDoctor.name?.startsWith("Dr.") ? matchedDoctor.name : `Dr. ${matchedDoctor.name}`)
+                  : "Unassigned";
+                const patientStatus = latestAppointment
+                  ? latestAppointment.status === "Cancelled"
+                    ? "Inactive"
+                    : latestAppointment.status === "Completed"
+                    ? "Completed"
+                    : "Active"
+                  : "New";
+                const lastVisit = latestAppointment?.date ? formatDate(latestAppointment.date) : "N/A";
+
+                return (
+                  <tr
+                    key={patient.id}
+                    className={`align-middle ${
+                      index !== paginatedPatients.length - 1 ? (darkMode ? "border-b border-slate-800" : "border-b border-slate-200") : ""
+                    } ${darkMode ? "hover:bg-slate-900/80" : "hover:bg-slate-50"} transition-colors`}
+                  >
+                    <td className={`px-5 py-5 text-[17px] font-medium ${darkMode ? "text-slate-200" : "text-slate-800"}`}>{patient.id}</td>
+                    <td className="px-5 py-5">
+                      <div className="flex min-w-0 items-center gap-4">
+                        <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full ${darkMode ? "bg-slate-800" : "bg-slate-200"}`}>
+                          <User size={18} className={darkMode ? "text-slate-300" : "text-slate-500"} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className={`truncate text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{patient.name}</p>
+                          <p className={`truncate text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{patient.email}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className={`px-5 py-5 text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
+                      {patient.age && patient.gender ? `${patient.age} / ${patient.gender}` : "N/A"}
+                    </td>
+                    <td className={`px-5 py-5 text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{patient.phone || "N/A"}</td>
+                    <td className="px-5 py-5">
+                      <span className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ${getPatientStatusClasses(patientStatus)}`}>
+                        {patientStatus}
+                      </span>
+                    </td>
+                    <td className={`px-5 py-5 text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{doctorName}</td>
+                    <td className={`px-5 py-5 text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{lastVisit}</td>
+                    <td className="relative px-5 py-5 text-right">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenPatientActionsMenuId((prev) => (prev === patient.id ? null : patient.id));
+                        }}
+                        className={`rounded-lg p-2 transition ${darkMode ? "text-slate-400 hover:bg-slate-800 hover:text-slate-100" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
+                        title="Patient actions"
+                      >
+                        <MoreVertical size={18} />
+                      </button>
+
+                      {openPatientActionsMenuId === patient.id && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className={`absolute right-5 top-14 z-20 w-56 rounded-xl border p-1.5 text-left shadow-lg ${darkMode ? "border-slate-700 bg-slate-900" : "border-slate-200 bg-white"}`}
+                        >
+                          <button
+                            onClick={() => {
+                              setOpenPatientActionsMenuId(null);
+                              openPatientPasswordModal(patient);
+                            }}
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-amber-700 hover:bg-amber-50"
+                          >
+                            <Lock size={16} />
+                            Reset Password
+                          </button>
+                          <button
+                            onClick={() => {
+                              setOpenPatientActionsMenuId(null);
+                              setAddModalType("patient");
+                              setShowAddModal(true);
+                              setEditingPatientId(patient.id);
+                              setNewUserData({
+                                name: patient.name,
+                                email: patient.email,
+                                password: "",
+                                phone: patient.phone || "",
+                                role: "patient",
+                                specialty: "",
+                                age: patient.age || "",
+                                gender: patient.gender || "",
+                                blood_group: patient.blood_group || "",
+                                condition: patient.condition || "",
+                                date_of_birth: patient.date_of_birth || "",
+                                address: patient.address || "",
+                                emergency_contact: patient.emergency_contact || "",
+                              });
+                            }}
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-blue-700 hover:bg-blue-50"
+                          >
+                            <Pencil size={16} />
+                            Edit Patient
+                          </button>
+                          <button
+                            onClick={() => {
+                              setOpenPatientActionsMenuId(null);
+                              setSelectedDetailType("patient");
+                              setSelectedDetail(patient);
+                              setShowAppointmentDetails(true);
+                            }}
+                            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-700 hover:bg-slate-100"}`}
+                          >
+                            <Eye size={16} />
+                            View Details
+                          </button>
+                          <button
+                            onClick={() => {
+                              setOpenPatientActionsMenuId(null);
+                              handleDeleteUser(patient.id, "patient");
+                            }}
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 size={16} />
+                            Delete Patient
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-
-        {paginatedPatients.map((patient, index) => (
-          <div
-            key={patient.id}
-            className={`grid items-center gap-4 px-5 py-5 ${
-              index !== paginatedPatients.length - 1 ? (darkMode ? "border-b border-slate-800" : "border-b border-slate-200") : ""
-            }`}
-            style={{gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1.2fr 1fr'}}
-          >
-            <div className="flex items-center gap-4 min-w-0">
-              <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full ${darkMode ? "bg-slate-800" : "bg-slate-200"}`}>
-                <User size={18} className={darkMode ? "text-slate-300" : "text-slate-500"} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className={`truncate text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{patient.name}</p>
-                <p className={`truncate text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{patient.email}</p>
-              </div>
-            </div>
-
-            <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>
-              {patient.age && patient.gender ? `${patient.age} / ${patient.gender}` : 'N/A'}
-            </div>
-
-            <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{patient.blood_group || 'N/A'}</div>
-
-            <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{patient.condition || 'N/A'}</div>
-
-            <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{patient.phone || 'N/A'}</div>
-
-            <div className="relative flex items-center justify-end">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setOpenPatientActionsMenuId((prev) => (prev === patient.id ? null : patient.id));
-                }}
-                className={`rounded-lg p-2 transition ${darkMode ? "text-slate-400 hover:bg-slate-800 hover:text-slate-100" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
-                title="Patient actions"
-              >
-                <MoreVertical size={18} />
-              </button>
-
-              {openPatientActionsMenuId === patient.id && (
-                <div
-                  onClick={(e) => e.stopPropagation()}
-                  className={`absolute bottom-10 right-0 z-20 w-56 rounded-xl border p-1.5 shadow-lg ${darkMode ? "border-slate-700 bg-slate-900" : "border-slate-200 bg-white"}`}
-                >
-                  <button
-                    onClick={() => {
-                      setOpenPatientActionsMenuId(null);
-                      openPatientPasswordModal(patient);
-                    }}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-amber-700 hover:bg-amber-50"
-                  >
-                    <Lock size={16} />
-                    Reset Password
-                  </button>
-                  <button
-                    onClick={() => {
-                      setOpenPatientActionsMenuId(null);
-                      setAddModalType("patient");
-                      setShowAddModal(true);
-                      setEditingPatientId(patient.id);
-                      setNewUserData({
-                        name: patient.name,
-                        email: patient.email,
-                        password: "",
-                        phone: patient.phone || "",
-                        role: "patient",
-                        specialty: "",
-                        age: patient.age || "",
-                        gender: patient.gender || "",
-                        blood_group: patient.blood_group || "",
-                        condition: patient.condition || "",
-                        date_of_birth: patient.date_of_birth || "",
-                        address: patient.address || "",
-                        emergency_contact: patient.emergency_contact || "",
-                      });
-                    }}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-blue-700 hover:bg-blue-50"
-                  >
-                    <Pencil size={16} />
-                    Edit Patient
-                  </button>
-                  <button
-                    onClick={() => {
-                      setOpenPatientActionsMenuId(null);
-                      setSelectedDetailType("patient");
-                      setSelectedDetail(patient);
-                      setShowAppointmentDetails(true);
-                    }}
-                    className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm ${darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-700 hover:bg-slate-100"}`}
-                  >
-                    <Eye size={16} />
-                    View Details
-                  </button>
-                  <button
-                    onClick={() => {
-                      setOpenPatientActionsMenuId(null);
-                      handleDeleteUser(patient.id, "patient");
-                    }}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-                  >
-                    <Trash2 size={16} />
-                    Delete Patient
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
 
         {filteredPatients.length === 0 && (
           <div className={`px-5 py-8 text-center ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
@@ -3081,7 +3130,7 @@ export default function App() {
       {/* Charts and Recent Appointments Row */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Patient Demographics Chart */}
-        <div className={`col-span-2 rounded-[24px] border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+        <div className={`col-span-2 rounded-[24px] border p-6 shadow-sm transition-transform duration-300 hover:-translate-y-1 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
           <div className="flex items-center justify-between mb-6">
             <h3 className={`text-[20px] font-bold ${darkMode ? "text-slate-100" : ""}`}>Patient Demographics</h3>
             <select 
@@ -3157,7 +3206,7 @@ export default function App() {
         </div>
 
         {/* Recent Appointments */}
-        <div className={`rounded-[24px] border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+        <div className={`rounded-[24px] border p-6 shadow-sm transition-transform duration-300 hover:-translate-y-1 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
           <div className="flex items-center justify-between mb-4">
             <h3 className={`text-[20px] font-bold ${darkMode ? "text-slate-100" : ""}`}>Recent Appointments</h3>
             <button
@@ -3188,7 +3237,7 @@ export default function App() {
               }
               
               return (
-                <div key={apt.id || idx} className={`flex items-center gap-3 pb-4 border-b last:border-b-0 ${darkMode ? "border-slate-800" : "border-slate-100"}`}>
+                <div key={apt.id || idx} className={`flex items-center gap-3 rounded-2xl px-3 py-3 transition-all duration-300 hover:-translate-y-1 ${darkMode ? "hover:bg-slate-900/70" : "hover:bg-slate-50"}`}>
                   <div className={`flex h-10 w-10 items-center justify-center rounded-full ${darkMode ? "bg-slate-800" : "bg-slate-200"}`}>
                     <User size={16} className={darkMode ? "text-slate-300" : "text-slate-600"} />
                   </div>
@@ -3222,7 +3271,7 @@ export default function App() {
     if (title.includes('Cases')) IconComponent = BarChart3;
     
     return (
-      <div className={`rounded-[24px] border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+      <div className={`rounded-[24px] border p-6 shadow-sm transition-transform duration-300 hover:-translate-y-1 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
         <div className="flex items-start justify-between">
           <div>
             <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-600"}`}>{title}</p>
@@ -3964,14 +4013,14 @@ export default function App() {
         {/* Charts Row 1 */}
         <div className="grid gap-6 grid-cols-1 lg:grid-cols-2 mb-8">
           {/* Line Chart - Monthly Trend */}
-          <div className={`rounded-2xl border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+          <div className={`rounded-2xl border p-6 shadow-sm transition-transform duration-300 hover:-translate-y-1 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
             <h3 className={`text-[18px] font-semibold mb-4 ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Monthly Appointments Trend</h3>
             <div className="h-64 flex items-end gap-2 px-2 py-4">
               {analytics.trendMonths.map(({ label, value, year, month }) => (
-                <div key={`${year}-${month}`} className="flex-1 flex flex-col items-center">
+                <div key={`${year}-${month}`} className="group flex-1 flex flex-col items-center">
                   <div className="w-full relative">
                     <div
-                      className="w-full bg-gradient-to-t from-blue-400 to-blue-500 rounded-t-lg transition-all"
+                      className="w-full rounded-t-lg bg-gradient-to-t from-blue-400 to-blue-500 transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_16px_30px_rgba(59,130,246,0.35)]"
                       style={{ height: `${(value / maxMonthly) * 200}px` }}
                     />
                   </div>
@@ -3986,10 +4035,10 @@ export default function App() {
           </div>
 
           {/* Pie Chart - Appointment Types */}
-          <div className={`rounded-2xl border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+          <div className={`rounded-2xl border p-6 shadow-sm transition-transform duration-300 hover:-translate-y-1 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
             <h3 className={`text-[18px] font-semibold mb-6 ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Appointments by Type</h3>
             <div className="flex flex-col items-center justify-center">
-              <div className="w-32 h-32 rounded-full" style={{
+              <div className="w-32 h-32 rounded-full transition-transform duration-300 hover:-translate-y-1 hover:scale-105" style={{
                 background: `conic-gradient(
                   #3b82f6 0deg ${(analytics.appointmentTypes.Checkup / 100) * 360}deg,
                   #8b5cf6 ${(analytics.appointmentTypes.Checkup / 100) * 360}deg ${((analytics.appointmentTypes.Checkup + analytics.appointmentTypes["Follow-up"]) / 100) * 360}deg,
@@ -4018,14 +4067,14 @@ export default function App() {
         {/* Charts Row 2 */}
         <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
           {/* Bar Chart - Department Load */}
-          <div className={`rounded-2xl border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+          <div className={`rounded-2xl border p-6 shadow-sm transition-transform duration-300 hover:-translate-y-1 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
             <h3 className={`text-[18px] font-semibold mb-4 ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Department Patient Load</h3>
             <div className="h-64 flex items-end gap-3 px-2 py-4">
               {Object.entries(analytics.deptLoad).length > 0 ? (
                 Object.entries(analytics.deptLoad).map(([dept, value]) => (
-                  <div key={dept} className="flex-1 flex flex-col items-center">
+                  <div key={dept} className="group flex-1 flex flex-col items-center">
                     <div
-                      className="w-full bg-gradient-to-t from-purple-400 to-purple-500 rounded-t-lg transition-all"
+                      className="w-full rounded-t-lg bg-gradient-to-t from-purple-400 to-purple-500 transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_16px_30px_rgba(168,85,247,0.35)]"
                       style={{ height: `${(value / maxDeptLoad) * 200}px` }}
                     />
                     <span className={`text-xs mt-2 text-center line-clamp-2 ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{dept}</span>
@@ -4042,15 +4091,15 @@ export default function App() {
           </div>
 
           {/* Bar Chart - Age Demographics */}
-          <div className={`rounded-2xl border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+          <div className={`rounded-2xl border p-6 shadow-sm transition-transform duration-300 hover:-translate-y-1 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
             <h3 className={`text-[18px] font-semibold mb-4 ${darkMode ? "text-slate-100" : "text-slate-900"}`}>Patient Demographics by Age</h3>
             <div className="h-64 flex items-end gap-3 px-2 py-4">
               {totalAgePatients > 0 ? (
                 Object.entries(analytics.ageGroups).map(([label, value]) => (
-                  <div key={label} className="flex-1 flex flex-col items-center">
+                  <div key={label} className="group flex-1 flex flex-col items-center">
                     <span className={`mb-2 text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{value}</span>
                     <div
-                      className="w-full bg-gradient-to-t from-emerald-400 to-emerald-500 rounded-t-lg transition-all"
+                      className="w-full rounded-t-lg bg-gradient-to-t from-emerald-400 to-emerald-500 transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-[0_16px_30px_rgba(16,185,129,0.35)]"
                       style={{
                         height: `${(value / maxAge) * 200}px`,
                         minHeight: value > 0 ? "16px" : "0px",
@@ -4077,7 +4126,7 @@ export default function App() {
 
   const StatCard = ({ title, value, change, icon, bgColor = "bg-blue-50" }) => {
     return (
-      <div className={`rounded-2xl border p-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
+      <div className={`rounded-2xl border p-6 shadow-sm transition-transform duration-300 hover:-translate-y-1 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
         <div className="flex items-start justify-between">
           <div>
             <p className={`text-sm font-medium ${darkMode ? "text-slate-400" : "text-slate-600"}`}>{title}</p>
@@ -4096,16 +4145,25 @@ export default function App() {
     if (!message) return null;
 
     return (
-      <div className="fixed left-1/2 top-5 z-[80] w-[92%] max-w-xl -translate-x-1/2">
-        <div className="pointer-events-none absolute inset-0 -z-10 rounded-3xl bg-black/45 blur-xl" />
+      <div
+        className="fixed inset-0 z-[80]"
+        onClick={() => setMessage("")}
+      >
+        <div className="pointer-events-none absolute inset-0 bg-black/10" />
         <div
+          onClick={(event) => event.stopPropagation()}
+          className="absolute left-1/2 top-5 w-[92%] max-w-xl -translate-x-1/2"
+        >
+          <div className="pointer-events-none absolute inset-0 -z-10 rounded-3xl bg-black/45 blur-xl" />
+          <div
           className={`rounded-2xl border px-6 py-4 text-base font-semibold tracking-[0.01em] text-white shadow-[0_24px_60px_rgba(2,6,23,0.65)] backdrop-blur-xl ${
             isError
               ? "border-red-300/45 bg-slate-950/86 ring-1 ring-red-400/30"
               : "border-emerald-300/40 bg-slate-950/86 ring-1 ring-emerald-300/25"
           }`}
-        >
-          {message}
+          >
+            {message}
+          </div>
         </div>
       </div>
     );
@@ -4499,7 +4557,7 @@ export default function App() {
                   {darkMode ? <Sun size={20} /> : <Moon size={20} />}
                 </button>
                 
-                <div className="relative">
+                <div className="relative" ref={notificationsRef}>
                   <button 
                     onClick={() => setShowNotifications(!showNotifications)}
                     className={`relative rounded-lg p-2 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-700' : 'text-slate-600 hover:bg-slate-100'}`}>
@@ -5323,7 +5381,7 @@ export default function App() {
                   {darkMode ? <Sun size={20} /> : <Moon size={20} />}
                 </button>
                 
-                <div className="relative">
+                <div className="relative" ref={notificationsRef}>
                   <button 
                     onClick={() => setShowNotifications(!showNotifications)}
                     className={`relative rounded-lg p-2 transition-colors ${darkMode ? 'text-slate-400 hover:bg-slate-700' : 'text-slate-600 hover:bg-slate-100'}`}>
@@ -6278,7 +6336,7 @@ export default function App() {
                   name="email"
                   value={forgotData.email}
                   onChange={handleForgotChange}
-                  placeholder="Enter your email"
+                  placeholder="Enter your email address"
                   className="w-full outline-none placeholder:text-gray-400"
                 />
               </div>
@@ -6311,8 +6369,9 @@ export default function App() {
               <label className="mb-2 block text-sm font-medium text-gray-800">
                 Login As
               </label>
-              <div ref={loginRolePickerRef} className="grid grid-cols-2 gap-3">
+              <div ref={loginRolePickerRef} className="grid grid-cols-3 gap-3">
                 {[
+                  { value: "admin", label: "Admin" },
                   { value: "patient", label: "Patient" },
                   { value: "doctor", label: "Doctor" },
                 ].map((roleOption) => (
@@ -6336,7 +6395,7 @@ export default function App() {
                 ))}
               </div>
               <p className="mt-2 text-xs text-gray-500">
-                Select `Patient` or `Doctor`. Leave it unselected if you are signing in as admin.
+                Choose the account type you want to sign in with.
               </p>
             </div>
 
@@ -6351,7 +6410,8 @@ export default function App() {
                   name="email"
                   value={loginData.email}
                   onChange={handleLoginChange}
-                  placeholder="patient@hospital.com"
+                  placeholder="Enter your email address"
+                  required
                   className="w-full outline-none placeholder:text-gray-400"
                 />
               </div>
@@ -6368,7 +6428,8 @@ export default function App() {
                   name="password"
                   value={loginData.password}
                   onChange={handleLoginChange}
-                  placeholder="••••••••"
+                  placeholder="Enter your password"
+                  required
                   className="w-full outline-none placeholder:text-gray-400"
                 />
               </div>
@@ -6491,7 +6552,7 @@ export default function App() {
                   name="email"
                   value={registerData.email}
                   onChange={handleRegisterChange}
-                  placeholder="Enter your email"
+                  placeholder="Enter your email address"
                   required
                   className="w-full outline-none placeholder:text-gray-400"
                 />
@@ -6607,7 +6668,7 @@ export default function App() {
                   name="password"
                   value={registerData.password}
                   onChange={handleRegisterChange}
-                  placeholder="Create password"
+                  placeholder="Create a password"
                   required
                   className="w-full outline-none placeholder:text-gray-400"
                 />

@@ -102,9 +102,13 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     bio: "",
   });
   const accountMenuRef = useRef(null);
+  const notificationsRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
+      if (showNotifications && notificationsRef.current && !notificationsRef.current.contains(event.target)) {
+        setShowNotifications(false);
+      }
       if (showAccountMenu && accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
         setShowAccountMenu(false);
       }
@@ -112,6 +116,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
     const handleEscape = (event) => {
       if (event.key === "Escape") {
+        setShowNotifications(false);
         setShowAccountMenu(false);
       }
     };
@@ -122,7 +127,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [showAccountMenu]);
+  }, [showNotifications, showAccountMenu]);
 
   const normalizeMedicalRecords = (items = []) =>
     items.map((record) => ({
@@ -165,8 +170,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     : "relative flex h-[72px] items-center justify-between border-b border-slate-200 bg-white px-4 md:px-9";
 
   const cardClasses = darkMode
-    ? "rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-sm"
-    : "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm";
+    ? "rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-sm transition-transform duration-300 hover:-translate-y-1"
+    : "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-transform duration-300 hover:-translate-y-1";
 
   const textMain = darkMode ? "text-slate-100" : "text-slate-900";
   const textMuted = darkMode ? "text-slate-400" : "text-slate-500";
@@ -551,7 +556,20 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     }
 
     try {
+      const appointmentToComplete = [...appointments]
+        .filter(
+          (appointment) =>
+            String(appointment.patient_id) === String(prescriptionForm.patientId) &&
+            ["Pending", "Confirmed"].includes(appointment.status)
+        )
+        .sort(
+          (a, b) =>
+            new Date(`${b.date || ""}T${b.time || "00:00"}`) -
+            new Date(`${a.date || ""}T${a.time || "00:00"}`)
+        )[0];
+
       await api.post("/prescriptions", {
+        appointmentId: appointmentToComplete?.id || null,
         medicalRecordId: prescriptionForm.medicalRecordId,
         patientId: prescriptionForm.patientId,
         doctorId: loggedInUser.id,
@@ -563,10 +581,18 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         prescribed_date: new Date().toISOString().split("T")[0],
       });
 
+      if (appointmentToComplete?.id) {
+        await api.put(`/appointments/${appointmentToComplete.id}`, {
+          status: "Completed",
+        });
+      }
+
       const prescriptionsRes = await api.get("/doctor/prescriptions");
       setPrescriptions(prescriptionsRes.data.prescriptions || []);
       const recordsRes = await api.get("/doctor/medical-records");
       setRecords(normalizeMedicalRecords(recordsRes.data.records || []));
+      const appointmentsRes = await api.get(`/appointments/${loggedInUser.id}`);
+      setAppointments(appointmentsRes.data.appointments || []);
       setPrescriptionForm({
         medicalRecordId: "",
         patientId: "",
@@ -970,7 +996,16 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         <div className={cardClasses}>
           <div className="mb-6 flex items-center justify-between">
             <h3 className="text-[22px] font-bold">Recent Records Added</h3>
-            <button className="text-sm font-medium text-teal-600 hover:underline">View All</button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedPatient(null);
+                setActivePage("records");
+              }}
+              className="text-sm font-medium text-teal-600 hover:underline"
+            >
+              View All
+            </button>
           </div>
 
           <div className="space-y-4">
@@ -1386,24 +1421,26 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           </div>
         ) : (
           <div className={`rounded-[24px] border ${borderSoft} ${panelBg} shadow-sm`}>
-            <div className={`grid grid-cols-[3fr_1fr_1fr_1fr] gap-4 border-b ${borderSoft} px-5 py-4 text-sm font-semibold ${textMuted}`}>
-              <div>Diagnosis</div>
-              <div>Date</div>
-              <div>Status</div>
+            <div className={`grid grid-cols-[0.8fr_1fr_1fr_1.4fr_1.4fr_1fr_1fr] gap-4 border-b ${borderSoft} px-5 py-4 text-sm font-semibold ${textMuted}`}>
+              <div>id</div>
+              <div>patient_id</div>
+              <div>date</div>
+              <div>diagnosis</div>
+              <div>treatment</div>
+              <div>status</div>
               <div className="text-right">Actions</div>
             </div>
 
             {filteredRecords.map((record, index) => (
               <div
                 key={record.id}
-                className={`grid grid-cols-[3fr_1fr_1fr_1fr] items-center gap-4 px-5 py-5 ${
+                className={`grid grid-cols-[0.8fr_1fr_1fr_1.4fr_1.4fr_1fr_1fr] items-center gap-4 px-5 py-5 ${
                   index !== filteredRecords.length - 1 ? `border-b ${borderSoft}` : ""
                 } ${hoverRow}`}
               >
-                <div>
-                  <p className="text-[17px] font-medium">{record.diagnosis || record.title}</p>
-                  <p className={`text-sm ${textMuted}`}>{record.patientName || record.patient_name || "Unknown Patient"}</p>
-                </div>
+                <div className="text-[17px] font-medium">{record.id}</div>
+
+                <div className="text-[17px]">{record.patient_id || record.patientId || "N/A"}</div>
 
                 <div className="text-[17px]">
                   {record.record_date
@@ -1414,6 +1451,10 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                       })
                     : "N/A"}
                 </div>
+
+                <div className="text-[17px]">{record.diagnosis || record.title || "N/A"}</div>
+
+                <div className="text-[17px]">{record.treatment || "N/A"}</div>
 
                 <div>
                   <select
@@ -1435,10 +1476,6 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 </div>
 
                 <div className="relative flex items-center justify-end gap-3">
-                  <button onClick={() => setSelectedRecord(record)} className="flex items-center gap-2 text-blue-600 hover:opacity-80">
-                    <Eye size={18} />
-                    View
-                  </button>
                   <button
                     onClick={() => setOpenActionsId(openActionsId === record.id ? null : record.id)}
                     className={`rounded-full p-2 ${textMuted} ${darkMode ? "hover:bg-slate-800" : "hover:bg-slate-100"}`}
@@ -1447,17 +1484,27 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                     <MoreVertical size={18} />
                   </button>
 
-                  {openActionsId === record.id && (
-                    <div className={`absolute right-0 top-full z-30 mt-1 min-w-[160px] rounded-2xl border ${borderSoft} ${panelBg} shadow-xl`}>
-                      <button
-                        onClick={() => {
-                          handleDeleteRecord(record.id);
-                          setOpenActionsId(null);
-                        }}
-                        className={`flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left text-sm text-red-600 ${
-                          darkMode ? "hover:bg-red-950" : "hover:bg-red-50"
-                        }`}
-                      >
+                {openActionsId === record.id && (
+                  <div className={`absolute right-0 top-full z-30 mt-1 min-w-[160px] rounded-2xl border ${borderSoft} ${panelBg} shadow-xl`}>
+                    <button
+                      onClick={() => {
+                        setSelectedRecord(record);
+                        setOpenActionsId(null);
+                      }}
+                      className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm ${textSoft} ${darkMode ? "hover:bg-slate-800" : "hover:bg-slate-100"}`}
+                    >
+                      <Eye size={16} />
+                      View
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleDeleteRecord(record.id);
+                        setOpenActionsId(null);
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-b-2xl px-4 py-3 text-left text-sm text-red-600 ${
+                        darkMode ? "hover:bg-red-950" : "hover:bg-red-50"
+                      }`}
+                    >
                         <Trash2 size={16} />
                         Delete record
                       </button>
@@ -1729,48 +1776,33 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         </div>
       ) : (
         <div className={`rounded-[24px] border ${borderSoft} ${panelBg} shadow-sm`}>
-          <div className={`grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr] gap-4 border-b ${borderSoft} px-5 py-4 text-sm font-semibold ${textMuted}`}>
-            <div>Patient</div>
-            <div>Medication</div>
-            <div>Dosage</div>
-            <div>Date</div>
+          <div className={`grid grid-cols-[1.1fr_1.5fr_1.2fr_1.2fr_1.2fr_1fr] gap-4 border-b ${borderSoft} px-5 py-4 text-sm font-semibold ${textMuted}`}>
+            <div>prescription_id</div>
+            <div>medicine</div>
+            <div>dosage</div>
+            <div>frequency</div>
+            <div>duration</div>
             <div className="text-right">Actions</div>
           </div>
 
           {filteredPrescriptions.map((prescription, index) => (
             <div
               key={prescription.id}
-              className={`grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr] items-center gap-4 px-5 py-5 ${
+              className={`grid grid-cols-[1.1fr_1.5fr_1.2fr_1.2fr_1.2fr_1fr] items-center gap-4 px-5 py-5 ${
                 index !== filteredPrescriptions.length - 1 ? `border-b ${borderSoft}` : ""
               } ${hoverRow}`}
             >
-              <div>
-                <p className="text-[17px] font-medium">{prescription.patient_name || "Unknown Patient"}</p>
-                <p className={`text-sm ${textMuted}`}>{prescription.frequency || "No frequency set"}</p>
-              </div>
+              <div className="text-[17px] font-medium">{prescription.id}</div>
 
-              <div>
-                <p className="text-[17px]">{prescription.medication}</p>
-                <p className={`text-sm ${textMuted}`}>{prescription.duration || "No duration set"}</p>
-              </div>
+              <div className="text-[17px]">{prescription.medication || "N/A"}</div>
 
-              <div className="text-[17px]">{prescription.dosage}</div>
+              <div className="text-[17px]">{prescription.dosage || "N/A"}</div>
 
-              <div className="text-[17px]">
-                {prescription.prescribed_date
-                  ? new Date(prescription.prescribed_date).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })
-                  : "N/A"}
-              </div>
+              <div className="text-[17px]">{prescription.frequency || "N/A"}</div>
+
+              <div className="text-[17px]">{prescription.duration || "N/A"}</div>
 
               <div className="relative flex items-center justify-end gap-3">
-                <button onClick={() => setSelectedPrescription(prescription)} className="flex items-center gap-2 text-blue-600 hover:opacity-80">
-                  <Eye size={18} />
-                  View
-                </button>
                 <button
                   onClick={() => setOpenActionsId(openActionsId === prescription.id ? null : prescription.id)}
                   className={`rounded-full p-2 ${textMuted} ${darkMode ? "hover:bg-slate-800" : "hover:bg-slate-100"}`}
@@ -1781,6 +1813,16 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
                 {openActionsId === prescription.id && (
                   <div className={`absolute right-0 top-full z-30 mt-1 min-w-[160px] rounded-2xl border ${borderSoft} ${panelBg} shadow-xl`}>
+                    <button
+                      onClick={() => {
+                        setSelectedPrescription(prescription);
+                        setOpenActionsId(null);
+                      }}
+                      className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm ${textSoft} ${darkMode ? "hover:bg-slate-800" : "hover:bg-slate-100"}`}
+                    >
+                      <Eye size={16} />
+                      View
+                    </button>
                     <button
                       onClick={() => handleOpenEditPrescription(prescription)}
                       className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm ${textSoft} ${darkMode ? "hover:bg-slate-800" : "hover:bg-slate-100"}`}
@@ -2666,7 +2708,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 {darkMode ? <Sun size={24} /> : <Moon size={24} />}
               </button>
 
-              <div className="relative">
+              <div className="relative" ref={notificationsRef}>
                 <button
                   onClick={() => setShowNotifications(!showNotifications)}
                   className={`flex h-10 w-10 items-center justify-center rounded-lg transition ${
