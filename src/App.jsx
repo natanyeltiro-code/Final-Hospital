@@ -45,8 +45,78 @@ import { downloadWordDocument } from "./wordExport";
 const DoctorDashboard = lazy(() => import("./DoctorDashboard"));
 const SimpleDoctorList = lazy(() => import("./SimpleDoctorList"));
 const SimpleAppointmentBooking = lazy(() => import("./SimpleAppointmentBooking"));
+const ACTIVE_MEDICAL_RECORD_STATUSES = ["Ongoing", "Critical"];
+const DOCTOR_SCHEDULE_START_HOUR = 8;
+const DOCTOR_SCHEDULE_END_HOUR = 24;
+
+const getMedicalRecordStatusBadgeClass = (status, darkMode = false) => {
+  if (status === "Critical") {
+    return darkMode ? "bg-red-900 text-red-200" : "bg-red-100 text-red-700";
+  }
+  if (status === "Recovered") {
+    return darkMode ? "bg-emerald-900 text-emerald-200" : "bg-emerald-100 text-emerald-700";
+  }
+  if (status === "Stable") {
+    return darkMode ? "bg-blue-900 text-blue-200" : "bg-blue-100 text-blue-700";
+  }
+  if (status === "Ongoing") {
+    return darkMode ? "bg-amber-900 text-amber-200" : "bg-amber-100 text-amber-700";
+  }
+
+  return darkMode ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-700";
+};
+
+const getDoctorAvailabilityStatus = (darkMode = false, now = new Date()) => {
+  const day = now.getDay();
+  if (day === 0 || day === 6) {
+    return {
+      label: "On Leave",
+      classes: darkMode ? "bg-amber-900 text-amber-200" : "bg-amber-100 text-amber-700",
+    };
+  }
+
+  const hour = now.getHours();
+  if (hour >= DOCTOR_SCHEDULE_START_HOUR && hour < DOCTOR_SCHEDULE_END_HOUR) {
+    return {
+      label: "Available",
+      classes: darkMode ? "bg-emerald-900 text-emerald-200" : "bg-emerald-100 text-emerald-700",
+    };
+  }
+
+  return {
+    label: "Off Duty",
+    classes: darkMode ? "bg-slate-800 text-slate-200" : "bg-slate-100 text-slate-700",
+  };
+};
 
 export default function App() {
+  const formatDateForInput = (value) => {
+    if (!value) return "";
+    if (typeof value === "string") {
+      const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+      return match ? match[1] : value;
+    }
+    try {
+      return new Date(value).toISOString().split("T")[0];
+    } catch {
+      return "";
+    }
+  };
+
+  const formatDateForDisplay = (value) => {
+    const normalizedValue = formatDateForInput(value);
+    if (!normalizedValue) return "Not set";
+
+    const parsedDate = new Date(`${normalizedValue}T00:00:00`);
+    if (Number.isNaN(parsedDate.getTime())) return normalizedValue;
+
+    return parsedDate.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  };
+
   const [isLogin, setIsLogin] = useState(true);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [message, setMessage] = useState("");
@@ -425,7 +495,7 @@ export default function App() {
         bloodGroup: loggedInUser.bloodGroup || "",
         age: loggedInUser.age || "",
         gender: loggedInUser.gender || "",
-        dateOfBirth: loggedInUser.dateOfBirth || "",
+        dateOfBirth: formatDateForInput(loggedInUser.dateOfBirth),
         address: loggedInUser.address || "",
         emergencyContact: loggedInUser.emergencyContact || "",
       });
@@ -727,7 +797,7 @@ export default function App() {
     const trimmedBloodGroup = profileData.bloodGroup?.trim() || "";
     const trimmedAge = profileData.age ? Number(profileData.age) : null;
     const trimmedGender = profileData.gender?.trim() || "";
-    const trimmedDateOfBirth = profileData.dateOfBirth || "";
+    const trimmedDateOfBirth = profileData.dateOfBirth || null;
     const trimmedAddress = profileData.address?.trim() || "";
     const trimmedEmergencyContact = profileData.emergencyContact?.trim() || "";
 
@@ -753,7 +823,7 @@ export default function App() {
       const res = await api.put(`/users/${loggedInUser.id}`, updateData);
       setIsError(false);
       showSuccessPopup("Successfully edited profile.");
-      setLoggedInUser({ ...loggedInUser, ...updateData });
+      setLoggedInUser((prev) => ({ ...prev, ...(res.data.user || updateData) }));
       setEditingProfile(false);
     } catch (err) {
       console.error("Error updating profile:", err.response || err);
@@ -964,7 +1034,7 @@ export default function App() {
     report += "\n6. ACTIVE MEDICAL CONDITIONS\n";
     report += "-".repeat(70) + "\n";
     const activeMedicalRecords = analytics.filteredRecords
-      .filter((record) => record.status === "Active")
+      .filter((record) => ACTIVE_MEDICAL_RECORD_STATUSES.includes(record.status))
       .slice(-10);
     activeMedicalRecords.forEach((record, index) => {
       const patient = adminPatients.find(p => p.id === record.patient_id);
@@ -1431,8 +1501,7 @@ export default function App() {
           phone: newUserData.phone,
           age: newUserData.age,
           gender: newUserData.gender,
-          bloodGroup: newUserData.blood_group,
-          condition: newUserData.condition,
+          address: newUserData.address,
         });
         showSuccessPopup("Patient Updated Successfully");
         setEditingPatientId(null);
@@ -2235,9 +2304,9 @@ export default function App() {
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.20em] text-slate-400">Active</p>
                 <p className={`mt-3 text-[32px] font-bold leading-none ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
-                  {filteredMedicalRecords.filter((r) => r.status === "Active").length}
+                  {filteredMedicalRecords.filter((r) => ACTIVE_MEDICAL_RECORD_STATUSES.includes(r.status)).length}
                 </p>
-                <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-500"}`}>Conditions currently marked active</p>
+                <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-500"}`}>Conditions currently marked ongoing or critical</p>
               </div>
               <div className="rounded-2xl bg-amber-100 p-3 text-amber-700">
                 <Activity size={22} />
@@ -2330,13 +2399,7 @@ export default function App() {
                             Record {String(index + 1).padStart(2, "0")}
                           </p>
                           <span
-                            className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-                              record.status === "Active"
-                                ? "bg-amber-100 text-amber-700"
-                                : record.status === "Completed"
-                                ? "bg-emerald-100 text-emerald-700"
-                                : "bg-blue-100 text-blue-700"
-                            }`}
+                            className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${getMedicalRecordStatusBadgeClass(record.status, false)}`}
                           >
                             {record.status}
                           </span>
@@ -2505,7 +2568,7 @@ export default function App() {
                 bloodGroup: loggedInUser.bloodGroup || "",
                 age: loggedInUser.age || "",
                 gender: loggedInUser.gender || "",
-                dateOfBirth: loggedInUser.dateOfBirth || "",
+                dateOfBirth: formatDateForInput(loggedInUser.dateOfBirth),
                 address: loggedInUser.address || "",
                 emergencyContact: loggedInUser.emergencyContact || "",
               });
@@ -2582,7 +2645,7 @@ export default function App() {
                     <User size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <input
                       type="text"
-                      value={profileData.name || loggedInUser.name}
+                      value={profileData.name ?? ""}
                       onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
                       className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100" : "text-slate-900"}`}
                       required
@@ -2596,7 +2659,7 @@ export default function App() {
                     <Mail size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <input
                       type="email"
-                      value={profileData.email || loggedInUser.email}
+                      value={profileData.email ?? ""}
                       onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
                       className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100" : "text-slate-900"}`}
                       required
@@ -2613,7 +2676,7 @@ export default function App() {
                     <input
                       type="tel"
                       placeholder="+1 987-654-3210"
-                      value={profileData.phone || loggedInUser.phone || ''}
+                      value={profileData.phone ?? ""}
                       onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
                       className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-900"}`}
                     />
@@ -2625,7 +2688,7 @@ export default function App() {
                   <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
                     <FileHeart size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <select
-                      value={profileData.bloodGroup || loggedInUser.bloodGroup || ''}
+                      value={profileData.bloodGroup ?? ""}
                       onChange={(e) => setProfileData({ ...profileData, bloodGroup: e.target.value })}
                       className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100" : "text-slate-900"}`}
                     >
@@ -2652,7 +2715,7 @@ export default function App() {
                       type="number"
                       min="0"
                       placeholder="45"
-                      value={profileData.age || loggedInUser.age || ''}
+                      value={profileData.age ?? ""}
                       onChange={(e) => setProfileData({ ...profileData, age: e.target.value })}
                       className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-900"}`}
                     />
@@ -2664,7 +2727,7 @@ export default function App() {
                   <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
                     <UserCog size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <select
-                      value={profileData.gender || loggedInUser.gender || ''}
+                      value={profileData.gender ?? ""}
                       onChange={(e) => setProfileData({ ...profileData, gender: e.target.value })}
                       className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100" : "text-slate-900"}`}
                     >
@@ -2682,7 +2745,7 @@ export default function App() {
                     <CalendarRange size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
                     <input
                       type="date"
-                      value={profileData.dateOfBirth || loggedInUser.dateOfBirth || ''}
+                      value={profileData.dateOfBirth ?? ""}
                       onChange={(e) => setProfileData({ ...profileData, dateOfBirth: e.target.value })}
                       className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100" : "text-slate-900"}`}
                     />
@@ -2696,7 +2759,7 @@ export default function App() {
                   <div className={`rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
                     <textarea
                       rows="3"
-                      value={profileData.address || loggedInUser.address || ''}
+                      value={profileData.address ?? ""}
                       onChange={(e) => setProfileData({ ...profileData, address: e.target.value })}
                       className={`w-full resize-none bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-900"}`}
                       placeholder="123 Main St, City"
@@ -2711,7 +2774,7 @@ export default function App() {
                     <input
                       type="tel"
                       placeholder="+1 234-567-8900"
-                      value={profileData.emergencyContact || loggedInUser.emergencyContact || ''}
+                      value={profileData.emergencyContact ?? ""}
                       onChange={(e) => setProfileData({ ...profileData, emergencyContact: e.target.value })}
                       className={`w-full bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-900"}`}
                     />
@@ -2724,38 +2787,84 @@ export default function App() {
               </button>
             </form>
           ) : (
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-              <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Full Name</p>
-                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.name}</p>
+            <div className="grid grid-cols-1 gap-6">
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div>
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Full Name</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <User size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
+                    <div className={`w-full ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.name || "Not set"}</div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Email Address</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <Mail size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
+                    <div className={`w-full ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.email || "Not set"}</div>
+                  </div>
+                </div>
               </div>
-              <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Email Address</p>
-                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.email}</p>
+
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div>
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Phone Number</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <Phone size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
+                    <div className={`w-full ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.phone || "Not set"}</div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Blood Group</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <FileHeart size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
+                    <div className={`w-full ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.bloodGroup || "Not set"}</div>
+                  </div>
+                </div>
               </div>
-              <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Phone Number</p>
-                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.phone || 'Not set'}</p>
+
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                <div>
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Age</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <Clock3 size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
+                    <div className={`w-full ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.age || "Not set"}</div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Gender</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <UserCog size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
+                    <div className={`w-full ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.gender || "Not set"}</div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Date of Birth</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <CalendarRange size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
+                    <div className={`w-full ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{formatDateForDisplay(loggedInUser.dateOfBirth)}</div>
+                  </div>
+                </div>
               </div>
-              <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Blood Group</p>
-                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.bloodGroup || 'Not set'}</p>
-              </div>
-              <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Age</p>
-                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.age || 'Not set'}</p>
-              </div>
-              <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Gender</p>
-                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.gender || 'Not set'}</p>
-              </div>
-              <div className={`md:col-span-2 rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Address</p>
-                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.address || 'Not set'}</p>
-              </div>
-              <div className={`md:col-span-2 rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Emergency Contact</p>
-                <p className={`mt-3 text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.emergencyContact || 'Not set'}</p>
+
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Address</label>
+                  <div className={`rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <div className={`min-h-[96px] whitespace-pre-wrap ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.address || "Not set"}</div>
+                  </div>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-200" : "text-slate-900"}`}>Emergency Contact</label>
+                  <div className={`flex items-center rounded-2xl border px-4 py-3 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+                    <Phone size={16} className={`mr-3 ${darkMode ? "text-slate-500" : "text-slate-400"}`} />
+                    <div className={`w-full ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{loggedInUser.emergencyContact || "Not set"}</div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -2793,27 +2902,33 @@ export default function App() {
     const endIndex = startIndex + itemsPerPage;
     const paginatedPatients = filteredPatients.slice(startIndex, endIndex);
     const getPatientStatusClasses = (status) => {
-      if (status === "Active") {
-        return darkMode
-          ? "bg-emerald-500/15 text-emerald-300"
-          : "bg-emerald-100 text-emerald-700";
-      }
-
-      if (status === "Completed") {
-        return darkMode
-          ? "bg-blue-500/15 text-blue-300"
-          : "bg-blue-100 text-blue-700";
-      }
-
-      if (status === "Inactive") {
+      if (status === "Critical") {
         return darkMode
           ? "bg-rose-500/15 text-rose-300"
           : "bg-rose-100 text-rose-700";
       }
 
+      if (status === "Ongoing") {
+        return darkMode
+          ? "bg-emerald-500/15 text-emerald-300"
+          : "bg-emerald-100 text-emerald-700";
+      }
+
+      if (status === "Stable") {
+        return darkMode
+          ? "bg-blue-500/15 text-blue-300"
+          : "bg-blue-100 text-blue-700";
+      }
+
+      if (status === "Recovered") {
+        return darkMode
+          ? "bg-amber-500/15 text-amber-300"
+          : "bg-amber-100 text-amber-700";
+      }
+
       return darkMode
-        ? "bg-amber-500/15 text-amber-300"
-        : "bg-amber-100 text-amber-700";
+        ? "bg-slate-700 text-slate-200"
+        : "bg-slate-100 text-slate-700";
     };
 
     return (
@@ -2865,20 +2980,18 @@ export default function App() {
                 const patientAppointments = [...adminAppointments]
                   .filter((appointment) => String(appointment.patient_id) === String(patient.id))
                   .sort((a, b) => new Date(`${b.date || ""}T${b.time || "00:00"}`) - new Date(`${a.date || ""}T${a.time || "00:00"}`));
+                const patientRecords = [...adminMedicalRecords]
+                  .filter((record) => String(record.patient_id) === String(patient.id))
+                  .sort((a, b) => new Date(b.record_date || 0) - new Date(a.record_date || 0));
                 const latestAppointment = patientAppointments[0];
+                const latestMedicalRecord = patientRecords[0];
                 const matchedDoctor = latestAppointment
                   ? doctors.find((doctor) => String(doctor.id) === String(latestAppointment.doctor_id))
                   : null;
                 const doctorName = matchedDoctor
                   ? (matchedDoctor.name?.startsWith("Dr.") ? matchedDoctor.name : `Dr. ${matchedDoctor.name}`)
                   : "Unassigned";
-                const patientStatus = latestAppointment
-                  ? latestAppointment.status === "Cancelled"
-                    ? "Inactive"
-                    : latestAppointment.status === "Completed"
-                    ? "Completed"
-                    : "Active"
-                  : "New";
+                const patientStatus = patient.medical_status || latestMedicalRecord?.status || "No Records";
                 const lastVisit = latestAppointment?.date ? formatDate(latestAppointment.date) : "N/A";
 
                 return (
@@ -3300,6 +3413,7 @@ export default function App() {
 
   const renderAdminDoctorsPage = () => {
     const itemsPerPage = 5;
+    const adminDoctorStatus = getDoctorAvailabilityStatus(darkMode, new Date());
     
     // Filter doctors based on local search
     const filteredDoctors = doctors.filter(doc => {
@@ -3329,21 +3443,13 @@ export default function App() {
 
     return (
       <div className={`p-9 ${darkMode ? "bg-slate-900 text-slate-100" : ""}`}>
-        <div className="mb-8 flex items-start justify-between">
+        <div className="mb-8">
           <div>
             <h2 className={`text-[28px] font-bold ${darkMode ? "text-slate-100" : ""}`}>Manage Doctors</h2>
             <p className={`mt-2 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
               View and manage all registered doctors.
             </p>
           </div>
-
-          <button
-            onClick={() => { setAddModalType("doctor"); setShowAddModal(true); setNewUserData({...newUserData, role: "doctor"}); }}
-            className="flex items-center gap-3 rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700"
-          >
-            <UserCog size={20} />
-            <span>Add Doctor</span>
-          </button>
         </div>
 
         <div className={`overflow-hidden rounded-[24px] border shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
@@ -3368,51 +3474,58 @@ export default function App() {
             </button>
           </div>
 
-          <div className={`grid gap-4 border-b px-5 py-4 text-sm font-semibold ${darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"}`} style={{gridTemplateColumns: '2fr 1.2fr 1.2fr 1fr 1fr 1fr'}}>
-            <div>DOCTOR</div>
-            <div>SPECIALIZATION</div>
-            <div>DEPARTMENT</div>
-            <div>EXPERIENCE</div>
-            <div>PATIENTS</div>
-            <div className="text-right">Actions</div>
+          <div
+            className={`grid gap-4 border-b px-5 py-4 text-sm font-semibold ${darkMode ? "border-slate-800 text-slate-400" : "border-slate-200 text-slate-500"}`}
+            style={{ gridTemplateColumns: "0.6fr 1.1fr 1.5fr 1fr 1.2fr 1.1fr 0.9fr 0.9fr 0.5fr" }}
+          >
+            <div>id</div>
+            <div>name</div>
+            <div>email</div>
+            <div>phone</div>
+            <div>specialization</div>
+            <div>department</div>
+            <div>experience</div>
+            <div>status</div>
+            <div className="text-right">...</div>
           </div>
 
           {paginatedDoctors.map((doctor, index) => {
-            // Count unique patients for this doctor
-            const patientCount = adminAppointments
-              ? adminAppointments
-                  .filter(app => app.doctor_id === doctor.id)
-                  .reduce((unique, app) => {
-                    if (!unique.has(app.patient_id)) unique.add(app.patient_id);
-                    return unique;
-                  }, new Set()).size
-              : 0;
-
             return (
             <div
               key={doctor.id}
               className={`grid items-center gap-4 px-5 py-5 ${
                 index !== paginatedDoctors.length - 1 ? (darkMode ? "border-b border-slate-800" : "border-b border-slate-200") : ""
               }`}
-              style={{gridTemplateColumns: '2fr 1.2fr 1.2fr 1fr 1fr 1fr'}}
+              style={{ gridTemplateColumns: "0.6fr 1.1fr 1.5fr 1fr 1.2fr 1.1fr 0.9fr 0.9fr 0.5fr" }}
             >
-              <div className="flex items-center gap-4 min-w-0">
-                <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-teal-600">
-                  <Stethoscope size={18} className="text-white" />
+              <div className={`truncate text-[16px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
+                {doctor.id}
+              </div>
+
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal-400 to-teal-600">
+                  <Stethoscope size={16} className="text-white" />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className={`truncate text-[18px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>{doctor.name}</p>
-                  <p className={`truncate text-sm ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{doctor.email}</p>
+                <div className={`truncate text-[16px] font-medium ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
+                  {doctor.name ? `Dr. ${doctor.name}` : "N/A"}
                 </div>
               </div>
 
-              <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{doctor.specialty ?? 'N/A'}</div>
+              <div className={`truncate text-[16px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{doctor.email ?? "N/A"}</div>
 
-              <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{doctor.department ?? 'N/A'}</div>
+              <div className={`truncate text-[16px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{doctor.phone ?? "N/A"}</div>
 
-              <div className={`truncate text-[17px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{(doctor.experience !== null && doctor.experience !== undefined) ? `${doctor.experience} years` : 'N/A'}</div>
+              <div className={`truncate text-[16px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{doctor.specialty ?? "N/A"}</div>
 
-              <div className="truncate text-[17px] text-teal-600 font-medium">{patientCount}</div>
+              <div className={`truncate text-[16px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{doctor.department ?? "N/A"}</div>
+
+              <div className={`truncate text-[16px] ${darkMode ? "text-slate-300" : "text-slate-700"}`}>{(doctor.experience !== null && doctor.experience !== undefined) ? `${doctor.experience} years` : "N/A"}</div>
+
+              <div>
+                <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${adminDoctorStatus.classes}`}>
+                  {adminDoctorStatus.label}
+                </span>
+              </div>
 
               <div className="relative flex items-center justify-end">
                 <button
@@ -4437,7 +4550,7 @@ export default function App() {
               <div className={`flex h-[72px] items-center ${patientSidebarCollapsed ? "justify-center" : "justify-between"} transition-all duration-300 gap-3 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-6`}>
                 <div className={`flex items-center gap-3 transition-all duration-300 ${patientSidebarCollapsed ? "opacity-0 w-0" : "opacity-100 w-auto"}`}>
                   <Activity className="text-teal-600 flex-shrink-0" size={28} />
-                  <h1 className="text-[30px] font-semibold tracking-tight whitespace-nowrap">MediCare</h1>
+                  <h1 className={`text-[30px] font-semibold tracking-tight whitespace-nowrap ${darkMode ? "text-white" : "text-slate-900"}`}>MediCare</h1>
                 </div>
                 <button
                   onClick={() => setPatientSidebarCollapsed(!patientSidebarCollapsed)}
@@ -4889,13 +5002,7 @@ export default function App() {
                     <div>
                       <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Status</label>
                       <div className="mt-2">
-                        <span className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${
-                          selectedDetail.status === "Active"
-                            ? darkMode ? "bg-amber-900 text-amber-200" : "bg-amber-100 text-amber-700"
-                            : selectedDetail.status === "Completed"
-                            ? darkMode ? "bg-emerald-900 text-emerald-200" : "bg-emerald-100 text-emerald-700"
-                            : darkMode ? "bg-blue-900 text-blue-200" : "bg-blue-100 text-blue-700"
-                        }`}>
+                        <span className={`inline-block rounded-full px-3 py-1 text-sm font-medium ${getMedicalRecordStatusBadgeClass(selectedDetail.status, darkMode)}`}>
                           {selectedDetail.status}
                         </span>
                       </div>
@@ -5050,49 +5157,27 @@ export default function App() {
                   <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Basic Information</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Full Name</label>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Patient ID</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.id || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Name</label>
                       <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.name || "N/A"}</p>
                     </div>
                     <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Email</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.email || "N/A"}</p>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Age / Gender</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {selectedDetail.age || "N/A"} / {selectedDetail.gender || "N/A"}
+                      </p>
                     </div>
                     <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Phone</label>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Phone / Contact</label>
                       <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.phone || "N/A"}</p>
                     </div>
                     <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Age</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.age || "N/A"}</p>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Address (Optional)</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.address || "N/A"}</p>
                     </div>
-                    <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Gender</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.gender || "N/A"}</p>
-                    </div>
-                    <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Blood Group</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.blood_group || "N/A"}</p>
-                    </div>
-                    <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Medical Condition</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.condition || "N/A"}</p>
-                    </div>
-                    <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Date of Birth</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.date_of_birth?.split('T')[0] || "N/A"}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Contact Information</h4>
-                  <div>
-                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Address</label>
-                    <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.address || "N/A"}</p>
-                  </div>
-                  <div className="mt-4">
-                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Emergency Contact</label>
-                    <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.emergency_contact || "N/A"}</p>
                   </div>
                 </div>
               </div>
@@ -5204,7 +5289,7 @@ export default function App() {
               <div className={`flex h-[72px] items-center ${adminSidebarCollapsed ? "justify-center" : "justify-between"} transition-all duration-300 gap-3 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} px-6`}>
                 <div className={`flex items-center gap-3 transition-all duration-300 ${adminSidebarCollapsed ? "opacity-0 w-0" : "opacity-100 w-auto"}`}>
                   <Activity className="text-teal-600 flex-shrink-0" size={28} />
-                  <h1 className="text-[30px] font-semibold tracking-tight whitespace-nowrap">MediCare</h1>
+                  <h1 className={`text-[30px] font-semibold tracking-tight whitespace-nowrap ${darkMode ? "text-white" : "text-slate-900"}`}>MediCare</h1>
                 </div>
                 <button
                   onClick={() => setAdminSidebarCollapsed(!adminSidebarCollapsed)}
@@ -5688,13 +5773,15 @@ export default function App() {
                   onChange={(e) => setNewUserData({...newUserData, name: e.target.value})}
                   className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
                 />
-                <input
-                  type="email"
-                  placeholder="Email Address"
-                  value={newUserData.email}
-                  onChange={(e) => setNewUserData({...newUserData, email: e.target.value})}
-                  className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
-                />
+                {!editingPatientId && (
+                  <input
+                    type="email"
+                    placeholder="Email Address"
+                    value={newUserData.email}
+                    onChange={(e) => setNewUserData({...newUserData, email: e.target.value})}
+                    className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                  />
+                )}
                 {!editingDoctorId && !editingPatientId && (
                   <input
                     type="password"
@@ -5711,7 +5798,42 @@ export default function App() {
                   onChange={(e) => setNewUserData({...newUserData, phone: e.target.value})}
                   className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
                 />
-                {(editingPatientId || addModalType === "patient") && (
+                {editingPatientId ? (
+                  <>
+                    <input
+                      type="text"
+                      value={`Patient ID: ${editingPatientId}`}
+                      readOnly
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500 outline-none"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Age"
+                      value={newUserData.age}
+                      onChange={(e) => setNewUserData({...newUserData, age: e.target.value})}
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                      min="0"
+                      max="150"
+                    />
+                    <select
+                      value={newUserData.gender}
+                      onChange={(e) => setNewUserData({...newUserData, gender: e.target.value})}
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                    >
+                      <option value="">Select Gender</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other</option>
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Address (Optional)"
+                      value={newUserData.address}
+                      onChange={(e) => setNewUserData({...newUserData, address: e.target.value})}
+                      className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
+                    />
+                  </>
+                ) : addModalType === "patient" ? (
                   <>
                     <input
                       type="number"
@@ -5755,7 +5877,7 @@ export default function App() {
                       className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
                     />
                   </>
-                )}
+                ) : null}
                 {addModalType === "doctor" && !editingPatientId && (
                   <>
                     <input
@@ -6147,49 +6269,27 @@ export default function App() {
                   <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Basic Information</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Full Name</label>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Patient ID</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.id || "N/A"}</p>
+                    </div>
+                    <div>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Name</label>
                       <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.name || "N/A"}</p>
                     </div>
                     <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Email</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.email || "N/A"}</p>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Age / Gender</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        {selectedDetail.age || "N/A"} / {selectedDetail.gender || "N/A"}
+                      </p>
                     </div>
                     <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Phone</label>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Phone / Contact</label>
                       <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.phone || "N/A"}</p>
                     </div>
                     <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Age</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.age || "N/A"}</p>
+                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Address (Optional)</label>
+                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.address || "N/A"}</p>
                     </div>
-                    <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Gender</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.gender || "N/A"}</p>
-                    </div>
-                    <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Blood Group</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.blood_group || "N/A"}</p>
-                    </div>
-                    <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Medical Condition</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.condition || "N/A"}</p>
-                    </div>
-                    <div>
-                      <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Date of Birth</label>
-                      <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.date_of_birth?.split('T')[0] || "N/A"}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className={`text-[18px] font-bold mb-6 ${darkMode ? 'text-slate-300' : 'text-slate-700'}`}>Contact Information</h4>
-                  <div>
-                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Address</label>
-                    <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.address || "N/A"}</p>
-                  </div>
-                  <div className="mt-4">
-                    <label className={`text-xs font-semibold uppercase ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Emergency Contact</label>
-                    <p className={`text-base font-medium mt-2 ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedDetail.emergency_contact || "N/A"}</p>
                   </div>
                 </div>
               </div>

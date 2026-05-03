@@ -64,6 +64,8 @@ function createTables() {
         date_of_birth DATE,
         address VARCHAR(255),
         emergency_contact VARCHAR(50),
+        condition VARCHAR(255),
+        medical_status VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
@@ -85,6 +87,7 @@ function createTables() {
         { name: 'address', definition: 'VARCHAR(255)' },
         { name: 'emergency_contact', definition: 'VARCHAR(50)' },
         { name: 'condition', definition: 'VARCHAR(255)' },
+        { name: 'medical_status', definition: 'VARCHAR(50)' },
       ];
 
       const ensureColumn = (column, callback) => {
@@ -169,13 +172,14 @@ function createTables() {
         CREATE TABLE IF NOT EXISTS medical_records (
           id INT PRIMARY KEY AUTO_INCREMENT,
           patient_id INT NOT NULL,
+          patient_name_snapshot VARCHAR(255),
           doctor_id INT NOT NULL,
           title VARCHAR(255) NOT NULL,
           diagnosis TEXT,
           treatment TEXT,
           notes TEXT,
           record_date DATE NOT NULL,
-          status ENUM('Draft', 'Active', 'Archived', 'Reviewed', 'Completed') DEFAULT 'Active',
+          status ENUM('Ongoing', 'Stable', 'Recovered', 'Critical') DEFAULT 'Ongoing',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           FOREIGN KEY (patient_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -314,7 +318,7 @@ function createTables() {
                 "High blood pressure readings",
                 "Lifestyle modifications, Medication",
                 "2023-10-15",
-                "Active",
+                "Ongoing",
               ],
               [
                 5,
@@ -323,7 +327,7 @@ function createTables() {
                 "Normal ECG, Stable blood pressure",
                 "Continue current medication",
                 "2023-08-22",
-                "Completed",
+                "Recovered",
               ],
               [
                 6,
@@ -332,7 +336,7 @@ function createTables() {
                 "Mild wear and tear detected",
                 "Physical therapy, Pain management",
                 "2023-11-02",
-                "Active",
+                "Stable",
               ],
             ];
 
@@ -347,9 +351,10 @@ function createTables() {
                     // Update patient condition with diagnosis
                     const patientId = record[0];
                     const diagnosis = record[3];
+                    const medicalStatus = record[6];
                     db.query(
-                      "UPDATE users SET `condition` = ? WHERE id = ?",
-                      [diagnosis, patientId],
+                      "UPDATE users SET `condition` = ?, medical_status = ? WHERE id = ?",
+                      [diagnosis, medicalStatus, patientId],
                       (updateErr) => {
                         if (updateErr) {
                           console.error("Error updating patient condition:", updateErr);

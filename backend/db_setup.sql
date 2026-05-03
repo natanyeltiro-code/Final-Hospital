@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS users (
   role ENUM('admin', 'doctor', 'patient') NOT NULL,
   phone VARCHAR(20),
   condition VARCHAR(255),
+  medical_status VARCHAR(50),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -39,13 +40,14 @@ CREATE TABLE IF NOT EXISTS appointments (
 CREATE TABLE IF NOT EXISTS medical_records (
   id INT PRIMARY KEY AUTO_INCREMENT,
   patient_id INT NOT NULL,
+  patient_name_snapshot VARCHAR(255),
   doctor_id INT NOT NULL,
   title VARCHAR(255) NOT NULL,
   diagnosis TEXT,
   treatment TEXT,
   notes TEXT,
   record_date DATE NOT NULL,
-  status ENUM('Draft', 'Active', 'Archived', 'Reviewed', 'Completed') DEFAULT 'Active',
+  status ENUM('Ongoing', 'Stable', 'Recovered', 'Critical') DEFAULT 'Ongoing',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (patient_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -101,9 +103,9 @@ INSERT INTO appointments (patient_id, doctor_id, date, time, type, status) VALUE
 
 -- Insert Sample Medical Records
 INSERT INTO medical_records (patient_id, doctor_id, title, diagnosis, treatment, record_date, status) VALUES
-(4, 1, 'Essential Hypertension', 'High blood pressure readings', 'Lifestyle modifications, Medication', '2023-10-15', 'Active'),
-(5, 1, 'Routine Cardiology Checkup', 'Normal ECG, Stable blood pressure', 'Continue current medication', '2023-08-22', 'Completed'),
-(6, 2, 'Osteoarthritis of knee', 'Mild wear and tear detected', 'Physical therapy, Pain management', '2023-11-02', 'Active');
+(4, 1, 'Essential Hypertension', 'High blood pressure readings', 'Lifestyle modifications, Medication', '2023-10-15', 'Ongoing'),
+(5, 1, 'Routine Cardiology Checkup', 'Normal ECG, Stable blood pressure', 'Continue current medication', '2023-08-22', 'Recovered'),
+(6, 2, 'Osteoarthritis of knee', 'Mild wear and tear detected', 'Physical therapy, Pain management', '2023-11-02', 'Stable');
 
 -- Create Indexes for Performance
 CREATE INDEX idx_patient_id ON appointments(patient_id);

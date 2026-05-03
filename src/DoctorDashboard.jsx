@@ -30,12 +30,17 @@ import {
   Eye,
 } from "lucide-react";
 
+const MEDICAL_RECORD_STATUSES = ["Ongoing", "Stable", "Recovered", "Critical"];
+const DOCTOR_WORKING_DAYS = "Monday-Friday";
+const DOCTOR_SCHEDULE_START = "8:00 AM";
+const DOCTOR_SCHEDULE_END = "12:00 AM";
+
 const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const [activePage, setActivePage] = useState("dashboard");
   const [appointmentFilter, setAppointmentFilter] = useState("All");
   const [appointmentSearch, setAppointmentSearch] = useState("");
   const [prescriptionSearch, setPrescriptionSearch] = useState("");
-  const [recordSearch, setRecordSearch] = useState("");
+  const [recordStatusFilter, setRecordStatusFilter] = useState("All");
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -55,12 +60,13 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [openActionsId, setOpenActionsId] = useState(null);
   const [patientSearch, setPatientSearch] = useState("");
+  const [currentTime, setCurrentTime] = useState(() => new Date());
   const [recordForm, setRecordForm] = useState({
     patientId: "",
     diagnosis: "",
     treatment: "",
     notes: "",
-    status: "Active",
+    status: "Ongoing",
   });
   const [prescriptions, setPrescriptions] = useState([]);
   const [prescriptionForm, setPrescriptionForm] = useState({
@@ -87,19 +93,20 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSaveMessage, setProfileSaveMessage] = useState(null);
   const [profileSuccessPopupOpen, setProfileSuccessPopupOpen] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
   const [doctorSuccessPopup, setDoctorSuccessPopup] = useState({
     open: false,
     message: "",
   });
   const [error, setError] = useState(null);
   const [profileForm, setProfileForm] = useState({
-    fullName: loggedInUser?.name || "Dr. Sarah Jenkins",
-    email: loggedInUser?.email || "sarah.j@hospital.com",
-    phone: "+1 234-567-8901",
-    specialization: "Cardiology",
-    department: "Cardiology",
-    yearsExperience: "12",
-    bio: "",
+    fullName: loggedInUser?.name || "",
+    email: loggedInUser?.email || "",
+    phone: loggedInUser?.phone || "",
+    specialization: loggedInUser?.specialty || "",
+    department: loggedInUser?.department || "",
+    yearsExperience: loggedInUser?.experience !== undefined && loggedInUser?.experience !== null ? String(loggedInUser.experience) : "",
+    bio: loggedInUser?.bio || "",
   });
   const accountMenuRef = useRef(null);
   const notificationsRef = useRef(null);
@@ -129,11 +136,63 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     };
   }, [showNotifications, showAccountMenu]);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   const normalizeMedicalRecords = (items = []) =>
     items.map((record) => ({
       ...record,
       patientName: record.patientName || record.patient_name || "Unknown Patient",
     }));
+
+  const getDoctorAvailability = (now) => {
+    const day = now.getDay();
+    if (day === 0 || day === 6) {
+      return {
+        label: "On Leave",
+        classes: darkMode
+          ? "bg-amber-500/15 text-amber-300"
+          : "bg-amber-100 text-amber-700",
+      };
+    }
+
+    const hour = now.getHours();
+    const isWithinSchedule = hour >= 8 && hour < 24;
+
+    if (isWithinSchedule) {
+      return {
+        label: "Available",
+        classes: darkMode
+          ? "bg-emerald-500/15 text-emerald-300"
+          : "bg-emerald-100 text-emerald-700",
+      };
+    }
+
+    return {
+      label: "Off Duty",
+      classes: darkMode
+        ? "bg-slate-700 text-slate-200"
+        : "bg-slate-100 text-slate-700",
+    };
+  };
+
+  const doctorAvailability = getDoctorAvailability(currentTime);
+
+  const createProfileFormFromUser = (user, prev = {}) => ({
+    ...prev,
+    fullName: user?.name ?? "",
+    email: user?.email ?? "",
+    phone: user?.phone ?? "",
+    specialization: user?.specialty ?? "",
+    department: user?.department ?? "",
+    yearsExperience: user?.experience !== undefined && user?.experience !== null ? String(user.experience) : "",
+    bio: user?.bio ?? "",
+  });
 
   const showDoctorSuccessPopup = (message) => {
     setDoctorSuccessPopup({
@@ -233,6 +292,33 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         ? "bg-slate-700 text-slate-200"
         : "bg-slate-100 text-slate-700";
     }
+    return darkMode
+      ? "bg-slate-700 text-slate-200"
+      : "bg-slate-100 text-slate-700";
+  };
+
+  const getMedicalRecordStatusBadgeClass = (status) => {
+    if (status === "Critical") {
+      return darkMode
+        ? "bg-red-500/15 text-red-300"
+        : "bg-red-100 text-red-700";
+    }
+    if (status === "Recovered") {
+      return darkMode
+        ? "bg-emerald-500/15 text-emerald-300"
+        : "bg-emerald-100 text-emerald-700";
+    }
+    if (status === "Stable") {
+      return darkMode
+        ? "bg-blue-500/15 text-blue-300"
+        : "bg-blue-100 text-blue-700";
+    }
+    if (status === "Ongoing") {
+      return darkMode
+        ? "bg-amber-500/15 text-amber-300"
+        : "bg-amber-100 text-amber-700";
+    }
+
     return darkMode
       ? "bg-slate-700 text-slate-200"
       : "bg-slate-100 text-slate-700";
@@ -385,17 +471,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     console.log("  loggedInUser:", loggedInUser);
 
     setProfileForm((prev) => {
-      const newForm = {
-        ...prev,
-        // Always update with loggedInUser values, even if empty
-        fullName: loggedInUser.name !== undefined && loggedInUser.name !== null ? loggedInUser.name : prev.fullName,
-        email: loggedInUser.email !== undefined && loggedInUser.email !== null ? loggedInUser.email : prev.email,
-        phone: loggedInUser.phone !== undefined && loggedInUser.phone !== null ? loggedInUser.phone : prev.phone,
-        specialization: loggedInUser.specialty !== undefined && loggedInUser.specialty !== null ? loggedInUser.specialty : prev.specialization,
-        department: loggedInUser.department !== undefined && loggedInUser.department !== null ? loggedInUser.department : prev.department,
-        yearsExperience: loggedInUser.experience !== null && loggedInUser.experience !== undefined ? String(loggedInUser.experience) : prev.yearsExperience,
-        bio: loggedInUser.bio !== undefined && loggedInUser.bio !== null ? loggedInUser.bio : prev.bio,
-      };
+      const newForm = createProfileFormFromUser(loggedInUser, prev);
       console.log("  Updated profileForm:", newForm);
       return newForm;
     });
@@ -485,14 +561,25 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       setSavingProfile(true);
       setProfileSaveMessage(null);
 
+      const trimmedName = profileForm.fullName?.trim() || "";
+      const trimmedEmail = profileForm.email?.trim() || "";
+
+      if (!trimmedName || !trimmedEmail) {
+        setProfileSaveMessage({
+          type: "error",
+          text: "Name and email are required.",
+        });
+        return;
+      }
+
       const profileData = {
-        name: profileForm.fullName,
-        email: profileForm.email,
-        phone: profileForm.phone,
-        specialization: profileForm.specialization,
-        department: profileForm.department,
+        name: trimmedName,
+        email: trimmedEmail,
+        phone: profileForm.phone?.trim() || null,
+        specialization: profileForm.specialization?.trim() || null,
+        department: profileForm.department?.trim() || null,
         yearsExperience: profileForm.yearsExperience,
-        bio: profileForm.bio,
+        bio: profileForm.bio?.trim() || null,
       };
 
       console.log("💾 Sending profile update:");
@@ -525,6 +612,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         text: response.data?.message || "Profile updated successfully!",
       });
       setProfileSuccessPopupOpen(true);
+      setEditingProfile(false);
 
       // Clear success message after 3 seconds
       setTimeout(() => setProfileSaveMessage(null), 3000);
@@ -742,7 +830,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         diagnosis: "",
         treatment: "",
         notes: "",
-        status: "Active",
+        status: "Ongoing",
       });
       setShowAddRecordModal(false);
       showDoctorSuccessPopup("Medical Record Added Successfully");
@@ -1081,7 +1169,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 (a, b) => new Date(b.record_date || b.date || 0) - new Date(a.record_date || a.date || 0)
               )[0];
               const conditionText = patient.condition || latestRecord?.diagnosis || latestRecord?.title || "No condition noted";
-              const status = latestAppointment ? latestAppointment.status : "No Appointments";
+              const status = patient.medical_status || latestRecord?.status || "No Records";
               const avatarTone = darkMode ? "from-slate-700 to-slate-800 text-slate-100" : "from-orange-100 to-amber-50 text-slate-700";
 
               return (
@@ -1107,7 +1195,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                           </p>
                         </div>
 
-                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getStatusBadgeClass(status)}`}>
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getMedicalRecordStatusBadgeClass(status)}`}>
                           {status}
                         </span>
                       </div>
@@ -1347,16 +1435,26 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   };
 
   const renderMedicalRecordsPage = () => {
-    const normalizedRecordSearch = recordSearch.trim().toLowerCase();
+    const statusOrder = {
+      Ongoing: 0,
+      Stable: 1,
+      Recovered: 2,
+      Critical: 3,
+    };
+
     const filteredRecords = (selectedPatient
       ? records.filter((record) => record.patient_id === selectedPatient.id || record.patientId === selectedPatient.id)
       : records
-    ).filter((record) =>
-      !normalizedRecordSearch ||
-      (record.patientName || record.patient_name || "Unknown Patient")
-        .toLowerCase()
-        .includes(normalizedRecordSearch)
-    );
+    )
+      .filter((record) => recordStatusFilter === "All" || (record.status || "Ongoing") === recordStatusFilter)
+      .sort((a, b) => {
+        const statusDiff =
+          (statusOrder[a.status || "Ongoing"] ?? 99) - (statusOrder[b.status || "Ongoing"] ?? 99);
+
+        if (statusDiff !== 0) return statusDiff;
+
+        return new Date(b.record_date || 0) - new Date(a.record_date || 0);
+      });
 
     return (
       <div className="p-9">
@@ -1391,15 +1489,25 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           </button>
         </div>
 
-        <div className={`mb-8 flex items-center gap-3 rounded-2xl border ${borderSoft} px-4 py-3 ${panelBg} shadow-sm`}>
-          <Search size={18} className={textMuted} />
-          <input
-            type="text"
-            value={recordSearch}
-            onChange={(e) => setRecordSearch(e.target.value)}
-            placeholder="Search by patient name"
-            className={`w-full bg-transparent text-sm outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder:text-slate-400"}`}
-          />
+        <div className={`mb-8 flex flex-wrap gap-3 rounded-2xl border ${borderSoft} px-4 py-4 ${panelBg} shadow-sm`}>
+          {["All", "Ongoing", "Stable", "Recovered", "Critical"].map((statusOption) => (
+            <button
+              key={statusOption}
+              type="button"
+              onClick={() => setRecordStatusFilter(statusOption)}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                recordStatusFilter === statusOption
+                  ? darkMode
+                    ? "bg-teal-500/20 text-teal-300"
+                    : "bg-teal-100 text-teal-700"
+                  : darkMode
+                  ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              {statusOption}
+            </button>
+          ))}
         </div>
 
         {filteredRecords.length === 0 ? (
@@ -1409,14 +1517,14 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 ? selectedPatient
                   ? "No records found for this patient."
                   : "No medical records found yet."
-                : "No medical records match that patient name."}
+                : `No medical records found for ${recordStatusFilter}.`}
             </p>
             <p className={`mt-3 text-sm ${textSoft}`}>
               {records.length === 0
                 ? selectedPatient
                   ? "Try another patient or clear the filter to view all records."
                   : "Add a new record to begin tracking patient history, or verify that patients are assigned to this doctor."
-                : "Try another name or clear the search."}
+                : "Choose another status tab or switch back to All."}
             </p>
           </div>
         ) : (
@@ -1458,20 +1566,15 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
                 <div>
                   <select
-                    value={record.status || "Active"}
+                    value={record.status || "Ongoing"}
                     onChange={(e) => handleUpdateRecordStatus(record.id, e.target.value)}
-                    className={`rounded-full px-3 py-1 text-xs font-medium border-none outline-none ${
-                      record.status === "Completed"
-                        ? darkMode
-                          ? "bg-emerald-500/15 text-emerald-300"
-                          : "bg-green-100 text-green-700"
-                        : darkMode
-                        ? "bg-blue-500/15 text-blue-300"
-                        : "bg-blue-100 text-blue-700"
-                    }`}
+                    className={`rounded-full px-3 py-1 text-xs font-medium border-none outline-none ${getMedicalRecordStatusBadgeClass(record.status || "Ongoing")}`}
                   >
-                    <option value="Active">Active</option>
-                    <option value="Completed">Completed</option>
+                    {MEDICAL_RECORD_STATUSES.map((statusOption) => (
+                      <option key={statusOption} value={statusOption}>
+                        {statusOption}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -1586,8 +1689,11 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                     onChange={(e) => setRecordForm({ ...recordForm, status: e.target.value })}
                     className={inputClasses}
                   >
-                    <option value="Active">Active</option>
-                    <option value="Completed">Completed</option>
+                    {MEDICAL_RECORD_STATUSES.map((statusOption) => (
+                      <option key={statusOption} value={statusOption}>
+                        {statusOption}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -2311,30 +2417,38 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
             </div>
           </div>
 
-          <div className={`rounded-2xl border px-5 py-4 shadow-sm ${
-            darkMode ? "border-teal-900 bg-teal-950/30" : "border-teal-200 bg-teal-50"
-          }`}>
-            <p className={`text-xs font-bold uppercase tracking-[0.2em] ${
-              darkMode ? "text-teal-200" : "text-teal-700"
-            }`}>
-              Profile Action
-            </p>
-            <p className={`mt-2 text-sm ${
-              darkMode ? "text-slate-300" : "text-slate-600"
-            }`}>
-              Need to update your information? Edit the fields below, then save your profile.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                const profileSection = document.getElementById("doctor-profile-form");
-                profileSection?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-teal-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-700"
-            >
-              <Pencil size={16} />
-              Edit Profile Below
-            </button>
+        </div>
+      </div>
+
+      <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className={`rounded-[28px] border p-5 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+          <p className={`text-sm ${textMuted}`}>Working Days</p>
+          <div className="mt-2 flex items-center gap-3">
+            <CalendarDays size={18} className={textMuted} />
+            <p className="text-[22px] font-semibold">{DOCTOR_WORKING_DAYS}</p>
+          </div>
+        </div>
+
+        <div className={`rounded-[28px] border p-5 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+          <p className={`text-sm ${textMuted}`}>Time Schedule</p>
+          <div className="mt-2 flex items-start gap-3">
+            <Clock3 size={18} className={textMuted} />
+            <div>
+              <p className="text-sm font-medium">Start Time</p>
+              <p className="text-[20px] font-semibold">{DOCTOR_SCHEDULE_START}</p>
+              <p className="mt-2 text-sm font-medium">End Time</p>
+              <p className="text-[20px] font-semibold">{DOCTOR_SCHEDULE_END}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className={`rounded-[28px] border p-5 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+          <p className={`text-sm ${textMuted}`}>Availability Status</p>
+          <div className="mt-2 flex items-center gap-3">
+            <Activity size={18} className={textMuted} />
+            <span className={`inline-flex rounded-full px-4 py-2 text-sm font-semibold ${doctorAvailability.classes}`}>
+              {doctorAvailability.label}
+            </span>
           </div>
         </div>
       </div>
@@ -2346,108 +2460,157 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
             <p className={`mt-2 text-sm ${textMuted}`}>Update your profile details here.</p>
           </div>
 
-          <div className={`inline-flex items-center gap-2 self-start rounded-full px-4 py-2 text-sm font-semibold ${
-            darkMode ? "bg-teal-900/40 text-teal-200" : "bg-teal-100 text-teal-700"
-          }`}>
+          <button
+            type="button"
+            onClick={() => {
+              if (!editingProfile) {
+                setProfileForm((prev) => createProfileFormFromUser(loggedInUser, prev));
+                const profileSection = document.getElementById("doctor-profile-form");
+                profileSection?.scrollIntoView({ behavior: "smooth", block: "start" });
+              } else {
+                setProfileForm((prev) => createProfileFormFromUser(loggedInUser, prev));
+              }
+              setProfileSaveMessage(null);
+              setEditingProfile((prev) => !prev);
+            }}
+            className={`inline-flex items-center gap-3 self-start rounded-2xl px-7 py-4 text-base font-semibold text-white shadow-lg transition hover:-translate-y-0.5 ${
+              editingProfile ? "bg-slate-500 hover:bg-slate-600" : "bg-teal-600 hover:bg-teal-700"
+            }`}
+          >
             <Pencil size={16} />
-            Editable Section
-          </div>
+            {editingProfile ? "Cancel Editing" : "Edit Profile"}
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <div>
-            <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Full Name</label>
-            <div className={`flex items-center gap-3 rounded-lg border ${borderSoft} px-4 py-3 ${darkMode ? "bg-slate-800" : "bg-white"}`}>
-              <Users size={18} className={textMuted} />
-              <input
-                type="text"
-                value={profileForm.fullName}
-                onChange={(e) => setProfileForm({ ...profileForm, fullName: e.target.value })}
-                className={`flex-1 bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder-slate-400"}`}
+        {editingProfile ? (
+          <>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <div>
+                <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Full Name</label>
+                <div className={`flex items-center gap-3 rounded-lg border ${borderSoft} px-4 py-3 ${darkMode ? "bg-slate-800" : "bg-white"}`}>
+                  <Users size={18} className={textMuted} />
+                  <input
+                    type="text"
+                    value={profileForm.fullName}
+                    onChange={(e) => setProfileForm({ ...profileForm, fullName: e.target.value })}
+                    className={`flex-1 bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder-slate-400"}`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Email Address</label>
+                <div className={`flex items-center gap-3 rounded-lg border ${borderSoft} px-4 py-3 ${darkMode ? "bg-slate-800" : "bg-white"}`}>
+                  <Mail size={18} className={textMuted} />
+                  <input
+                    type="email"
+                    value={profileForm.email}
+                    onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
+                    className={`flex-1 bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder-slate-400"}`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Phone Number</label>
+                <div className={`flex items-center gap-3 rounded-lg border ${borderSoft} px-4 py-3 ${darkMode ? "bg-slate-800" : "bg-white"}`}>
+                  <Phone size={18} className={textMuted} />
+                  <input
+                    type="tel"
+                    value={profileForm.phone}
+                    onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                    className={`flex-1 bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder-slate-400"}`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Specialization</label>
+                <div className={`flex items-center gap-3 rounded-lg border ${borderSoft} px-4 py-3 ${darkMode ? "bg-slate-800" : "bg-white"}`}>
+                  <Pencil size={18} className={textMuted} />
+                  <input
+                    type="text"
+                    value={profileForm.specialization}
+                    onChange={(e) => setProfileForm({ ...profileForm, specialization: e.target.value })}
+                    className={`flex-1 bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder-slate-400"}`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Department</label>
+                <select
+                  value={profileForm.department}
+                  onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })}
+                  className={inputClasses}
+                >
+                  <option value="">Select Department</option>
+                  <option>Cardiology</option>
+                  <option>Neurology</option>
+                  <option>Orthopedics</option>
+                  <option>Pediatrics</option>
+                  <option>Dermatology</option>
+                  <option>General Medicine</option>
+                  <option>Surgery</option>
+                  <option>Internal Medicine</option>
+                  <option>Pathology</option>
+                </select>
+              </div>
+
+              <div>
+                <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Years of Experience</label>
+                <input
+                  type="number"
+                  value={profileForm.yearsExperience}
+                  onChange={(e) => setProfileForm({ ...profileForm, yearsExperience: e.target.value })}
+                  className={inputClasses}
+                />
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Bio</label>
+              <textarea
+                value={profileForm.bio}
+                onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })}
+                placeholder="Tell patients about yourself..."
+                className={`${inputClasses} resize-none`}
+                rows="5"
               />
             </div>
-          </div>
-
-          <div>
-            <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Email Address</label>
-            <div className={`flex items-center gap-3 rounded-lg border ${borderSoft} px-4 py-3 ${darkMode ? "bg-slate-800" : "bg-white"}`}>
-              <Mail size={18} className={textMuted} />
-              <input
-                type="email"
-                value={profileForm.email}
-                onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
-                className={`flex-1 bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder-slate-400"}`}
-              />
+          </>
+        ) : (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+              <p className={`text-sm ${textMuted}`}>Full Name</p>
+              <p className="mt-3 text-[18px] font-medium">{profileForm.fullName || "Not set"}</p>
+            </div>
+            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+              <p className={`text-sm ${textMuted}`}>Email Address</p>
+              <p className="mt-3 text-[18px] font-medium">{profileForm.email || "Not set"}</p>
+            </div>
+            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+              <p className={`text-sm ${textMuted}`}>Phone Number</p>
+              <p className="mt-3 text-[18px] font-medium">{profileForm.phone || "Not set"}</p>
+            </div>
+            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+              <p className={`text-sm ${textMuted}`}>Specialization</p>
+              <p className="mt-3 text-[18px] font-medium">{profileForm.specialization || "Not set"}</p>
+            </div>
+            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+              <p className={`text-sm ${textMuted}`}>Department</p>
+              <p className="mt-3 text-[18px] font-medium">{profileForm.department || "Not set"}</p>
+            </div>
+            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+              <p className={`text-sm ${textMuted}`}>Years of Experience</p>
+              <p className="mt-3 text-[18px] font-medium">{profileForm.yearsExperience || "Not set"}</p>
+            </div>
+            <div className={`rounded-3xl border p-6 md:col-span-2 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+              <p className={`text-sm ${textMuted}`}>Bio</p>
+              <p className="mt-3 text-[18px] font-medium">{profileForm.bio || "Not set"}</p>
             </div>
           </div>
-
-          <div>
-            <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Phone Number</label>
-            <div className={`flex items-center gap-3 rounded-lg border ${borderSoft} px-4 py-3 ${darkMode ? "bg-slate-800" : "bg-white"}`}>
-              <Phone size={18} className={textMuted} />
-              <input
-                type="tel"
-                value={profileForm.phone}
-                onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
-                className={`flex-1 bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder-slate-400"}`}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Specialization</label>
-            <div className={`flex items-center gap-3 rounded-lg border ${borderSoft} px-4 py-3 ${darkMode ? "bg-slate-800" : "bg-white"}`}>
-              <Pencil size={18} className={textMuted} />
-              <input
-                type="text"
-                value={profileForm.specialization}
-                onChange={(e) => setProfileForm({ ...profileForm, specialization: e.target.value })}
-                className={`flex-1 bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder-slate-400"}`}
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Department</label>
-            <select
-              value={profileForm.department}
-              onChange={(e) => setProfileForm({ ...profileForm, department: e.target.value })}
-              className={inputClasses}
-            >
-              <option value="">Select Department</option>
-              <option>Cardiology</option>
-              <option>Neurology</option>
-              <option>Orthopedics</option>
-              <option>Pediatrics</option>
-              <option>Dermatology</option>
-              <option>General Medicine</option>
-              <option>Surgery</option>
-              <option>Internal Medicine</option>
-              <option>Pathology</option>
-            </select>
-          </div>
-
-          <div>
-            <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Years of Experience</label>
-            <input
-              type="number"
-              value={profileForm.yearsExperience}
-              onChange={(e) => setProfileForm({ ...profileForm, yearsExperience: e.target.value })}
-              className={inputClasses}
-            />
-          </div>
-        </div>
-
-        <div className="mt-6">
-          <label className={`mb-2 block text-sm font-semibold ${darkMode ? "text-slate-300" : "text-slate-700"}`}>Bio</label>
-          <textarea
-            value={profileForm.bio}
-            onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })}
-            placeholder="Tell patients about yourself..."
-            className={`${inputClasses} resize-none`}
-            rows="5"
-          />
-        </div>
+        )}
 
         <SuccessPopup
           open={profileSuccessPopupOpen}
@@ -2467,29 +2630,31 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           </div>
         )}
 
-        <div className="mt-8 flex justify-between gap-4 border-t pt-6">
-          <div className={`max-w-sm text-sm ${textMuted}`}>
-            Review your changes, then press the button on the right to update your doctor profile.
+        {editingProfile && (
+          <div className="mt-8 flex justify-between gap-4 border-t pt-6">
+            <div className={`max-w-sm text-sm ${textMuted}`}>
+              Review your changes, then press the button on the right to update your doctor profile.
+            </div>
+            <button
+              onClick={handleSaveProfile}
+              disabled={savingProfile}
+              className={`flex items-center gap-2 rounded-lg px-8 py-3 font-semibold text-white transition ${
+                savingProfile
+                  ? "bg-gray-400 cursor-not-allowed"
+                  : "bg-teal-600 hover:bg-teal-700"
+              }`}
+            >
+              {savingProfile ? (
+                <>
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                  Saving...
+                </>
+              ) : (
+                "Save Changes"
+              )}
+            </button>
           </div>
-          <button
-            onClick={handleSaveProfile}
-            disabled={savingProfile}
-            className={`flex items-center gap-2 rounded-lg px-8 py-3 font-semibold text-white transition ${
-              savingProfile
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-teal-600 hover:bg-teal-700"
-            }`}
-          >
-            {savingProfile ? (
-              <>
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-                Saving...
-              </>
-            ) : (
-              "Save Changes"
-            )}
-          </button>
-        </div>
+        )}
       </div>
 
 

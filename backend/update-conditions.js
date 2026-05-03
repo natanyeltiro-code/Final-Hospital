@@ -17,11 +17,19 @@ connection.connect((err) => {
   // Update patient conditions from their medical records (most recent diagnosis)
   const sql = `
     UPDATE users u
-    SET u.\`condition\` = (
-      SELECT mr.diagnosis
+    SET
+      u.\`condition\` = (
+        SELECT mr.diagnosis
+        FROM medical_records mr
+        WHERE mr.patient_id = u.id
+        ORDER BY mr.record_date DESC, mr.updated_at DESC, mr.id DESC
+        LIMIT 1
+      ),
+      u.medical_status = (
+        SELECT mr.status
       FROM medical_records mr
       WHERE mr.patient_id = u.id
-      ORDER BY mr.record_date DESC
+      ORDER BY mr.record_date DESC, mr.updated_at DESC, mr.id DESC
       LIMIT 1
     )
     WHERE u.role = 'patient' AND EXISTS (

@@ -7,6 +7,155 @@ const db = require("./config/db");
 const { signToken, authenticateToken, authorizeRoles } = require("./middleware/auth");
 
 const app = express();
+const MEDICAL_RECORD_STATUSES = ["Ongoing", "Stable", "Recovered", "Critical"];
+
+const getNormalizedMedicalRecordStatus = (status) => {
+  if (!status) return "Ongoing";
+
+  const legacyStatusMap = {
+    Active: "Ongoing",
+    Draft: "Ongoing",
+    Archived: "Stable",
+    Reviewed: "Stable",
+    Completed: "Recovered",
+  };
+
+  return legacyStatusMap[status] || status;
+};
+
+const isValidMedicalRecordStatus = (status) =>
+  MEDICAL_RECORD_STATUSES.includes(getNormalizedMedicalRecordStatus(status));
+
+const ensureMedicalStatusColumn = (callback) => {
+  const sql = "ALTER TABLE users ADD COLUMN medical_status VARCHAR(50)";
+  db.query(sql, (err) => {
+    if (
+      err &&
+      !err.message.includes("Duplicate column") &&
+      !err.message.includes("already exists")
+    ) {
+      callback(err);
+      return;
+    }
+
+    callback(null);
+  });
+};
+
+const ensureMedicalRecordPatientNameSnapshotColumn = (callback) => {
+  const sql = "ALTER TABLE medical_records ADD COLUMN patient_name_snapshot VARCHAR(255) AFTER patient_id";
+  db.query(sql, (err) => {
+    if (
+      err &&
+      !err.message.includes("Duplicate column") &&
+      !err.message.includes("already exists")
+    ) {
+      callback(err);
+      return;
+    }
+
+    callback(null);
+  });
+};
+
+const ensureMedicalRecordStatusEnum = (callback) => {
+  const normalizeSql = `
+    UPDATE medical_records
+    SET status = CASE
+      WHEN status IN ('Active', 'Draft') THEN 'Ongoing'
+      WHEN status IN ('Archived', 'Reviewed') THEN 'Stable'
+      WHEN status = 'Completed' THEN 'Recovered'
+      ELSE status
+    END
+    WHERE status IN ('Active', 'Draft', 'Archived', 'Reviewed', 'Completed')
+  `;
+
+  db.query(normalizeSql, (normalizeErr) => {
+    if (normalizeErr) {
+      callback(normalizeErr);
+      return;
+    }
+
+    const alterSql = `
+      ALTER TABLE medical_records
+      MODIFY COLUMN status ENUM('Ongoing', 'Stable', 'Recovered', 'Critical') DEFAULT 'Ongoing'
+    `;
+
+    db.query(alterSql, (alterErr) => {
+      if (
+        alterErr &&
+        !alterErr.message.includes("Duplicate") &&
+        !alterErr.message.includes("already exists")
+      ) {
+        callback(alterErr);
+        return;
+      }
+
+      callback(null);
+    });
+  });
+};
+
+const shouldRetryMedicalStatusSync = (err) =>
+  err?.message?.includes("Unknown column") && err.message.includes("medical_status");
+
+const shouldRetryMedicalRecordStatusWrite = (err) => {
+  const message = err?.message || "";
+  return (
+    message.includes("Data truncated") ||
+    message.includes("Incorrect") ||
+    (message.includes("status") && message.includes("medical_records"))
+  );
+};
+
+const shouldRetryMedicalRecordPatientNameSnapshotWrite = (err) => {
+  const message = err?.message || "";
+  return message.includes("Unknown column") && message.includes("patient_name_snapshot");
+};
+
+const syncPatientMedicalSummary = (patientId, callback) => {
+  const latestRecordSql = `
+    SELECT diagnosis, status
+    FROM medical_records
+    WHERE patient_id = ?
+    ORDER BY record_date DESC, updated_at DESC, id DESC
+    LIMIT 1
+  `;
+
+  db.query(latestRecordSql, [patientId], (latestErr, latestResults) => {
+    if (latestErr) {
+      callback(latestErr);
+      return;
+    }
+
+    if (!latestResults.length) {
+      const clearSummarySql = "UPDATE users SET `condition` = NULL, medical_status = NULL WHERE id = ?";
+      db.query(clearSummarySql, [patientId], callback);
+      return;
+    }
+
+    const latestRecord = latestResults[0];
+    const patientCondition = latestRecord.diagnosis || null;
+    const patientStatus = getNormalizedMedicalRecordStatus(latestRecord.status);
+    const updateSummarySql = "UPDATE users SET `condition` = ?, medical_status = ? WHERE id = ?";
+
+    db.query(updateSummarySql, [patientCondition, patientStatus, patientId], (updateErr) => {
+      if (shouldRetryMedicalStatusSync(updateErr)) {
+        ensureMedicalStatusColumn((columnErr) => {
+          if (columnErr) {
+            callback(columnErr);
+            return;
+          }
+
+          db.query(updateSummarySql, [patientCondition, patientStatus, patientId], callback);
+        });
+        return;
+      }
+
+      callback(updateErr);
+    });
+  });
+};
 
 // Database schema initialization - creates missing columns automatically
 const initializeSchema = () => {
@@ -26,6 +175,7 @@ const initializeSchema = () => {
     { name: "bio", type: "TEXT" },
     { name: "rating", type: "DECIMAL(2,1) DEFAULT 4.5" },
     { name: "experience", type: "INT DEFAULT 0" },
+    { name: "medical_status", type: "VARCHAR(50)" },
   ];
 
   // Use promises to ensure columns are created sequentially
@@ -50,7 +200,80 @@ const initializeSchema = () => {
         });
       });
     }
-    
+
+    await new Promise((resolve) => {
+      console.log("  🔧 Normalizing medical record statuses...");
+      const normalizeStatusesSql = `
+        UPDATE medical_records
+        SET status = CASE
+          WHEN status IN ('Active', 'Draft') THEN 'Ongoing'
+          WHEN status IN ('Archived', 'Reviewed') THEN 'Stable'
+          WHEN status = 'Completed' THEN 'Recovered'
+          ELSE status
+        END
+        WHERE status IN ('Active', 'Draft', 'Archived', 'Reviewed', 'Completed')
+      `;
+
+      db.query(normalizeStatusesSql, (err) => {
+        if (err) {
+          console.log(`  ⚠️  medical_records status normalization: ${err.message.substring(0, 60)}`);
+        } else {
+          console.log("  ✅ medical_records status values normalized");
+        }
+        resolve();
+      });
+    });
+
+    await new Promise((resolve) => {
+      const medicalRecordStatusSql = `
+        ALTER TABLE medical_records
+        MODIFY COLUMN status ENUM('Ongoing', 'Stable', 'Recovered', 'Critical') DEFAULT 'Ongoing'
+      `;
+
+      db.query(medicalRecordStatusSql, (err) => {
+        if (err) {
+          console.log(`  ⚠️  medical_records status enum: ${err.message.substring(0, 60)}`);
+        } else {
+          console.log("  ✅ medical_records status enum updated");
+        }
+        resolve();
+      });
+    });
+
+    await new Promise((resolve) => {
+      const sql = "ALTER TABLE medical_records ADD COLUMN patient_name_snapshot VARCHAR(255) AFTER patient_id";
+      db.query(sql, (err) => {
+        if (err) {
+          if (err.message.includes("Duplicate column") || err.message.includes("already exists")) {
+            console.log("  ℹ️  Column patient_name_snapshot already exists");
+          } else {
+            console.log(`  ⚠️  medical_records patient_name_snapshot: ${err.message.substring(0, 60)}`);
+          }
+        } else {
+          console.log("  ✅ patient_name_snapshot column added to medical_records");
+        }
+        resolve();
+      });
+    });
+
+    await new Promise((resolve) => {
+      console.log("  🔧 Backfilling patient name snapshots...");
+      const sql = `
+        UPDATE medical_records mr
+        JOIN users u ON mr.patient_id = u.id
+        SET mr.patient_name_snapshot = u.name
+        WHERE mr.patient_name_snapshot IS NULL OR mr.patient_name_snapshot = ''
+      `;
+      db.query(sql, (err) => {
+        if (err) {
+          console.log(`  ⚠️  patient_name_snapshot backfill: ${err.message.substring(0, 60)}`);
+        } else {
+          console.log("  ✅ patient_name_snapshot values backfilled");
+        }
+        resolve();
+      });
+    });
+
     // Now fix appointments table
     await new Promise((resolve) => {
       console.log("  🔧 Modifying appointments table...");
@@ -98,7 +321,39 @@ const initializeSchema = () => {
         resolve();
       });
     });
-    
+
+    await new Promise((resolve) => {
+      console.log("  🔧 Refreshing patient medical summaries...");
+      const refreshSummarySql = `
+        UPDATE users u
+        SET
+          u.\`condition\` = (
+            SELECT mr.diagnosis
+            FROM medical_records mr
+            WHERE mr.patient_id = u.id
+            ORDER BY mr.record_date DESC, mr.updated_at DESC, mr.id DESC
+            LIMIT 1
+          ),
+          u.medical_status = (
+            SELECT mr.status
+            FROM medical_records mr
+            WHERE mr.patient_id = u.id
+            ORDER BY mr.record_date DESC, mr.updated_at DESC, mr.id DESC
+            LIMIT 1
+          )
+        WHERE u.role = 'patient'
+      `;
+
+      db.query(refreshSummarySql, (err) => {
+        if (err) {
+          console.log(`  ⚠️  patient medical summary refresh: ${err.message.substring(0, 60)}`);
+        } else {
+          console.log("  ✅ patient medical summaries refreshed");
+        }
+        resolve();
+      });
+    });
+
     // Create notifications table
     await new Promise((resolve) => {
       console.log("  🔧 Creating notifications table...");
@@ -283,20 +538,6 @@ const initializeSchema = () => {
           }
         } else {
           console.log("  ✅ Foreign key for prescriptions.medical_record_id created");
-        }
-        resolve();
-      });
-    });
-
-    // Ensure medical_records status supports "Completed"
-    await new Promise((resolve) => {
-      const sql =
-        "ALTER TABLE medical_records MODIFY status ENUM('Draft', 'Active', 'Archived', 'Reviewed', 'Completed') DEFAULT 'Active'";
-      db.query(sql, (err) => {
-        if (err) {
-          console.log(`  ⚠️  medical_records.status enum: ${err.message.substring(0, 60)}`);
-        } else {
-          console.log("  ✅ medical_records.status enum updated with Completed");
         }
         resolve();
       });
@@ -989,7 +1230,7 @@ app.post("/forgot-password/reset", async (req, res) => {
 
 /* GET ALL PATIENTS */
 app.get("/patients", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
-  const sql = "SELECT id, name, email, role, age, gender, phone, blood_group, `condition`, date_of_birth, created_at FROM users WHERE role = 'patient'";
+  const sql = "SELECT id, name, email, role, age, gender, phone, blood_group, `condition`, medical_status, date_of_birth, address, created_at FROM users WHERE role = 'patient'";
   
   db.query(sql, (err, results) => {
     if (err) {
@@ -1457,35 +1698,132 @@ app.put("/appointments/:appointmentId", (req, res) => {
 
 /* CREATE MEDICAL RECORD */
 app.post("/medical-records", (req, res) => {
-  const { patientId, doctorId, title, diagnosis, treatment, notes, status, recordDate } = req.body;
+  const { patientId, doctorId, title, diagnosis, treatment, notes, status, recordDate, record_date } = req.body;
 
   if (!patientId || !doctorId || !diagnosis || !treatment) {
     return res.status(400).json({ message: "❌ Please fill all required fields" });
   }
 
-  const recordTitle = title || diagnosis;
-  const sql = "INSERT INTO medical_records (patient_id, doctor_id, title, diagnosis, treatment, notes, status, record_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+  const normalizedStatus = getNormalizedMedicalRecordStatus(status);
+  if (!isValidMedicalRecordStatus(normalizedStatus)) {
+    return res.status(400).json({
+      message: `❌ Invalid medical record status. Must be one of: ${MEDICAL_RECORD_STATUSES.join(", ")}`,
+    });
+  }
 
-  db.query(
-    sql,
-    [patientId, doctorId, recordTitle, diagnosis, treatment, notes || "", status || "Active", recordDate || new Date()],
-    (err) => {
+  const recordTitle = title || diagnosis;
+  const sql = `
+    INSERT INTO medical_records (
+      patient_id,
+      patient_name_snapshot,
+      doctor_id,
+      title,
+      diagnosis,
+      treatment,
+      notes,
+      status,
+      record_date
+    )
+    SELECT ?, u.name, ?, ?, ?, ?, ?, ?, ?
+    FROM users u
+    WHERE u.id = ?
+    LIMIT 1
+  `;
+  const insertParams = [
+    patientId,
+    doctorId,
+    recordTitle,
+    diagnosis,
+    treatment,
+    notes || "",
+    normalizedStatus,
+    record_date || recordDate || new Date(),
+    patientId,
+  ];
+
+  const createMedicalRecord = () => {
+    db.query(sql, insertParams, (err, insertResult) => {
       if (err) {
+        if (shouldRetryMedicalRecordPatientNameSnapshotWrite(err)) {
+          ensureMedicalRecordPatientNameSnapshotColumn((schemaErr) => {
+            if (schemaErr) {
+              console.error("Error creating patient_name_snapshot column:", schemaErr);
+              return res.status(500).json({ message: "❌ Failed to prepare patient name snapshot column" });
+            }
+
+            db.query(sql, insertParams, (retryErr, retryInsertResult) => {
+              if (retryErr) {
+                console.error("Error creating medical record after patient name snapshot repair:", retryErr);
+                return res.status(500).json({ message: "❌ Failed to create medical record" });
+              }
+
+              if (!retryInsertResult || retryInsertResult.affectedRows === 0) {
+                return res.status(404).json({ message: "❌ Patient not found" });
+              }
+
+              syncPatientMedicalSummary(patientId, (updateErr) => {
+                if (updateErr) {
+                  console.error("Error updating patient medical summary:", updateErr);
+                  return res.status(500).json({ message: "❌ Medical record created, but failed to update patient medical summary" });
+                }
+
+                res.json({ message: "✅ Medical record created successfully" });
+              });
+            });
+          });
+          return;
+        }
+
+        if (shouldRetryMedicalRecordStatusWrite(err)) {
+          ensureMedicalRecordStatusEnum((schemaErr) => {
+            if (schemaErr) {
+              console.error("Error repairing medical_records status enum:", schemaErr);
+              return res.status(500).json({ message: "❌ Failed to prepare medical record status options" });
+            }
+
+            db.query(sql, insertParams, (retryErr, retryInsertResult) => {
+              if (retryErr) {
+                console.error("Error creating medical record after enum repair:", retryErr);
+                return res.status(500).json({ message: "❌ Failed to create medical record" });
+              }
+
+              if (!retryInsertResult || retryInsertResult.affectedRows === 0) {
+                return res.status(404).json({ message: "❌ Patient not found" });
+              }
+
+              syncPatientMedicalSummary(patientId, (updateErr) => {
+                if (updateErr) {
+                  console.error("Error updating patient medical summary:", updateErr);
+                  return res.status(500).json({ message: "❌ Medical record created, but failed to update patient medical summary" });
+                }
+
+                res.json({ message: "✅ Medical record created successfully" });
+              });
+            });
+          });
+          return;
+        }
+
         console.error("Error creating medical record:", err);
         return res.status(500).json({ message: "❌ Failed to create medical record" });
       }
 
-      const updateConditionSql = "UPDATE users SET `condition` = ? WHERE id = ?";
-      db.query(updateConditionSql, [diagnosis, patientId], (updateErr) => {
+      if (!insertResult || insertResult.affectedRows === 0) {
+        return res.status(404).json({ message: "❌ Patient not found" });
+      }
+
+      syncPatientMedicalSummary(patientId, (updateErr) => {
         if (updateErr) {
-          console.error("Error updating patient condition:", updateErr);
-          return res.status(500).json({ message: "❌ Medical record created, but failed to update patient condition" });
+          console.error("Error updating patient medical summary:", updateErr);
+          return res.status(500).json({ message: "❌ Medical record created, but failed to update patient medical summary" });
         }
 
         res.json({ message: "✅ Medical record created successfully" });
       });
-    }
-  );
+    });
+  };
+
+  createMedicalRecord();
 });
 
 /* GET MEDICAL RECORDS */
@@ -1521,16 +1859,51 @@ app.put("/users/:userId", authenticateToken, (req, res) => {
   console.log("req.body:", req.body);
 
   if (!userId || !name || !email) {
-    return res.status(400).json({ message: "❌ Missing required fields: userId, name, email" });
+    const missingFields = [];
+    if (!userId) missingFields.push("userId");
+    if (!name) missingFields.push("name");
+    if (!email) missingFields.push("email");
+    console.error("❌ Missing required fields:", missingFields);
+    return res.status(400).json({ message: `❌ Missing required fields: ${missingFields.join(", ")}` });
   }
 
   if (req.user.role !== "admin" && req.user.id !== Number(userId)) {
     console.log("Authorization failed:", { userRole: req.user.role, userId: req.user.id, requestedUserId: userId });
-    return res.status(403).json({ message: "Forbidden" });
+    return res.status(403).json({ message: "❌ Forbidden: You can only update your own profile" });
   }
+
+  const normalizeNullableString = (value) => {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    if (typeof value === "string") {
+      const trimmedValue = value.trim();
+      return trimmedValue === "" ? null : trimmedValue;
+    }
+    return value;
+  };
+
+  const normalizeDateValue = (value) => {
+    const normalizedValue = normalizeNullableString(value);
+    if (normalizedValue === undefined || normalizedValue === null) return normalizedValue;
+    if (typeof normalizedValue === "string") {
+      const dateOnlyMatch = normalizedValue.match(/^(\d{4}-\d{2}-\d{2})/);
+      return dateOnlyMatch ? dateOnlyMatch[1] : normalizedValue;
+    }
+    return normalizedValue;
+  };
 
   const parsedAge = age !== undefined && age !== null && age !== "" ? Number(age) : null;
   const parsedExperience = yearsExperience !== undefined && yearsExperience !== null && yearsExperience !== "" ? Number(yearsExperience) : null;
+  const normalizedPhone = normalizeNullableString(phone);
+  const normalizedBloodGroup = normalizeNullableString(bloodGroup);
+  const normalizedGender = normalizeNullableString(gender);
+  const normalizedDateOfBirth = normalizeDateValue(dateOfBirth);
+  const normalizedAddress = normalizeNullableString(address);
+  const normalizedEmergencyContact = normalizeNullableString(emergencyContact);
+  const normalizedSpecialization = normalizeNullableString(specialization);
+  const normalizedDepartment = normalizeNullableString(department);
+  const normalizedBio = normalizeNullableString(bio);
+  const normalizedCondition = normalizeNullableString(condition);
   const updateFields = [];
   const updateValues = [];
 
@@ -1543,18 +1916,18 @@ app.put("/users/:userId", authenticateToken, (req, res) => {
   // overwrite unrelated doctor fields with NULL when the modal omits them.
   addUpdateField("name", name);
   addUpdateField("email", email);
-  if (phone !== undefined) addUpdateField("phone", phone || null);
-  if (bloodGroup !== undefined) addUpdateField("blood_group", bloodGroup || null);
+  if (phone !== undefined) addUpdateField("phone", normalizedPhone);
+  if (bloodGroup !== undefined) addUpdateField("blood_group", normalizedBloodGroup);
   if (age !== undefined) addUpdateField("age", parsedAge);
-  if (gender !== undefined) addUpdateField("gender", gender || null);
-  if (dateOfBirth !== undefined) addUpdateField("date_of_birth", dateOfBirth || null);
-  if (address !== undefined) addUpdateField("address", address || null);
-  if (emergencyContact !== undefined) addUpdateField("emergency_contact", emergencyContact || null);
-  if (specialization !== undefined) addUpdateField("specialty", specialization || null);
-  if (department !== undefined) addUpdateField("department", department || null);
+  if (gender !== undefined) addUpdateField("gender", normalizedGender);
+  if (dateOfBirth !== undefined) addUpdateField("date_of_birth", normalizedDateOfBirth);
+  if (address !== undefined) addUpdateField("address", normalizedAddress);
+  if (emergencyContact !== undefined) addUpdateField("emergency_contact", normalizedEmergencyContact);
+  if (specialization !== undefined) addUpdateField("specialty", normalizedSpecialization);
+  if (department !== undefined) addUpdateField("department", normalizedDepartment);
   if (yearsExperience !== undefined) addUpdateField("experience", parsedExperience);
-  if (bio !== undefined) addUpdateField("bio", bio || null);
-  if (condition !== undefined) addUpdateField("`condition`", condition || null);
+  if (bio !== undefined) addUpdateField("bio", normalizedBio);
+  if (condition !== undefined) addUpdateField("`condition`", normalizedCondition);
 
   const sql = `UPDATE users SET ${updateFields.join(", ")} WHERE id = ?`;
 
@@ -1862,15 +2235,34 @@ const deleteAppointment = (appointmentId, res) => {
 /* DELETE MEDICAL RECORD */
 app.delete("/medical-records/:recordId", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
   const { recordId } = req.params;
-  
-  const sql = "DELETE FROM medical_records WHERE id = ?";
-  
-  db.query(sql, [recordId], (err) => {
-    if (err) {
-      return res.status(500).json({ message: "❌ Failed to delete medical record" });
+
+  const fetchPatientSql = "SELECT patient_id FROM medical_records WHERE id = ?";
+  db.query(fetchPatientSql, [recordId], (fetchErr, fetchResults) => {
+    if (fetchErr) {
+      return res.status(500).json({ message: "❌ Failed to fetch medical record" });
     }
-    
-    res.json({ message: "✅ Medical record deleted successfully" });
+
+    if (fetchResults.length === 0) {
+      return res.status(404).json({ message: "❌ Medical record not found" });
+    }
+
+    const patientId = fetchResults[0].patient_id;
+    const sql = "DELETE FROM medical_records WHERE id = ?";
+
+    db.query(sql, [recordId], (err) => {
+      if (err) {
+        return res.status(500).json({ message: "❌ Failed to delete medical record" });
+      }
+
+      syncPatientMedicalSummary(patientId, (updateErr) => {
+        if (updateErr) {
+          console.error("Error updating patient medical summary after delete:", updateErr);
+          return res.status(500).json({ message: "❌ Medical record deleted, but failed to refresh patient medical summary" });
+        }
+
+        res.json({ message: "✅ Medical record deleted successfully" });
+      });
+    });
   });
 });
 
@@ -2091,6 +2483,7 @@ app.patch("/medical-records/:recordId", (req, res) => {
 
   let updateFields = [];
   let params = [];
+  let normalizedStatus;
 
   if (title !== undefined) {
     updateFields.push("title = ?");
@@ -2109,8 +2502,14 @@ app.patch("/medical-records/:recordId", (req, res) => {
     params.push(notes);
   }
   if (status !== undefined) {
+    normalizedStatus = getNormalizedMedicalRecordStatus(status);
+    if (!isValidMedicalRecordStatus(normalizedStatus)) {
+      return res.status(400).json({
+        message: `❌ Invalid medical record status. Must be one of: ${MEDICAL_RECORD_STATUSES.join(", ")}`,
+      });
+    }
     updateFields.push("status = ?");
-    params.push(status);
+    params.push(normalizedStatus);
   }
   if (record_date !== undefined) {
     updateFields.push("record_date = ?");
@@ -2119,27 +2518,65 @@ app.patch("/medical-records/:recordId", (req, res) => {
 
   params.push(recordId);
   const sql = `UPDATE medical_records SET ${updateFields.join(", ")} WHERE id = ?`;
-
-  db.query(sql, params, (err) => {
+  const updateMedicalRecord = () => {
+    db.query(sql, params, (err) => {
     if (err) {
+      if (shouldRetryMedicalRecordStatusWrite(err)) {
+        ensureMedicalRecordStatusEnum((schemaErr) => {
+          if (schemaErr) {
+            console.error("Error repairing medical_records status enum:", schemaErr);
+            return res.status(500).json({ message: "❌ Failed to prepare medical record status options" });
+          }
+
+          db.query(sql, params, (retryErr) => {
+            if (retryErr) {
+              console.error("Error updating medical record after enum repair:", retryErr);
+              return res.status(500).json({ message: "❌ Failed to update medical record" });
+            }
+
+            if (diagnosis !== undefined || status !== undefined || record_date !== undefined) {
+              const fetchPatientSql = "SELECT patient_id FROM medical_records WHERE id = ?";
+              db.query(fetchPatientSql, [recordId], (fetchErr, fetchResults) => {
+                if (fetchErr || fetchResults.length === 0) {
+                  console.error("Error fetching record patient for medical summary update:", fetchErr);
+                  return res.status(500).json({ message: "❌ Medical record updated, but failed to locate patient" });
+                }
+
+                const patientId = fetchResults[0].patient_id;
+                syncPatientMedicalSummary(patientId, (updateErr) => {
+                  if (updateErr) {
+                    console.error("Error updating patient medical summary:", updateErr);
+                    return res.status(500).json({ message: "❌ Medical record updated, but failed to update patient medical summary" });
+                  }
+
+                  res.json({ message: "✅ Medical record updated successfully" });
+                });
+              });
+            } else {
+              res.json({ message: "✅ Medical record updated successfully" });
+            }
+          });
+        });
+        return;
+      }
+
       console.error("Error updating medical record:", err);
       return res.status(500).json({ message: "❌ Failed to update medical record" });
     }
 
-    if (diagnosis !== undefined) {
+    if (diagnosis !== undefined || status !== undefined || record_date !== undefined) {
       const fetchPatientSql = "SELECT patient_id FROM medical_records WHERE id = ?";
       db.query(fetchPatientSql, [recordId], (fetchErr, fetchResults) => {
         if (fetchErr || fetchResults.length === 0) {
-          console.error("Error fetching record patient for condition update:", fetchErr);
+          console.error("Error fetching record patient for medical summary update:", fetchErr);
           return res.status(500).json({ message: "❌ Medical record updated, but failed to locate patient" });
         }
 
         const patientId = fetchResults[0].patient_id;
-        const updateConditionSql = "UPDATE users SET `condition` = ? WHERE id = ?";
-        db.query(updateConditionSql, [diagnosis, patientId], (updateErr) => {
+        syncPatientMedicalSummary(patientId, (updateErr) => {
           if (updateErr) {
-            console.error("Error updating patient condition:", updateErr);
-            return res.status(500).json({ message: "❌ Medical record updated, but failed to update patient condition" });
+            console.error("Error updating patient medical summary:", updateErr);
+            return res.status(500).json({ message: "❌ Medical record updated, but failed to update patient medical summary" });
           }
 
           res.json({ message: "✅ Medical record updated successfully" });
@@ -2148,7 +2585,10 @@ app.patch("/medical-records/:recordId", (req, res) => {
     } else {
       res.json({ message: "✅ Medical record updated successfully" });
     }
-  });
+    });
+  };
+
+  updateMedicalRecord();
 });
 
 /* GET ALL MEDICAL RECORDS (ADMIN) */
@@ -2368,51 +2808,25 @@ app.post("/prescriptions", (req, res) => {
           return res.status(500).json({ message: `❌ Failed to create prescription (${dbMessage})` });
         }
 
-        const markCompletedSql =
-          "UPDATE medical_records SET status = 'Completed' WHERE id = ?";
-
-        db.query(markCompletedSql, [medicalRecordId], (markErr, markResult) => {
-          if (markErr) {
-            const markMessage = String(markErr.message || "");
-            if (markMessage.includes("Data truncated")) {
-              return res.status(500).json({
-                message:
-                  "❌ Prescription was created, but medical_records.status does not support 'Completed' yet. Restart backend to apply schema updates.",
-              });
-            }
-            return res.status(500).json({
-              message:
-                "❌ Prescription was created but failed to mark the medical record as Completed.",
-            });
-          }
-
-          if (!markResult || markResult.affectedRows === 0) {
-            return res.status(500).json({
-              message:
-                "❌ Prescription was created, but no medical record row was updated to Completed.",
-            });
-          }
-
-          generatePrescriptionNotification(
-            insertResult?.insertId || null,
-            patientId,
-            doctorId,
-            medication,
-            (notifyErr) => {
-              if (notifyErr) {
-                return res.json({
-                  message:
-                    "✅ Prescription created and record marked as Completed, but notification could not be delivered.",
-                });
-              }
-
+        generatePrescriptionNotification(
+          insertResult?.insertId || null,
+          patientId,
+          doctorId,
+          medication,
+          (notifyErr) => {
+            if (notifyErr) {
               return res.json({
                 message:
-                  "✅ Prescription created, record marked as Completed, and patient notified successfully",
+                  "✅ Prescription created, but notification could not be delivered.",
               });
             }
-          );
-        });
+
+            return res.json({
+              message:
+                "✅ Prescription created and patient notified successfully",
+            });
+          }
+        );
       }
     );
   });
