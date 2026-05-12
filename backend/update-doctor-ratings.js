@@ -4,7 +4,7 @@ const db = require('./config/db');
 // Update Tiro's doctor profile with actual values
 db.query(
   "UPDATE users SET rating = 4.9, experience = 12 WHERE name = 'Tiro' AND role = 'doctor'",
-  (err, results) => {
+  (err) => {
     if (err) {
       console.error('Error updating Tiro:', err.message);
     } else {
@@ -16,7 +16,7 @@ db.query(
 // Update Dr.Nathaniel with some values too
 db.query(
   "UPDATE users SET rating = 4.7, experience = 8 WHERE name = 'Dr.Nathaniel' AND role = 'doctor'",
-  (err, results) => {
+  (err) => {
     if (err) {
       console.error('Error updating Dr.Nathaniel:', err.message);
     } else {

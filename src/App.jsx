@@ -27,6 +27,7 @@ import {
   CalendarRange,
   FileHeart,
   BarChart3,
+  Shield,
   Settings,
   Filter,
   Pencil,
@@ -39,7 +40,7 @@ import {
   X,
 } from "lucide-react";
 import SuccessPopup from "./SuccessPopup";
-import { buildReportAnalytics, normalizeConditionLabel } from "./reportUtils";
+import { buildReportAnalytics } from "./reportUtils";
 import { downloadWordDocument } from "./wordExport";
 
 const DoctorDashboard = lazy(() => import("./DoctorDashboard"));
@@ -127,7 +128,7 @@ export default function App() {
     message: "",
   });
   const [loggedInUser, setLoggedInUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem("authToken") || "");
+  const [, setToken] = useState(localStorage.getItem("authToken") || "");
   const [activePage, setActivePage] = useState("dashboard");
   const [adminPage, setAdminPage] = useState("dashboard");
   const [patientSidebarCollapsed, setPatientSidebarCollapsed] = useState(true);
@@ -191,8 +192,6 @@ export default function App() {
     emergencyPatientName: "",
     emergencyPatientPhone: "",
   });
-  const [selectedRecord, setSelectedRecord] = useState(null);
-  const [showRecordModal, setShowRecordModal] = useState(false);
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [bookingData, setBookingData] = useState({
     doctorId: "",
@@ -200,9 +199,8 @@ export default function App() {
     time: "",
     type: "Follow-up",
   });
-  const [doctorUnavailableDates, setDoctorUnavailableDates] = useState([]);
-  const [calendarMonth, setCalendarMonth] = useState(new Date()); // For calendar navigation
-  const [selectedSlot, setSelectedSlot] = useState(null); // For availability system
+  const [doctorUnavailableDates] = useState([]);
+  const [, setSelectedSlot] = useState(null); // For availability system
   const [bookingSpecialty, setBookingSpecialty] = useState(""); // For availability system
   const [selectedDetail, setSelectedDetail] = useState(null);
   const [selectedDetailType, setSelectedDetailType] = useState("");
@@ -598,30 +596,47 @@ export default function App() {
 
   const fetchAdminData = async () => {
     try {
-      // Fetch stats
-      const statsRes = await api.get("/admin/stats");
-      setAdminStats(statsRes.data.stats || {});
-      
-      // Fetch patients
-      const patientsRes = await api.get("/patients");
-      setAdminPatients(patientsRes.data.patients || []);
-      
-      // Fetch doctors
-      const doctorsRes = await api.get("/doctors");
-      console.log("Doctors API Response:", doctorsRes.data.doctors);
-      setDoctors(doctorsRes.data.doctors || []);
-      
-      // Fetch all medical records
-      const recordsRes = await api.get("/admin/medical-records");
-      setAdminMedicalRecords(recordsRes.data.records || []);
-      
-      // Fetch all appointments
-      try {
-        const appointmentsRes = await api.get("/admin/appointments");
-        console.log("Appointments API Response:", appointmentsRes.data);
-        setAdminAppointments(appointmentsRes.data.appointments || []);
-      } catch (err) {
-        console.warn("Couldn't fetch appointments:", err);
+      const [statsRes, patientsRes, doctorsRes, recordsRes, appointmentsRes] = await Promise.allSettled([
+        api.get("/admin/stats"),
+        api.get("/patients"),
+        api.get("/doctors"),
+        api.get("/admin/medical-records"),
+        api.get("/admin/appointments"),
+      ]);
+
+      if (statsRes.status === "fulfilled") {
+        setAdminStats(statsRes.value.data.stats || {});
+      } else {
+        console.error("Error fetching admin stats:", statsRes.reason);
+      }
+
+      if (patientsRes.status === "fulfilled") {
+        setAdminPatients(patientsRes.value.data.patients || []);
+      } else {
+        console.error("Error fetching admin patients:", patientsRes.reason);
+        setAdminPatients([]);
+      }
+
+      if (doctorsRes.status === "fulfilled") {
+        console.log("Doctors API Response:", doctorsRes.value.data.doctors);
+        setDoctors(doctorsRes.value.data.doctors || []);
+      } else {
+        console.error("Error fetching admin doctors:", doctorsRes.reason);
+        setDoctors([]);
+      }
+
+      if (recordsRes.status === "fulfilled") {
+        setAdminMedicalRecords(recordsRes.value.data.records || []);
+      } else {
+        console.error("Error fetching admin medical records:", recordsRes.reason);
+        setAdminMedicalRecords([]);
+      }
+
+      if (appointmentsRes.status === "fulfilled") {
+        console.log("Appointments API Response:", appointmentsRes.value.data);
+        setAdminAppointments(appointmentsRes.value.data.appointments || []);
+      } else {
+        console.warn("Couldn't fetch appointments:", appointmentsRes.reason);
         setAdminAppointments([]);
       }
     } catch (err) {
@@ -768,7 +783,7 @@ export default function App() {
     if (!window.confirm("Are you sure you want to cancel this appointment?")) return;
 
     try {
-      const res = await api.put(`/appointments/${appointmentId}`, { status: "Cancelled" });
+      await api.put(`/appointments/${appointmentId}`, { status: "Cancelled" });
       setIsError(false);
       showSuccessPopup("Appointment Cancelled Successfully");
       fetchPatientData();
@@ -922,23 +937,6 @@ export default function App() {
       `
     );
     showSuccessPopup("Report Generated Successfully");
-  };
-
-  const getLastUpdatedDate = () => {
-    if (adminMedicalRecords.length === 0) return "N/A";
-    const dates = adminMedicalRecords
-      .map((r) => new Date(r.record_date || ""))
-      .filter((d) => !isNaN(d.getTime()));
-    if (dates.length === 0) return "N/A";
-    const mostRecentDate = new Date(Math.max(...dates.map((d) => d.getTime())));
-    return mostRecentDate.toLocaleString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
   };
 
   const generateAdminReport = (
@@ -1447,7 +1445,7 @@ export default function App() {
       setShowAddModal(false);
       setAddModalType("");
       setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "", age: "", gender: "", blood_group: "", condition: "", date_of_birth: "", address: "", emergency_contact: "", patientType: "registered", selectedPatientId: "", emergencyPatientName: "", emergencyPatientPhone: "" });
-      setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
+      setBookingData({ doctorId: "", date: "", time: "", type: "Follow-up" });
       fetchAdminData();
       // Refresh notifications immediately
       if (loggedInUser && loggedInUser.id) {
@@ -3156,17 +3154,6 @@ export default function App() {
     );
   };
 
-  const renderAdminPlaceholderPage = (title, description) => (
-    <div className={`p-9 ${darkMode ? "bg-slate-900 text-slate-100" : ""}`}>
-      <h2 className={`text-[28px] font-bold ${darkMode ? "text-slate-100" : ""}`}>{title}</h2>
-      <p className={`mt-2 text-[18px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>{description}</p>
-
-      <div className={`mt-8 rounded-[24px] border p-8 shadow-sm ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
-        <p className={`text-[18px] ${darkMode ? "text-slate-400" : "text-slate-600"}`}>{title} page content goes here.</p>
-      </div>
-    </div>
-  );
-
   const renderAdminDashboard = () => (
     (() => {
       const analytics = buildReportAnalytics({
@@ -3717,7 +3704,7 @@ export default function App() {
               setShowAddModal(true);
               setAddModalType("appointment");
               setNewUserData({ ...newUserData, patientType: "registered", selectedPatientId: "", emergencyPatientName: "", emergencyPatientPhone: "" });
-              setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
+              setBookingData({ doctorId: "", date: "", time: "", type: "Follow-up" });
             }}
             className="flex items-center gap-3 rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700"
           >
@@ -4316,7 +4303,7 @@ export default function App() {
 
       setLoadingPassword(true);
       try {
-        const response = await api.put(`/users/${loggedInUser.id}/change-password`, {
+        await api.put(`/users/${loggedInUser.id}/change-password`, {
           currentPassword,
           newPassword,
           confirmPassword,
@@ -5757,7 +5744,6 @@ export default function App() {
                         onChange={(e) => setBookingData({...bookingData, type: e.target.value})}
                         className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
                       >
-                        <option value="Consultation">Consultation</option>
                         <option value="Follow-up">Follow-up</option>
                         <option value="Checkup">Checkup</option>
                         <option value="Emergency">Emergency</option>
@@ -5925,7 +5911,7 @@ export default function App() {
                     setEditingDoctorId(null);
                     setEditingPatientId(null);
                     setNewUserData({ name: "", email: "", password: "", phone: "", role: "patient", specialty: "", department: "", yearsExperience: "", age: "", gender: "", blood_group: "", condition: "", date_of_birth: "", address: "", emergency_contact: "", patientType: "registered", selectedPatientId: "", emergencyPatientName: "", emergencyPatientPhone: "" });
-                    setBookingData({ doctorId: "", date: "", time: "", type: "Consultation" });
+                    setBookingData({ doctorId: "", date: "", time: "", type: "Follow-up" });
                   }}
                   className="flex-1 rounded-lg border border-slate-200 px-4 py-3 font-medium text-slate-700 hover:bg-slate-50"
                 >
@@ -6395,6 +6381,36 @@ export default function App() {
     );
   }
 
+  const authHighlights = [
+    {
+      icon: CalendarDays,
+      title: "Smart Appointments",
+      description: "Book, review, and manage consultations without changing your workflow.",
+    },
+    {
+      icon: Shield,
+      title: "Protected Access",
+      description: "Keep patient and staff access organized with secure role-based sign in.",
+    },
+    {
+      icon: BarChart3,
+      title: "Better Coordination",
+      description: "Stay on top of records, schedules, and daily operations in one portal.",
+    },
+  ];
+
+  const authTitle = showForgotPassword
+    ? "Forgot Password"
+    : isLogin
+    ? "Sign In"
+    : "Create Account";
+
+  const authSubtitle = showForgotPassword
+    ? "Send a reset request to the admin team using your email address."
+    : isLogin
+    ? "Enter your credentials to access your account."
+    : "Create your account to continue using the MediCare Portal.";
+
   return (
     <>
       <SuccessPopup
@@ -6404,412 +6420,469 @@ export default function App() {
         onClose={closeSuccessPopup}
       />
       {renderTopToast()}
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-50 to-gray-100 px-4">
-        <div className="w-full max-w-[460px] rounded-3xl border border-gray-200 bg-white px-8 py-8 shadow-2xl">
-        <div className="flex flex-col items-center">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-teal-100">
-            <Activity className="text-teal-600" size={28} />
-          </div>
+      <div
+        className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.22),_transparent_30%),linear-gradient(135deg,_#eff6ff_0%,_#dbeafe_45%,_#f8fafc_100%)]"
+        style={{ fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}
+      >
+        <div className="flex min-h-screen w-full overflow-hidden bg-white">
+          <section className="relative hidden w-[58%] overflow-hidden bg-[linear-gradient(145deg,#1d72d8_0%,#3290f0_55%,#1f5fa8_100%)] p-10 text-white lg:flex lg:flex-col xl:p-16">
+            <div className="absolute inset-0">
+              <div className="absolute -left-12 top-10 h-52 w-52 rounded-full bg-white/10 blur-3xl" />
+              <div className="absolute right-10 top-24 h-64 w-64 rounded-full bg-sky-300/20 blur-3xl" />
+              <div className="absolute bottom-0 left-0 h-24 w-full bg-[radial-gradient(120%_100%_at_50%_100%,rgba(255,255,255,0.22)_0%,rgba(255,255,255,0.12)_35%,transparent_36%)]" />
+              <Activity className="absolute right-24 top-28 text-white/10" size={126} />
+              <CalendarDays className="absolute right-44 bottom-36 text-white/10" size={108} />
+              <Shield className="absolute left-24 bottom-24 text-white/10" size={112} />
+            </div>
 
-          <h1 className="text-[22px] font-semibold text-gray-900">
-            MediCare Portal
-          </h1>
-          <p className="mt-2 text-sm text-gray-500">
-            {showForgotPassword
-              ? "Request an admin password reset"
-              : isLogin
-              ? "Sign in to access your dashboard"
-              : "Create an account to continue"}
-          </p>
-        </div>
-
-        {showForgotPassword ? (
-          <form onSubmit={handleForgotPassword} className="mt-6">
-            <div className="mt-1">
-              <label className="mb-2 block text-sm font-medium text-gray-800">
-                Email Address
-              </label>
-              <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
-                <Mail size={18} className="mr-3 text-gray-400" />
-                <input
-                  type="email"
-                  name="email"
-                  value={forgotData.email}
-                  onChange={handleForgotChange}
-                  placeholder="Enter your email address"
-                  className="w-full outline-none placeholder:text-gray-400"
-                />
+            <div className="relative z-10 flex items-center gap-4">
+              <div className="flex h-20 w-20 items-center justify-center rounded-[24px] bg-white shadow-[0_16px_40px_rgba(15,23,42,0.18)]">
+                <Activity className="text-sky-600" size={36} />
               </div>
-              <p className="mt-3 text-sm text-gray-500">
-                Enter your email to send a reset request to admin.
+              <div>
+                <p className="text-5xl font-bold tracking-tight">MediCare</p>
+                <p className="text-lg text-blue-50/95">Portal Management System</p>
+              </div>
+            </div>
+
+            <div className="relative z-10 mt-20 max-w-[540px]">
+              <h1 className="text-5xl font-bold leading-tight">Welcome Back</h1>
+              <p className="mt-6 text-2xl font-medium text-blue-50/95">
+                Streamline appointments, care coordination, and hospital operations from one portal.
               </p>
             </div>
 
-            <button className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 py-3 text-white transition hover:bg-teal-700">
-              Request Reset Admin
-              <ArrowRight size={18} />
-            </button>
+            <div className="relative z-10 mt-16 space-y-8">
+              {authHighlights.map((item) => {
+                const Icon = item.icon;
 
-            <button
-              type="button"
-              onClick={() => {
-                setShowForgotPassword(false);
-                setIsLogin(true);
-                setMessage("");
-                setForgotData({ email: "", newPassword: "", confirmPassword: "" });
-              }}
-              className="mt-3 w-full rounded-lg border border-gray-300 py-3 text-gray-700 transition hover:bg-gray-50"
-            >
-              Back to Login
-            </button>
-          </form>
-        ) : isLogin ? (
-          <form onSubmit={handleLogin} className="mt-6">          
-            <div className="mt-5">
-              <label className="mb-2 block text-sm font-medium text-gray-800">
-                Login As
-              </label>
-              <div ref={loginRolePickerRef} className="grid grid-cols-3 gap-3">
-                {[
-                  { value: "admin", label: "Admin" },
-                  { value: "patient", label: "Patient" },
-                  { value: "doctor", label: "Doctor" },
-                ].map((roleOption) => (
-                  <button
-                    key={roleOption.value}
-                    type="button"
-                    onClick={() =>
-                      setLoginData((prev) => ({
-                        ...prev,
-                        role: prev.role === roleOption.value ? "" : roleOption.value,
-                      }))
-                    }
-                    className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
-                      loginData.role === roleOption.value
-                        ? "border-teal-600 bg-teal-50 text-teal-700"
-                        : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                    }`}
-                  >
-                    {roleOption.label}
-                  </button>
-                ))}
-              </div>
-              <p className="mt-2 text-xs text-gray-500">
-                Choose the account type you want to sign in with.
-              </p>
-            </div>
-
-            <div className="mt-5">
-              <label className="mb-2 block text-sm font-medium text-gray-800">
-                Email Address
-              </label>
-              <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
-                <Mail size={18} className="mr-3 text-gray-400" />
-                <input
-                  type="email"
-                  name="email"
-                  value={loginData.email}
-                  onChange={handleLoginChange}
-                  placeholder="Enter your email address"
-                  required
-                  className="w-full outline-none placeholder:text-gray-400"
-                />
-              </div>
-            </div>
-
-            <div className="mt-5">
-              <label className="mb-2 block text-sm font-medium text-gray-800">
-                Password
-              </label>
-              <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
-                <Lock size={18} className="mr-3 text-gray-400" />
-                <input
-                  type="password"
-                  name="password"
-                  value={loginData.password}
-                  onChange={handleLoginChange}
-                  placeholder="Enter your password"
-                  required
-                  className="w-full outline-none placeholder:text-gray-400"
-                />
-              </div>
-            </div>
-
-            <div className="mt-5 flex rounded-lg bg-gray-100 p-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsLogin(true);
-                  setShowForgotPassword(false);
-                  setMessage("");
-                }}
-                className={`w-1/2 rounded-md py-2 text-sm font-medium transition ${
-                  isLogin ? "bg-white shadow text-teal-600" : "text-gray-600"
-                }`}
-              >
-                Login
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsLogin(false);
-                  setShowForgotPassword(false);
-                  setMessage("");
-                }}
-                className={`w-1/2 rounded-md py-2 text-sm font-medium transition ${
-                  !isLogin ? "bg-white shadow text-teal-600" : "text-gray-600"
-                }`}
-              >
-                Register
-              </button>
-            </div>
-
-            <div className="mt-4 flex items-center justify-between text-sm">
-              <label className="flex items-center gap-2 text-gray-600">
-                <input type="checkbox" className="h-4 w-4" />
-                Remember me
-              </label>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setShowForgotPassword(true);
-                  setMessage("");
-                }}
-                className="text-teal-600 hover:underline"
-              >
-                Forgot password?
-              </button>
-            </div>
-
-            <button className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 py-3 text-white transition hover:bg-teal-700">
-              Sign In
-              <ArrowRight size={18} />
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={handleRegister} className="mt-6">           
-            <div className="mt-5">
-              <label className="mb-2 block text-sm font-medium text-gray-800">
-                Register As
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { value: "patient", label: "Patient" },
-                  { value: "doctor", label: "Doctor" },
-                ].map((roleOption) => (
-                  <button
-                    key={roleOption.value}
-                    type="button"
-                    onClick={() =>
-                      setRegisterData((prev) => ({
-                        ...prev,
-                        role: roleOption.value,
-                        specialty: roleOption.value === "doctor" ? prev.specialty : "",
-                        department: roleOption.value === "doctor" ? prev.department : "",
-                        yearsExperience: roleOption.value === "doctor" ? prev.yearsExperience : "",
-                        bio: roleOption.value === "doctor" ? prev.bio : "",
-                      }))
-                    }
-                    className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
-                      registerData.role === roleOption.value
-                        ? "border-teal-600 bg-teal-50 text-teal-700"
-                        : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                    }`}
-                  >
-                    {roleOption.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-5">
-              <label className="mb-2 block text-sm font-medium text-gray-800">
-                Full Name
-              </label>
-              <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
-                <User size={18} className="mr-3 text-gray-400" />
-                <input
-                  type="text"
-                  name="name"
-                  value={registerData.name}
-                  onChange={handleRegisterChange}
-                  placeholder="Enter your name"
-                  required
-                  className="w-full outline-none placeholder:text-gray-400"
-                />
-              </div>
-            </div>
-
-            <div className="mt-5">
-              <label className="mb-2 block text-sm font-medium text-gray-800">
-                Email Address
-              </label>
-              <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
-                <Mail size={18} className="mr-3 text-gray-400" />
-                <input
-                  type="email"
-                  name="email"
-                  value={registerData.email}
-                  onChange={handleRegisterChange}
-                  placeholder="Enter your email address"
-                  required
-                  className="w-full outline-none placeholder:text-gray-400"
-                />
-              </div>
-            </div>
-
-            <div className="mt-5">
-              <label className="mb-2 block text-sm font-medium text-gray-800">
-                Phone Number
-              </label>
-              <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
-                <Phone size={18} className="mr-3 text-gray-400" />
-                <input
-                  type="tel"
-                  name="phone"
-                  value={registerData.phone}
-                  onChange={handleRegisterChange}
-                  placeholder="Enter your phone number"
-                  required
-                  className="w-full outline-none placeholder:text-gray-400"
-                />
-              </div>
-            </div>
-
-            {registerData.role === "doctor" && (
-              <>
-                <div className="mt-5">
-                  <label className="mb-2 block text-sm font-medium text-gray-800">
-                    Specialization
-                  </label>
-                  <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
-                    <Stethoscope size={18} className="mr-3 text-gray-400" />
-                    <input
-                      type="text"
-                      name="specialty"
-                      value={registerData.specialty}
-                      onChange={handleRegisterChange}
-                      placeholder="Enter your specialization"
-                      required
-                      className="w-full outline-none placeholder:text-gray-400"
-                    />
+                return (
+                  <div key={item.title} className="flex items-start gap-4">
+                    <div className="mt-1 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/20 bg-white/10 backdrop-blur-sm">
+                      <Icon size={22} />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-semibold">{item.title}</h2>
+                      <p className="mt-2 text-base leading-7 text-blue-50/90">
+                        {item.description}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                );
+              })}
+            </div>
+          </section>
 
-                <div className="mt-5">
-                  <label className="mb-2 block text-sm font-medium text-gray-800">
-                    Department
-                  </label>
-                  <select
-                    name="department"
-                    value={registerData.department}
-                    onChange={handleRegisterChange}
-                    required
-                    className="w-full rounded-lg border border-gray-300 px-3 py-3 outline-none"
-                  >
-                    <option value="">Select department</option>
-                    <option>Cardiology</option>
-                    <option>Neurology</option>
-                    <option>Orthopedics</option>
-                    <option>Pediatrics</option>
-                    <option>Dermatology</option>
-                    <option>General Medicine</option>
-                    <option>Surgery</option>
-                    <option>Internal Medicine</option>
-                    <option>Pathology</option>
-                    <option>Psychiatry</option>
-                  </select>
+          <section className="flex w-full items-center justify-center bg-white px-6 py-10 sm:px-10 lg:w-[42%] lg:px-12 xl:px-16">
+            <div className="w-full max-w-[470px]">
+              <div className="mb-8 lg:hidden">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-sky-100">
+                  <Activity className="text-sky-600" size={28} />
                 </div>
-
-                <div className="mt-5">
-                  <label className="mb-2 block text-sm font-medium text-gray-800">
-                    Years of Experience
-                  </label>
-                  <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
-                    <User size={18} className="mr-3 text-gray-400" />
-                    <input
-                      type="number"
-                      min="0"
-                      name="yearsExperience"
-                      value={registerData.yearsExperience}
-                      onChange={handleRegisterChange}
-                      placeholder="Enter years of experience"
-                      required
-                      className="w-full outline-none placeholder:text-gray-400"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-5">
-                  <label className="mb-2 block text-sm font-medium text-gray-800">
-                    Bio
-                  </label>
-                  <textarea
-                    name="bio"
-                    value={registerData.bio}
-                    onChange={handleRegisterChange}
-                    placeholder="Tell patients about yourself"
-                    className="w-full rounded-lg border border-gray-300 px-3 py-3 outline-none placeholder:text-gray-400"
-                    rows="3"
-                  />
-                </div>
-              </>
-            )}
-
-            <div className="mt-5">
-              <label className="mb-2 block text-sm font-medium text-gray-800">
-                Password
-              </label>
-              <div className="flex items-center rounded-lg border border-gray-300 px-3 py-3">
-                <Lock size={18} className="mr-3 text-gray-400" />
-                <input
-                  type="password"
-                  name="password"
-                  value={registerData.password}
-                  onChange={handleRegisterChange}
-                  placeholder="Create a password"
-                  required
-                  className="w-full outline-none placeholder:text-gray-400"
-                />
+                <h1 className="text-[22px] font-semibold text-slate-900">MediCare Portal</h1>
               </div>
-            </div>
 
-            <div className="mt-5 flex rounded-lg bg-gray-100 p-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsLogin(true);
-                  setShowForgotPassword(false);
-                  setMessage("");
-                }}
-                className={`w-1/2 rounded-md py-2 text-sm font-medium transition ${
-                  isLogin ? "bg-white shadow text-teal-600" : "text-gray-600"
-                }`}
-              >
-                Login
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsLogin(false);
-                  setShowForgotPassword(false);
-                  setMessage("");
-                }}
-                className={`w-1/2 rounded-md py-2 text-sm font-medium transition ${
-                  !isLogin ? "bg-white shadow text-teal-600" : "text-gray-600"
-                }`}
-              >
-                Register
-              </button>
-            </div>
+              <div>
+                <h2 className="text-4xl font-bold tracking-tight text-slate-950">{authTitle}</h2>
+                <p className="mt-3 text-base leading-7 text-slate-500">{authSubtitle}</p>
+              </div>
 
-            <button type="submit" className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 py-3 text-white transition hover:bg-teal-700">
-              Register
-              <ArrowRight size={18} />
-            </button>
-          </form>
-        )}
+              {showForgotPassword ? (
+                <form onSubmit={handleForgotPassword} className="mt-8">
+                  <div className="mt-1">
+                    <label className="mb-3 block text-sm font-semibold text-slate-800">
+                      Email Address
+                    </label>
+                    <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                      <Mail size={18} className="mr-3 text-slate-400" />
+                      <input
+                        type="email"
+                        name="email"
+                        value={forgotData.email}
+                        onChange={handleForgotChange}
+                        placeholder="Enter your email address"
+                        className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                      />
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-slate-500">
+                      Enter your email to send a reset request to admin.
+                    </p>
+                  </div>
+
+                  <button className="mt-8 flex w-full items-center justify-center gap-2 rounded-2xl bg-sky-500 py-4 text-base font-semibold text-white shadow-[0_18px_32px_rgba(59,130,246,0.28)] transition hover:bg-sky-600">
+                    Request Reset Admin
+                    <ArrowRight size={18} />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowForgotPassword(false);
+                      setIsLogin(true);
+                      setMessage("");
+                      setForgotData({ email: "", newPassword: "", confirmPassword: "" });
+                    }}
+                    className="mt-4 w-full rounded-2xl border border-slate-200 py-4 font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Back to Login
+                  </button>
+                </form>
+              ) : isLogin ? (
+                <form onSubmit={handleLogin} className="mt-8">
+                  <div className="mt-5">
+                    <label className="mb-3 block text-sm font-semibold text-slate-800">
+                      Login As
+                    </label>
+                    <div ref={loginRolePickerRef} className="grid grid-cols-3 gap-3">
+                      {[
+                        { value: "admin", label: "Admin" },
+                        { value: "patient", label: "Patient" },
+                        { value: "doctor", label: "Doctor" },
+                      ].map((roleOption) => (
+                        <button
+                          key={roleOption.value}
+                          type="button"
+                          onClick={() =>
+                            setLoginData((prev) => ({
+                              ...prev,
+                              role: prev.role === roleOption.value ? "" : roleOption.value,
+                            }))
+                          }
+                          className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                            loginData.role === roleOption.value
+                              ? "border-sky-500 bg-sky-50 text-sky-700 shadow-sm"
+                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          {roleOption.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-slate-500">
+                      Choose the account type you want to sign in with.
+                    </p>
+                  </div>
+
+                  <div className="mt-5">
+                    <label className="mb-3 block text-sm font-semibold text-slate-800">
+                      Email Address
+                    </label>
+                    <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                      <Mail size={18} className="mr-3 text-slate-400" />
+                      <input
+                        type="email"
+                        name="email"
+                        value={loginData.email}
+                        onChange={handleLoginChange}
+                        placeholder="Enter your email address"
+                        required
+                        className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <label className="mb-3 block text-sm font-semibold text-slate-800">
+                      Password
+                    </label>
+                    <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                      <Lock size={18} className="mr-3 text-slate-400" />
+                      <input
+                        type="password"
+                        name="password"
+                        value={loginData.password}
+                        onChange={handleLoginChange}
+                        placeholder="Enter your password"
+                        required
+                        className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex rounded-2xl bg-slate-100 p-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLogin(true);
+                        setShowForgotPassword(false);
+                        setMessage("");
+                      }}
+                      className={`w-1/2 rounded-xl py-2.5 text-sm font-semibold transition ${
+                        isLogin ? "bg-white text-sky-600 shadow-sm" : "text-slate-600"
+                      }`}
+                    >
+                      Login
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLogin(false);
+                        setShowForgotPassword(false);
+                        setMessage("");
+                      }}
+                      className={`w-1/2 rounded-xl py-2.5 text-sm font-semibold transition ${
+                        !isLogin ? "bg-white text-sky-600 shadow-sm" : "text-slate-600"
+                      }`}
+                    >
+                      Register
+                    </button>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between text-sm">
+                    <label className="flex items-center gap-2 text-slate-600">
+                      <input type="checkbox" className="h-4 w-4 rounded border-slate-300" />
+                      Remember me
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowForgotPassword(true);
+                        setMessage("");
+                      }}
+                      className="font-medium text-sky-600 hover:underline"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+
+                  <button className="mt-8 flex w-full items-center justify-center gap-2 rounded-2xl bg-sky-500 py-4 text-base font-semibold text-white shadow-[0_18px_32px_rgba(59,130,246,0.28)] transition hover:bg-sky-600">
+                    Sign In
+                    <ArrowRight size={18} />
+                  </button>
+
+                  <div className="mt-8 rounded-2xl border border-emerald-100 bg-emerald-50/70 px-4 py-4 text-sm text-emerald-700">
+                    Secure connection with protected account access.
+                  </div>
+                </form>
+              ) : (
+                <form onSubmit={handleRegister} className="mt-8">
+                  <div className="mt-5">
+                    <label className="mb-3 block text-sm font-semibold text-slate-800">
+                      Register As
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { value: "patient", label: "Patient" },
+                        { value: "doctor", label: "Doctor" },
+                      ].map((roleOption) => (
+                        <button
+                          key={roleOption.value}
+                          type="button"
+                          onClick={() =>
+                            setRegisterData((prev) => ({
+                              ...prev,
+                              role: roleOption.value,
+                              specialty: roleOption.value === "doctor" ? prev.specialty : "",
+                              department: roleOption.value === "doctor" ? prev.department : "",
+                              yearsExperience: roleOption.value === "doctor" ? prev.yearsExperience : "",
+                              bio: roleOption.value === "doctor" ? prev.bio : "",
+                            }))
+                          }
+                          className={`rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+                            registerData.role === roleOption.value
+                              ? "border-sky-500 bg-sky-50 text-sky-700 shadow-sm"
+                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          {roleOption.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <label className="mb-3 block text-sm font-semibold text-slate-800">
+                      Full Name
+                    </label>
+                    <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                      <User size={18} className="mr-3 text-slate-400" />
+                      <input
+                        type="text"
+                        name="name"
+                        value={registerData.name}
+                        onChange={handleRegisterChange}
+                        placeholder="Enter your name"
+                        required
+                        className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <label className="mb-3 block text-sm font-semibold text-slate-800">
+                      Email Address
+                    </label>
+                    <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                      <Mail size={18} className="mr-3 text-slate-400" />
+                      <input
+                        type="email"
+                        name="email"
+                        value={registerData.email}
+                        onChange={handleRegisterChange}
+                        placeholder="Enter your email address"
+                        required
+                        className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <label className="mb-3 block text-sm font-semibold text-slate-800">
+                      Phone Number
+                    </label>
+                    <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                      <Phone size={18} className="mr-3 text-slate-400" />
+                      <input
+                        type="tel"
+                        name="phone"
+                        value={registerData.phone}
+                        onChange={handleRegisterChange}
+                        placeholder="Enter your phone number"
+                        required
+                        className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                      />
+                    </div>
+                  </div>
+
+                  {registerData.role === "doctor" && (
+                    <>
+                      <div className="mt-5">
+                        <label className="mb-3 block text-sm font-semibold text-slate-800">
+                          Specialization
+                        </label>
+                        <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                          <Stethoscope size={18} className="mr-3 text-slate-400" />
+                          <input
+                            type="text"
+                            name="specialty"
+                            value={registerData.specialty}
+                            onChange={handleRegisterChange}
+                            placeholder="Enter your specialization"
+                            required
+                            className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-5">
+                        <label className="mb-3 block text-sm font-semibold text-slate-800">
+                          Department
+                        </label>
+                        <select
+                          name="department"
+                          value={registerData.department}
+                          onChange={handleRegisterChange}
+                          required
+                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-slate-900 outline-none transition focus:border-sky-400 focus:bg-white focus:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]"
+                        >
+                          <option value="">Select department</option>
+                          <option>Cardiology</option>
+                          <option>Neurology</option>
+                          <option>Orthopedics</option>
+                          <option>Pediatrics</option>
+                          <option>Dermatology</option>
+                          <option>General Medicine</option>
+                          <option>Surgery</option>
+                          <option>Internal Medicine</option>
+                          <option>Pathology</option>
+                          <option>Psychiatry</option>
+                        </select>
+                      </div>
+
+                      <div className="mt-5">
+                        <label className="mb-3 block text-sm font-semibold text-slate-800">
+                          Years of Experience
+                        </label>
+                        <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                          <User size={18} className="mr-3 text-slate-400" />
+                          <input
+                            type="number"
+                            min="0"
+                            name="yearsExperience"
+                            value={registerData.yearsExperience}
+                            onChange={handleRegisterChange}
+                            placeholder="Enter years of experience"
+                            required
+                            className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-5">
+                        <label className="mb-3 block text-sm font-semibold text-slate-800">
+                          Bio
+                        </label>
+                        <textarea
+                          name="bio"
+                          value={registerData.bio}
+                          onChange={handleRegisterChange}
+                          placeholder="Tell patients about yourself"
+                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-white focus:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]"
+                          rows="3"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <div className="mt-5">
+                    <label className="mb-3 block text-sm font-semibold text-slate-800">
+                      Password
+                    </label>
+                    <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                      <Lock size={18} className="mr-3 text-slate-400" />
+                      <input
+                        type="password"
+                        name="password"
+                        value={registerData.password}
+                        onChange={handleRegisterChange}
+                        placeholder="Create a password"
+                        required
+                        className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex rounded-2xl bg-slate-100 p-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLogin(true);
+                        setShowForgotPassword(false);
+                        setMessage("");
+                      }}
+                      className={`w-1/2 rounded-xl py-2.5 text-sm font-semibold transition ${
+                        isLogin ? "bg-white text-sky-600 shadow-sm" : "text-slate-600"
+                      }`}
+                    >
+                      Login
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLogin(false);
+                        setShowForgotPassword(false);
+                        setMessage("");
+                      }}
+                      className={`w-1/2 rounded-xl py-2.5 text-sm font-semibold transition ${
+                        !isLogin ? "bg-white text-sky-600 shadow-sm" : "text-slate-600"
+                      }`}
+                    >
+                      Register
+                    </button>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-sky-500 py-4 text-base font-semibold text-white shadow-[0_18px_32px_rgba(59,130,246,0.28)] transition hover:bg-sky-600"
+                  >
+                    Register
+                    <ArrowRight size={18} />
+                  </button>
+                </form>
+              )}
+            </div>
+          </section>
         </div>
       </div>
     </>

@@ -1,12 +1,5 @@
 const http = require("http");
 
-const postData = JSON.stringify({
-  name: "Test User",
-  email: "test@example.com",
-  password: "password123",
-  role: "patient"
-});
-
 const options = {
   hostname: "localhost",
   port: 3000,

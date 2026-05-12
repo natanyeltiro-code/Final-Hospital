@@ -1,14 +1,10 @@
 require("dotenv").config();
-const axios = require("axios");
-
 const API_URL = "http://localhost:3000";
 
 async function testPatientNotifications() {
   try {
     // Get patient 7 (wew) info first
     console.log("\n👤 Getting patient 'wew' (user 7) email...");
-    const { db } = require("./config/db");
-    
     // We'll use a different approach - let's check if wew exists
     console.log("\n🔐 Attempting to login as patient 'wew'...");
     // First, we need to know wew's password. Let me just test with a known user or create one

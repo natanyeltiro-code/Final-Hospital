@@ -64,7 +64,7 @@ function createTables() {
         date_of_birth DATE,
         address VARCHAR(255),
         emergency_contact VARCHAR(50),
-        condition VARCHAR(255),
+        \`condition\` VARCHAR(255),
         medical_status VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP

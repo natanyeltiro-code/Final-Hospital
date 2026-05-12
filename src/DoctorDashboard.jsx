@@ -238,7 +238,6 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const borderSoft = darkMode ? "border-slate-800" : "border-slate-200";
   const hoverRow = darkMode ? "hover:bg-slate-800" : "hover:bg-slate-50";
   const panelBg = darkMode ? "bg-slate-950" : "bg-white";
-  const softPanelBg = darkMode ? "bg-slate-900" : "bg-slate-50";
 
   const activeNav = darkMode
     ? "bg-teal-500/15 text-teal-300"
@@ -937,7 +936,10 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
   const doctorAppointments = appointments.map((apt) => ({
     ...apt,
-    patientName: patients.find((p) => p.id === apt.patient_id)?.name || "Unknown Patient",
+    patientName:
+      apt.patient_name ||
+      patients.find((p) => p.id === apt.patient_id)?.name ||
+      "Unknown Patient",
     formattedDate: apt.date
       ? new Date(apt.date).toLocaleDateString("en-US", {
           month: "short",
@@ -1154,9 +1156,6 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           <div className="grid gap-5 md:grid-cols-2">
             {filteredDoctorPatients.map((patient) => {
               const patientAppointments = appointments.filter((apt) => apt.patient_id === patient.id);
-              const latestAppointment = [...patientAppointments].sort(
-                (a, b) => new Date(b.date) - new Date(a.date)
-              )[0];
               const completedAppointments = patientAppointments.filter((apt) => apt.status === "Completed");
               const lastVisitAppointment = [...completedAppointments].sort(
                 (a, b) => new Date(b.date) - new Date(a.date)
@@ -1248,7 +1247,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   };
 
   // Helper function to get display status based on appointment date
-  const getDisplayStatus = (apt) => {
+  const _getDisplayStatus = (apt) => {
     try {
       if (!apt.date) return apt.status || "Pending";
 

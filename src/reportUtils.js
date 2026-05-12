@@ -131,9 +131,6 @@ export const buildReportAnalytics = ({
   const uniquePatientIds = new Set(
     filteredAppointments.map((apt) => apt.patient_id).filter(Boolean)
   );
-  const previousUniquePatientIds = new Set(
-    previousAppointments.map((apt) => apt.patient_id).filter(Boolean)
-  );
 
   const totalDoctors = doctors.length;
   const avgRating =

@@ -50,7 +50,7 @@ db.query('SELECT id FROM users WHERE name = "wew" AND role = "patient"', (err, p
 
     // Insert the appointment
     const query = 'INSERT INTO appointments (patient_id, doctor_id, date, time, type, status) VALUES (?, ?, ?, ?, ?, ?)';
-    db.query(query, [patientId, doctorId, dateStr, timeStr, 'Consultation', 'Pending'], (err, result) => {
+    db.query(query, [patientId, doctorId, dateStr, timeStr, 'Consultation', 'Pending'], (err) => {
       if (err) {
         console.error('Error inserting appointment:', err);
       } else {

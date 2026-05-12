@@ -103,12 +103,6 @@ router.get("/available-doctors", (req, res) => {
 
   console.log(`\n🔍 Searching for doctors with department='${specialty}' on date='${date}'`);
 
-  // Get current time
-  const now = new Date();
-  const currentHour = now.getHours();
-  const currentMinute = now.getMinutes();
-  const currentTime = `${String(currentHour).padStart(2, "0")}:${String(currentMinute).padStart(2, "0")}:00`;
-
   const sql = `
     SELECT id, name, specialty, department, status, work_start_time, work_end_time
     FROM users
@@ -384,7 +378,6 @@ router.post("/auto-update-status/:doctorId", authenticateToken, (req, res) => {
   const { doctorId } = req.params;
   const now = new Date();
   const today = now.toISOString().split("T")[0];
-  const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:00`;
 
   // Check if doctor is on leave today
   const scheduleCheckSql = `

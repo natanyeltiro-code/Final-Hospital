@@ -731,7 +731,6 @@ const generateAppointmentStatusNotification = (appointmentId, newStatus, doctorI
     }
     
     const doctorName = doctorResults[0].name;
-    let patientName = emergencyPatientName;
     let patientNotificationTitle = "";
     let patientNotificationMsg = "";
     let doctorNotificationMsg = "";
@@ -878,7 +877,7 @@ const generatePrescriptionNotification = (
 };
 
 /* HELPER FUNCTION: Generate profile update notification */
-const generateProfileUpdateNotification = (userId, updateType) => {
+const _generateProfileUpdateNotification = (userId, updateType) => {
   const title = "Profile Updated";
   let message = "";
   
@@ -1230,14 +1229,92 @@ app.post("/forgot-password/reset", async (req, res) => {
 
 /* GET ALL PATIENTS */
 app.get("/patients", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
-  const sql = "SELECT id, name, email, role, age, gender, phone, blood_group, `condition`, medical_status, date_of_birth, address, created_at FROM users WHERE role = 'patient'";
-  
-  db.query(sql, (err, results) => {
+  const latestMedicalRecordJoin = `
+    LEFT JOIN (
+      SELECT mr1.patient_id, mr1.diagnosis, mr1.status
+      FROM medical_records mr1
+      INNER JOIN (
+        SELECT patient_id, MAX(CONCAT(
+          DATE_FORMAT(record_date, '%Y-%m-%d'),
+          '|',
+          LPAD(UNIX_TIMESTAMP(COALESCE(updated_at, created_at)), 12, '0'),
+          '|',
+          LPAD(id, 12, '0')
+        )) AS latest_sort_key
+        FROM medical_records
+        GROUP BY patient_id
+      ) latest
+        ON latest.patient_id = mr1.patient_id
+       AND CONCAT(
+         DATE_FORMAT(mr1.record_date, '%Y-%m-%d'),
+         '|',
+         LPAD(UNIX_TIMESTAMP(COALESCE(mr1.updated_at, mr1.created_at)), 12, '0'),
+         '|',
+         LPAD(mr1.id, 12, '0')
+       ) = latest.latest_sort_key
+    ) latest_record ON latest_record.patient_id = u.id
+  `;
+  const sqlWithMedicalStatus = `
+    SELECT
+      u.id,
+      u.name,
+      u.email,
+      u.role,
+      u.age,
+      u.gender,
+      u.phone,
+      u.blood_group,
+      COALESCE(u.\`condition\`, latest_record.diagnosis) AS \`condition\`,
+      COALESCE(u.medical_status, latest_record.status) AS medical_status,
+      u.date_of_birth,
+      u.address,
+      u.created_at
+    FROM users u
+    ${latestMedicalRecordJoin}
+    WHERE u.role = 'patient'
+  `;
+  const sqlWithoutMedicalStatus = `
+    SELECT
+      u.id,
+      u.name,
+      u.email,
+      u.role,
+      u.age,
+      u.gender,
+      u.phone,
+      u.blood_group,
+      COALESCE(u.\`condition\`, latest_record.diagnosis) AS \`condition\`,
+      latest_record.status AS medical_status,
+      u.date_of_birth,
+      u.address,
+      u.created_at
+    FROM users u
+    ${latestMedicalRecordJoin}
+    WHERE u.role = 'patient'
+  `;
+
+  db.query(sqlWithMedicalStatus, (err, results) => {
     if (err) {
+      if (typeof err.message === "string" && err.message.includes("Unknown column") && err.message.includes("medical_status")) {
+        console.warn("medical_status column missing in production, retrying /patients without it");
+        db.query(sqlWithoutMedicalStatus, (fallbackErr, fallbackResults) => {
+          if (fallbackErr) {
+            console.error("Get patients fallback DB error:", fallbackErr.message);
+            return res.status(500).json({ message: "Database error" });
+          }
+
+          return res.json({
+            message: "Patients retrieved successfully",
+            patients: fallbackResults,
+          });
+        });
+        return;
+      }
+
       console.error("Get patients DB error:", err.message);
       return res.status(500).json({ message: "Database error" });
     }
-    
+
     res.json({ 
       message: "Patients retrieved successfully",
       patients: results
@@ -2539,14 +2616,20 @@ app.patch("/medical-records/:recordId", (req, res) => {
               db.query(fetchPatientSql, [recordId], (fetchErr, fetchResults) => {
                 if (fetchErr || fetchResults.length === 0) {
                   console.error("Error fetching record patient for medical summary update:", fetchErr);
-                  return res.status(500).json({ message: "❌ Medical record updated, but failed to locate patient" });
+                  return res.json({
+                    message: "✅ Medical record updated successfully",
+                    warning: "Unable to refresh patient medical summary after update.",
+                  });
                 }
 
                 const patientId = fetchResults[0].patient_id;
                 syncPatientMedicalSummary(patientId, (updateErr) => {
                   if (updateErr) {
                     console.error("Error updating patient medical summary:", updateErr);
-                    return res.status(500).json({ message: "❌ Medical record updated, but failed to update patient medical summary" });
+                    return res.json({
+                      message: "✅ Medical record updated successfully",
+                      warning: "Patient medical summary refresh failed after update.",
+                    });
                   }
 
                   res.json({ message: "✅ Medical record updated successfully" });
@@ -2569,14 +2652,20 @@ app.patch("/medical-records/:recordId", (req, res) => {
       db.query(fetchPatientSql, [recordId], (fetchErr, fetchResults) => {
         if (fetchErr || fetchResults.length === 0) {
           console.error("Error fetching record patient for medical summary update:", fetchErr);
-          return res.status(500).json({ message: "❌ Medical record updated, but failed to locate patient" });
+          return res.json({
+            message: "✅ Medical record updated successfully",
+            warning: "Unable to refresh patient medical summary after update.",
+          });
         }
 
         const patientId = fetchResults[0].patient_id;
         syncPatientMedicalSummary(patientId, (updateErr) => {
           if (updateErr) {
             console.error("Error updating patient medical summary:", updateErr);
-            return res.status(500).json({ message: "❌ Medical record updated, but failed to update patient medical summary" });
+            return res.json({
+              message: "✅ Medical record updated successfully",
+              warning: "Patient medical summary refresh failed after update.",
+            });
           }
 
           res.json({ message: "✅ Medical record updated successfully" });

@@ -74,7 +74,6 @@ export default function SimpleDoctorList({ selectedSpecialty, darkMode, onDoctor
     }
   };
 
-  const bgClasses = darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200";
   const textClasses = darkMode ? "text-slate-100" : "text-slate-900";
   const cardBg = darkMode ? "bg-slate-700 hover:bg-slate-600" : "bg-slate-50 hover:bg-slate-100";
 

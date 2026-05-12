@@ -44,7 +44,6 @@ export default function SimpleAppointmentBooking({
   
   // Loading/UI state
   const [loading, setLoading] = useState(false);
-  const [loadingDepartments, setLoadingDepartments] = useState(false);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -66,7 +65,6 @@ export default function SimpleAppointmentBooking({
     fetchDepartments();
     fetchDoctors();
     // Set minimum date to today
-    const today = new Date().toISOString().split("T")[0];
     setSelectedDate("");
   }, []);
   
@@ -95,7 +93,6 @@ export default function SimpleAppointmentBooking({
   }, [selectedDoctor, selectedDate]);
   
   const fetchDepartments = async () => {
-    setLoadingDepartments(true);
     setError("");
     try {
       const response = await api.get("/departments");
@@ -106,8 +103,6 @@ export default function SimpleAppointmentBooking({
       console.error("❌ Error fetching departments:", err.message);
       // Don't show error for departments as it's optional
       setDepartments([]);
-    } finally {
-      setLoadingDepartments(false);
     }
   };
   

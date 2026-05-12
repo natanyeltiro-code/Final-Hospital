@@ -44,7 +44,6 @@ const migrations = [
   },
 ];
 
-let completed = 0;
 
 console.log("🔄 Running database migrations...\n");
 
