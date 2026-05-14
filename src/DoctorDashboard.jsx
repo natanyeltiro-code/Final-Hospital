@@ -35,6 +35,17 @@ const DOCTOR_WORKING_DAYS = "Monday-Friday";
 const DOCTOR_SCHEDULE_START = "8:00 AM";
 const DOCTOR_SCHEDULE_END = "12:00 AM";
 
+const formatGeneratedTimestamp = () =>
+  new Date().toLocaleString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+
 const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const [activePage, setActivePage] = useState("dashboard");
   const [appointmentFilter, setAppointmentFilter] = useState("All");
@@ -412,6 +423,38 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     }
   };
 
+  const getNotificationDestination = (notification) => {
+    switch (notification?.type) {
+      case "appointment":
+      case "appointment_status":
+      case "appointment_reminder":
+        return "appointments";
+      case "medical_record":
+      case "approval":
+        return "records";
+      case "prescription":
+        return "prescriptions";
+      case "profile_update":
+      case "system":
+        return "settings";
+      default:
+        return "dashboard";
+    }
+  };
+
+  const handleNotificationClick = async (notification) => {
+    if (!notification) return;
+
+    if (!notification.is_read) {
+      await markNotificationAsRead(notification.id);
+    }
+
+    setShowNotifications(false);
+    setSelectedPatient(null);
+    setSelectedRecord(null);
+    setActivePage(getNotificationDestination(notification));
+  };
+
   // Auto-complete confirmed appointments when their time passes
   useEffect(() => {
     const autoCompleteConfirmedAppointments = async () => {
@@ -772,11 +815,14 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   };
 
   const handlePrintPrescription = (prescription) => {
+    const generatedAt = formatGeneratedTimestamp();
+
     downloadWordDocument(
       `prescription-${prescription.patient_name || "patient"}-${prescription.id}.doc`,
       "Prescription",
       `
         <h1>Prescription</h1>
+        <p class="muted"><strong>Generated on:</strong> ${generatedAt}</p>
         <p><span class="label">Doctor:</span> Dr. ${loggedInUser?.name || "Doctor"}</p>
         <div class="card">
           <p><span class="label">Patient:</span> ${prescription.patient_name || "Unknown"}</p>
@@ -1277,7 +1323,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   };
 
   const renderAppointmentsPage = () => {
-    const filters = ["All", "Today", "Upcoming", "Pending", "Completed"];
+    const filters = ["All", "Today", "Pending", "Scheduled", "Completed"];
     const normalizedAppointmentSearch = appointmentSearch.trim().toLowerCase();
 
     const filteredAppointments = doctorAppointments.filter((apt) => {
@@ -1287,7 +1333,6 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
       if (!matchesPatientName) return false;
       if (appointmentFilter === "All") return true;
-
       try {
         if (!apt.date) return false;
 
@@ -1300,7 +1345,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         const isPast = getLocalDateKey(apt.date) < getLocalDateKey(today);
 
         if (appointmentFilter === "Today") return isToday && apt.status !== "Cancelled";
-        if (appointmentFilter === "Upcoming") return (isUpcoming || isToday) && apt.status !== "Cancelled";
+        if (appointmentFilter === "Scheduled") return (isUpcoming || isToday) && apt.status !== "Cancelled";
         if (appointmentFilter === "Pending") return apt.status === "Pending" && !isPast;
         if (appointmentFilter === "Completed") return apt.status === "Completed" && (isToday || isPast); // Only show completed if happened
 
@@ -1315,7 +1360,14 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       <div className="p-9">
         <div className="mb-8 flex items-start justify-between">
           <div>
-            <h2 className="text-[28px] font-bold">My Appointments</h2>
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="text-[28px] font-bold">My Appointments</h2>
+              {pendingCount > 0 && (
+                <span className="inline-flex items-center rounded-full bg-red-500 px-3 py-1 text-sm font-bold text-white">
+                  {pendingCount > 99 ? "99+" : pendingCount} pending
+                </span>
+              )}
+            </div>
             <p className={`mt-2 text-[18px] ${textMuted}`}>Manage your appointment schedule.</p>
           </div>
         </div>
@@ -1333,7 +1385,16 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                   : "border border-slate-200 text-slate-700 hover:bg-slate-50"
               }`}
             >
-              {filter}
+              <span>{filter}</span>
+              {filter === "Pending" && pendingCount > 0 && (
+                <span
+                  className={`ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold ${
+                    appointmentFilter === filter ? "bg-white text-teal-700" : "bg-red-500 text-white"
+                  }`}
+                >
+                  {pendingCount > 99 ? "99+" : pendingCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -2769,13 +2830,25 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                   activePage === "appointments" ? activeNav : inactiveNav
                 }`}
               >
-                <CalendarDays size={22} />
+                <div className="relative flex-shrink-0">
+                  <CalendarDays size={22} />
+                  {sidebarCollapsed && pendingCount > 0 && (
+                    <span className="absolute -right-2.5 -top-2.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white shadow-sm">
+                      {pendingCount > 99 ? "99+" : pendingCount}
+                    </span>
+                  )}
+                </div>
                 <span className={`text-[18px] transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0 hidden" : "opacity-100 w-auto"}`}>Appointments</span>
+                {!sidebarCollapsed && pendingCount > 0 && (
+                  <span className="ml-auto flex h-6 min-w-6 items-center justify-center rounded-full bg-red-500 px-2 text-xs font-bold text-white">
+                    {pendingCount > 99 ? "99+" : pendingCount}
+                  </span>
+                )}
                 {sidebarCollapsed && (
                   <span className={`pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium opacity-0 shadow-lg transition-all duration-200 group-hover:opacity-100 ${
                     darkMode ? "bg-slate-700 text-slate-100" : "bg-slate-900 text-white"
                   }`}>
-                    Appointments
+                    Appointments{pendingCount > 0 ? ` (${pendingCount > 99 ? "99+" : pendingCount})` : ""}
                   </span>
                 )}
               </button>
@@ -2914,7 +2987,15 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                         notificationsList.map((item) => (
                           <div
                             key={item.id}
-                            onClick={() => !item.is_read && markNotificationAsRead(item.id)}
+                            onClick={() => handleNotificationClick(item)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                handleNotificationClick(item);
+                              }
+                            }}
                             className={`border-b px-5 py-4 cursor-pointer transition-colors ${borderSoft} ${
                               item.unread
                                 ? darkMode
@@ -3039,7 +3120,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
                       <div>
                         <label className={`text-xs font-semibold uppercase ${textMuted}`}>Time</label>
-                        <p className="text-base font-medium mt-2">{selectedAppointmentDetails.time || "N/A"}</p>
+                        <p className="text-base font-medium mt-2">{selectedAppointmentDetails.time ? formatTimeString(selectedAppointmentDetails.time) : "N/A"}</p>
                       </div>
 
                       <div>
