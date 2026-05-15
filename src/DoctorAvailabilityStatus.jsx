@@ -7,9 +7,21 @@ import { useState, useEffect } from "react";
 import { Activity, Clock, AlertCircle, CheckCircle } from "lucide-react";
 import api from "./api";
 
+const formatDoctorWorkTime = (time) => {
+  const formattedTime = (time || "").substring(0, 5);
+  if (formattedTime === "23:59") return "12:00 AM";
+
+  const [hoursValue, minutesValue] = formattedTime.split(":").map(Number);
+  if (Number.isNaN(hoursValue) || Number.isNaN(minutesValue)) return formattedTime;
+
+  const period = hoursValue >= 12 ? "PM" : "AM";
+  const hours12 = hoursValue % 12 || 12;
+  return `${hours12}:${String(minutesValue).padStart(2, "0")} ${period}`;
+};
+
 export default function DoctorAvailabilityStatus({ doctorId, darkMode }) {
   const [status, setStatus] = useState("Available");
-  const [workHours, setWorkHours] = useState({ start: "09:00", end: "18:00" });
+  const [workHours, setWorkHours] = useState({ start: "08:00", end: "23:59" });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [isError, setIsError] = useState(false);
@@ -149,7 +161,7 @@ export default function DoctorAvailabilityStatus({ doctorId, darkMode }) {
           </p>
         </div>
         <p className={textClasses}>
-          {workHours.start} - {workHours.end}
+          {formatDoctorWorkTime(workHours.start)} - {formatDoctorWorkTime(workHours.end)}
         </p>
       </div>
     </div>

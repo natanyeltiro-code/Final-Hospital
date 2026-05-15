@@ -7,6 +7,18 @@ import { useState, useEffect } from "react";
 import { Users, Calendar, MapPin, Star, AlertCircle } from "lucide-react";
 import api from "./api";
 
+const formatDoctorWorkTime = (time) => {
+  const formattedTime = (time || "").substring(0, 5);
+  if (formattedTime === "23:59") return "12:00 AM";
+
+  const [hoursValue, minutesValue] = formattedTime.split(":").map(Number);
+  if (Number.isNaN(hoursValue) || Number.isNaN(minutesValue)) return formattedTime;
+
+  const period = hoursValue >= 12 ? "PM" : "AM";
+  const hours12 = hoursValue % 12 || 12;
+  return `${hours12}:${String(minutesValue).padStart(2, "0")} ${period}`;
+};
+
 export default function AvailableDoctorsList({ selectedSpecialty, darkMode, onDoctorSelect }) {
   const [doctors, setDoctors] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
@@ -143,7 +155,7 @@ export default function AvailableDoctorsList({ selectedSpecialty, darkMode, onDo
               <div className="flex items-center gap-1">
                 <Calendar className="h-4 w-4 text-slate-400" />
                 <p className={`text-sm ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
-                  {doctor.workingHours?.start || "09:00"} - {doctor.workingHours?.end || "18:00"}
+                  {formatDoctorWorkTime(doctor.workingHours?.start || "08:00")} - {formatDoctorWorkTime(doctor.workingHours?.end || "23:59")}
                 </p>
               </div>
             </div>

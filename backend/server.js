@@ -26,6 +26,118 @@ const getNormalizedMedicalRecordStatus = (status) => {
 const isValidMedicalRecordStatus = (status) =>
   MEDICAL_RECORD_STATUSES.includes(getNormalizedMedicalRecordStatus(status));
 
+const normalizeTimeToMinutes = (time) => {
+  if (!time || typeof time !== "string") return null;
+  const match = time.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+
+  return hours * 60 + minutes;
+};
+
+const formatTimeForMessage = (time) => (time || "").substring(0, 5);
+
+const normalizeDoctorWorkStart = (time) => {
+  const formattedTime = formatTimeForMessage(time || "08:00");
+  return formattedTime === "09:00" ? "08:00" : formattedTime;
+};
+
+const normalizeDoctorWorkEnd = (time) => {
+  const formattedTime = formatTimeForMessage(time || "23:59");
+  return ["12:00", "18:00"].includes(formattedTime) ? "23:59" : formattedTime;
+};
+
+const formatTimeForDisplay = (time) => {
+  const formattedTime = formatTimeForMessage(time);
+  if (formattedTime === "23:59") return "12:00 AM";
+
+  const minutesOfDay = normalizeTimeToMinutes(formattedTime);
+  if (minutesOfDay === null) return formattedTime;
+
+  const hours24 = Math.floor(minutesOfDay / 60);
+  const minutes = minutesOfDay % 60;
+  const period = hours24 >= 12 ? "PM" : "AM";
+  const hours12 = hours24 % 12 || 12;
+  return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
+};
+
+const getDoctorWorkingHours = (doctorId, callback) => {
+  const sql = `
+    SELECT id
+    FROM users
+    WHERE id = ? AND role = 'doctor'
+  `;
+
+  db.query(sql, [parseInt(doctorId, 10)], (err, results) => {
+    if (err) {
+      callback(err);
+      return;
+    }
+
+    if (!results || results.length === 0) {
+      callback(null, null);
+      return;
+    }
+
+    callback(null, {
+      start: "08:00",
+      end: "23:59",
+    });
+  });
+};
+
+const validateAppointmentWithinWorkingHours = (doctorId, time, callback) => {
+  getDoctorWorkingHours(doctorId, (err, workingHours) => {
+    if (err) {
+      callback(err);
+      return;
+    }
+
+    if (!workingHours) {
+      callback(null, {
+        valid: false,
+        message: "Doctor not found",
+      });
+      return;
+    }
+
+    const appointmentMinutes = normalizeTimeToMinutes(time);
+    const startMinutes = normalizeTimeToMinutes(workingHours.start);
+    const endMinutes = normalizeTimeToMinutes(workingHours.end);
+
+    if (
+      appointmentMinutes === null ||
+      startMinutes === null ||
+      endMinutes === null ||
+      startMinutes > endMinutes
+    ) {
+      callback(null, {
+        valid: false,
+        message: "Invalid appointment time or doctor working hours",
+        workingHours,
+      });
+      return;
+    }
+
+    if (appointmentMinutes < startMinutes || appointmentMinutes > endMinutes) {
+      callback(null, {
+        valid: false,
+        message: `Doctor is only available from ${formatTimeForDisplay(workingHours.start)} to ${formatTimeForDisplay(workingHours.end)}. Please choose a time within those hours.`,
+        workingHours,
+      });
+      return;
+    }
+
+    callback(null, {
+      valid: true,
+      workingHours,
+    });
+  });
+};
+
 const ensureMedicalStatusColumn = (callback) => {
   const sql = "ALTER TABLE users ADD COLUMN medical_status VARCHAR(50)";
   db.query(sql, (err) => {
@@ -417,8 +529,8 @@ const initializeSchema = () => {
     const availabilityColumns = [
       { name: "status", type: "ENUM('Available', 'Busy', 'Off-duty') DEFAULT 'Available'" },
       { name: "last_status_update", type: "TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP" },
-      { name: "work_start_time", type: "TIME DEFAULT '09:00:00'" },
-      { name: "work_end_time", type: "TIME DEFAULT '18:00:00'" },
+      { name: "work_start_time", type: "TIME DEFAULT '08:00:00'" },
+      { name: "work_end_time", type: "TIME DEFAULT '23:59:00'" },
     ];
 
     for (const column of availabilityColumns) {
@@ -438,6 +550,31 @@ const initializeSchema = () => {
         });
       });
     }
+
+    await new Promise((resolve) => {
+      const sql = `
+        UPDATE users
+        SET
+          work_start_time = CASE
+            WHEN work_start_time IS NULL OR work_start_time = '09:00:00' THEN '08:00:00'
+            ELSE work_start_time
+          END,
+          work_end_time = CASE
+            WHEN work_end_time IS NULL OR work_end_time IN ('12:00:00', '18:00:00') THEN '23:59:00'
+            ELSE work_end_time
+          END
+        WHERE role = 'doctor'
+      `;
+
+      db.query(sql, (err) => {
+        if (err) {
+          console.log(`  Warning: Could not normalize doctor working hours: ${err.message.substring(0, 60)}`);
+        } else {
+          console.log("  Doctor working hour defaults normalized to 08:00-23:59");
+        }
+        resolve();
+      });
+    });
 
     // Create doctor_schedule table
     await new Promise((resolve) => {
@@ -1347,7 +1484,7 @@ app.get("/departments", authenticateToken, (req, res) => {
 app.get("/doctors", authenticateToken, (req, res) => {
   const { department } = req.query;
   
-  let sql = "SELECT id, name, email, role, specialty, department, phone, rating, experience FROM users WHERE role = 'doctor'";
+  let sql = "SELECT id, name, email, role, specialty, department, phone, rating, experience, TIME_FORMAT(work_start_time, '%H:%i') as work_start_time, TIME_FORMAT(work_end_time, '%H:%i') as work_end_time FROM users WHERE role = 'doctor'";
   const params = [];
   
   // Filter by department if provided
@@ -1378,6 +1515,32 @@ app.get("/doctors", authenticateToken, (req, res) => {
       message: "Doctors retrieved successfully",
       doctors: doctorsWithTypes
     });
+  });
+});
+
+app.post(["/appointments", "/api/appointments"], authenticateToken, authorizeRoles("patient", "admin"), (req, res, next) => {
+  const { doctorId, time } = req.body;
+
+  if (!doctorId || !time) {
+    next();
+    return;
+  }
+
+  validateAppointmentWithinWorkingHours(doctorId, time, (err, validation) => {
+    if (err) {
+      console.error("Error checking doctor working hours:", err.message);
+      return res.status(500).json({ message: "Error checking doctor working hours" });
+    }
+
+    if (!validation.valid) {
+      return res.status(400).json({
+        message: validation.message,
+        available: false,
+        workingHours: validation.workingHours,
+      });
+    }
+
+    next();
   });
 });
 
@@ -1547,6 +1710,30 @@ app.get("/appointments/:userId", authenticateToken, (req, res) => {
 });
 
 /* ⭐ CHECK IF TIME SLOT IS AVAILABLE (Double-booking prevention) */
+app.get(["/appointments/check-slot/:doctorId/:date/:time", "/api/appointments/check-slot/:doctorId/:date/:time"], (req, res, next) => {
+  const { doctorId, time } = req.params;
+
+  validateAppointmentWithinWorkingHours(doctorId, time, (err, validation) => {
+    if (err) {
+      console.error("Error checking doctor working hours:", err.message);
+      return res.status(500).json({
+        message: "Error checking doctor working hours",
+        available: false,
+      });
+    }
+
+    if (!validation.valid) {
+      return res.status(409).json({
+        message: validation.message,
+        available: false,
+        workingHours: validation.workingHours,
+      });
+    }
+
+    next();
+  });
+});
+
 app.get("/appointments/check-slot/:doctorId/:date/:time", (req, res) => {
   const { doctorId, date, time } = req.params;
   
@@ -1655,8 +1842,8 @@ app.get("/appointments/booked-slots/:doctorId/:date", (req, res) => {
 /* ⭐ GET AVAILABLE TIME SLOTS FOR A DOCTOR */
 app.get("/available-slots/:doctorId/:date", (req, res) => {
   const { doctorId, date } = req.params;
-  const workStartTime = req.query.startTime || "09:00";
-  const workEndTime = req.query.endTime || "18:00";
+  const workStartTime = req.query.startTime || "08:00";
+  const workEndTime = req.query.endTime || "23:59";
   const slotDuration = parseInt(req.query.slotDuration) || 30; // minutes
   
   console.log(`\n📅 AVAILABLE SLOTS API CALLED`);
@@ -1683,10 +1870,12 @@ app.get("/available-slots/:doctorId/:date", (req, res) => {
     }
     
     // Use doctor's custom hours if available, otherwise defaults
-    const docWorkStart = (hours_results && hours_results[0]?.work_start_time) ? 
-      hours_results[0].work_start_time.substring(0, 5) : workStartTime;
-    const docWorkEnd = (hours_results && hours_results[0]?.work_end_time) ? 
-      hours_results[0].work_end_time.substring(0, 5) : workEndTime;
+    const docWorkStart = normalizeDoctorWorkStart(
+      (hours_results && hours_results[0]?.work_start_time) || workStartTime
+    );
+    const docWorkEnd = normalizeDoctorWorkEnd(
+      (hours_results && hours_results[0]?.work_end_time) || workEndTime
+    );
     
     // Get all booked appointments for this doctor on this date
     const bookedSql = `
@@ -1719,7 +1908,7 @@ app.get("/available-slots/:doctorId/:date", (req, res) => {
         let currentTime = new Date(2000, 0, 1, startHour, startMin);
         const endDateTime = new Date(2000, 0, 1, endHour, endMin);
         
-        while (currentTime < endDateTime) {
+        while (currentTime <= endDateTime) {
           const hours = String(currentTime.getHours()).padStart(2, "0");
           const minutes = String(currentTime.getMinutes()).padStart(2, "0");
           slots.push(`${hours}:${minutes}`);

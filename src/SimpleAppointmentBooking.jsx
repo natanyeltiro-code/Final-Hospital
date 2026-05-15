@@ -23,6 +23,37 @@ import {
 import api from "./api";
 import SuccessPopup from "./SuccessPopup";
 
+const normalizeDoctorWorkStart = (time) => {
+  const formattedTime = (time || "08:00").substring(0, 5);
+  return formattedTime === "09:00" ? "08:00" : formattedTime;
+};
+
+const normalizeDoctorWorkEnd = (time) => {
+  const formattedTime = (time || "23:59").substring(0, 5);
+  return ["12:00", "18:00"].includes(formattedTime) ? "23:59" : formattedTime;
+};
+
+const formatDoctorWorkTime = (time) => {
+  const formattedTime = (time || "").substring(0, 5);
+  if (formattedTime === "23:59") return "12:00 AM";
+
+  const [hoursValue, minutesValue] = formattedTime.split(":").map(Number);
+  if (Number.isNaN(hoursValue) || Number.isNaN(minutesValue)) return formattedTime;
+
+  const period = hoursValue >= 12 ? "PM" : "AM";
+  const hours12 = hoursValue % 12 || 12;
+  return `${hours12}:${String(minutesValue).padStart(2, "0")} ${period}`;
+};
+
+const normalizeAppointmentErrorMessage = (message, startTime, endTime) => {
+  if (!message) return "❌ Failed to book appointment. Please try again.";
+  if (message.includes("Doctor is only available from")) {
+    const prefix = message.trim().startsWith("❌") ? "❌ " : "";
+    return `${prefix}Doctor is only available from ${formatDoctorWorkTime(startTime)} to ${formatDoctorWorkTime(endTime)}. Please choose a time within those hours.`;
+  }
+  return message;
+};
+
 export default function SimpleAppointmentBooking({ 
   darkMode, 
   loggedInUser, 
@@ -136,8 +167,8 @@ export default function SimpleAppointmentBooking({
       console.log(`   Date: ${selectedDate}`);
       
       // Use doctor's working hours if available
-      const startTime = selectedDoctor.work_start_time || "09:00";
-      const endTime = selectedDoctor.work_end_time || "18:00";
+      const startTime = normalizeDoctorWorkStart(selectedDoctor.work_start_time);
+      const endTime = normalizeDoctorWorkEnd(selectedDoctor.work_end_time);
       
       const response = await api.get(
         `/available-slots/${selectedDoctor.id}/${selectedDate}`,
@@ -250,17 +281,20 @@ export default function SimpleAppointmentBooking({
     } catch (err) {
       console.error("❌ Booking error:", err.response?.data || err.message);
       
+      const startTime = normalizeDoctorWorkStart(selectedDoctor?.work_start_time);
+      const endTime = normalizeDoctorWorkEnd(selectedDoctor?.work_end_time);
+
       if (err.response?.status === 409) {
         // Double booking detected
         setError(
-          err.response.data.message ||
+          normalizeAppointmentErrorMessage(err.response.data.message, startTime, endTime) ||
           `❌ This time slot is already booked! Please select a different time.`
         );
         // Refresh to show latest booked slots
         await fetchAvailableSlots();
       } else {
         setError(
-          err.response?.data?.message ||
+          normalizeAppointmentErrorMessage(err.response?.data?.message, startTime, endTime) ||
           "❌ Failed to book appointment. Please try again."
         );
       }

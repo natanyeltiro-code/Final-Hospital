@@ -465,12 +465,9 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         if (apt.status !== "Confirmed") return false;
         
         try {
-          let dateStr = apt.date;
-          if (dateStr.includes('T')) {
-            dateStr = dateStr.split('T')[0];
-          }
-          const aptDateTime = new Date(`${dateStr}T${apt.time || "00:00"}`);
-          return aptDateTime < now; // Appointment time has passed
+          const aptEndDateTime = getAppointmentEndDateTime(apt);
+          if (!aptEndDateTime) return false;
+          return aptEndDateTime < now; // Appointment end time has passed
         } catch (err) {
           return false;
         }
@@ -980,24 +977,6 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     }
   };
 
-  const doctorAppointments = appointments.map((apt) => ({
-    ...apt,
-    patientName:
-      apt.patient_name ||
-      patients.find((p) => p.id === apt.patient_id)?.name ||
-      "Unknown Patient",
-    formattedDate: apt.date
-      ? new Date(apt.date).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })
-      : "TBD",
-    formattedTime: formatTimeString(apt.time),
-    type: apt.type || "Consultation",
-    status: apt.status || "Pending",
-  }));
-
   const getLocalDateKey = (dateValue) => {
     if (!dateValue) return "";
 
@@ -1009,6 +988,50 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     const day = String(date.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
   };
+
+  const getAppointmentDateTime = (apt) => {
+    if (!apt?.date) return null;
+
+    const dateStr = getLocalDateKey(apt.date);
+    if (!dateStr) return null;
+
+    const dateTime = new Date(`${dateStr}T${apt.time || "00:00"}`);
+    return Number.isNaN(dateTime.getTime()) ? null : dateTime;
+  };
+
+  const getAppointmentEndDateTime = (apt) => {
+    const startDateTime = getAppointmentDateTime(apt);
+    if (!startDateTime) return null;
+
+    const durationMinutes = Number(apt.appointment_duration) || 30;
+    return new Date(startDateTime.getTime() + durationMinutes * 60 * 1000);
+  };
+
+  const doctorAppointments = appointments.map((apt) => {
+    const appointmentEndDateTime = getAppointmentEndDateTime(apt);
+    const status =
+      apt.status === "Completed" && appointmentEndDateTime && appointmentEndDateTime > new Date()
+        ? "Confirmed"
+        : apt.status || "Pending";
+
+    return {
+      ...apt,
+      patientName:
+        apt.patient_name ||
+        patients.find((p) => p.id === apt.patient_id)?.name ||
+        "Unknown Patient",
+      formattedDate: apt.date
+        ? new Date(apt.date).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : "TBD",
+      formattedTime: formatTimeString(apt.time),
+      type: apt.type || "Consultation",
+      status,
+    };
+  });
 
   const todayAppointments = doctorAppointments.filter((apt) => {
     const dateStr = getLocalDateKey(apt.date);
@@ -1325,6 +1348,30 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const renderAppointmentsPage = () => {
     const filters = ["All", "Today", "Pending", "Scheduled", "Completed"];
     const normalizedAppointmentSearch = appointmentSearch.trim().toLowerCase();
+    const isScheduledAppointment = (apt) =>
+      ["Confirmed", "Scheduled"].includes(apt.status || "");
+    const filterCounts = doctorAppointments.reduce(
+      (counts, apt) => {
+        try {
+          const aptDateTime = getAppointmentDateTime(apt);
+          const today = new Date();
+          const isToday = apt.date && getLocalDateKey(apt.date) === getLocalDateKey(today);
+          const isUpcoming = !!aptDateTime && aptDateTime >= today;
+          const isPast = !!aptDateTime && aptDateTime < today;
+
+          counts.All += 1;
+          if (isToday && apt.status !== "Cancelled") counts.Today += 1;
+          if ((isUpcoming || isToday) && isScheduledAppointment(apt)) counts.Scheduled += 1;
+          if (apt.status === "Pending") counts.Pending += 1;
+          if (apt.status === "Completed" && (isToday || isPast)) counts.Completed += 1;
+        } catch (err) {
+          counts.All += 1;
+        }
+
+        return counts;
+      },
+      { All: 0, Today: 0, Pending: 0, Scheduled: 0, Completed: 0 }
+    );
 
     const filteredAppointments = doctorAppointments.filter((apt) => {
       const matchesPatientName =
@@ -1336,17 +1383,17 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       try {
         if (!apt.date) return false;
 
-        const aptDate = new Date(apt.date);
-        if (Number.isNaN(aptDate.getTime())) return false;
+        const aptDateTime = getAppointmentDateTime(apt);
+        if (!aptDateTime) return false;
 
         const today = new Date();
         const isToday = getLocalDateKey(apt.date) === getLocalDateKey(today);
-        const isUpcoming = aptDate > today;
-        const isPast = getLocalDateKey(apt.date) < getLocalDateKey(today);
+        const isUpcoming = aptDateTime >= today;
+        const isPast = aptDateTime < today;
 
         if (appointmentFilter === "Today") return isToday && apt.status !== "Cancelled";
-        if (appointmentFilter === "Scheduled") return (isUpcoming || isToday) && apt.status !== "Cancelled";
-        if (appointmentFilter === "Pending") return apt.status === "Pending" && !isPast;
+        if (appointmentFilter === "Scheduled") return (isUpcoming || isToday) && isScheduledAppointment(apt);
+        if (appointmentFilter === "Pending") return apt.status === "Pending";
         if (appointmentFilter === "Completed") return apt.status === "Completed" && (isToday || isPast); // Only show completed if happened
 
         return false;
@@ -1386,13 +1433,13 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               }`}
             >
               <span>{filter}</span>
-              {filter === "Pending" && pendingCount > 0 && (
+              {filter === "Pending" && filterCounts.Pending > 0 && (
                 <span
                   className={`ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold ${
                     appointmentFilter === filter ? "bg-white text-teal-700" : "bg-red-500 text-white"
                   }`}
                 >
-                  {pendingCount > 99 ? "99+" : pendingCount}
+                  {filterCounts.Pending > 99 ? "99+" : filterCounts.Pending}
                 </span>
               )}
             </button>

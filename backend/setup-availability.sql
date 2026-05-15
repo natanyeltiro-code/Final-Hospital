@@ -44,7 +44,7 @@ SET @work_start_time_exists = (
 );
 SET @work_start_time_sql = IF(
   @work_start_time_exists = 0,
-  "ALTER TABLE users ADD COLUMN work_start_time TIME DEFAULT '09:00:00'",
+  "ALTER TABLE users ADD COLUMN work_start_time TIME DEFAULT '08:00:00'",
   "SELECT 'users.work_start_time already exists'"
 );
 PREPARE stmt FROM @work_start_time_sql;
@@ -60,7 +60,7 @@ SET @work_end_time_exists = (
 );
 SET @work_end_time_sql = IF(
   @work_end_time_exists = 0,
-  "ALTER TABLE users ADD COLUMN work_end_time TIME DEFAULT '18:00:00'",
+  "ALTER TABLE users ADD COLUMN work_end_time TIME DEFAULT '23:59:00'",
   "SELECT 'users.work_end_time already exists'"
 );
 PREPARE stmt FROM @work_end_time_sql;

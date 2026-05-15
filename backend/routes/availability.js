@@ -8,6 +8,16 @@ const router = express.Router();
 const db = require("../config/db");
 const { authenticateToken, authorizeRoles } = require("../middleware/auth");
 
+const formatTime = (time, fallback) => (time || fallback).substring(0, 5);
+const normalizeWorkStart = (time) => {
+  const formattedTime = formatTime(time, "08:00");
+  return formattedTime === "09:00" ? "08:00" : formattedTime;
+};
+const normalizeWorkEnd = (time) => {
+  const formattedTime = formatTime(time, "23:59");
+  return ["12:00", "18:00"].includes(formattedTime) ? "23:59" : formattedTime;
+};
+
 // ============================================================
 // GET DOCTOR AVAILABILITY STATUS
 // ============================================================
@@ -40,8 +50,8 @@ router.get("/doctor/:doctorId/availability", (req, res) => {
         specialty: doctor.specialty,
         status: doctor.status,
         workingHours: {
-          start: doctor.work_start_time,
-          end: doctor.work_end_time,
+          start: normalizeWorkStart(doctor.work_start_time),
+          end: normalizeWorkEnd(doctor.work_end_time),
         },
       },
     });
@@ -136,7 +146,11 @@ router.get("/available-doctors", (req, res) => {
 
     res.json({
       message: `✅ Found ${results.length} available doctors`,
-      doctors: results,
+      doctors: results.map((doctor) => ({
+        ...doctor,
+        work_start_time: normalizeWorkStart(doctor.work_start_time),
+        work_end_time: normalizeWorkEnd(doctor.work_end_time),
+      })),
     });
   });
 });
@@ -216,7 +230,7 @@ router.post("/generate-slots/:doctorId", authenticateToken, authorizeRoles("admi
 
     const doctor = results[0];
     const startTime = doctor.work_start_time;
-    const endTime = doctor.work_end_time;
+    const endTime = normalizeWorkEnd(doctor.work_end_time);
 
     // Generate time slots
     const slots = [];

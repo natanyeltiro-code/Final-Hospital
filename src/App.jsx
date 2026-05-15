@@ -81,6 +81,40 @@ const DOCTOR_SPECIALIZATIONS = [
   "Urology",
 ];
 
+const normalizeDoctorWorkStart = (time) => {
+  const formattedTime = (time || "08:00").substring(0, 5);
+  return formattedTime === "09:00" ? "08:00" : formattedTime;
+};
+
+const normalizeDoctorWorkEnd = (time) => {
+  const formattedTime = (time || "23:59").substring(0, 5);
+  return ["12:00", "18:00"].includes(formattedTime) ? "23:59" : formattedTime;
+};
+
+const formatDoctorWorkTime = (time) => {
+  const formattedTime = (time || "").substring(0, 5);
+  if (formattedTime === "23:59") return "12:00 AM";
+
+  const [hoursValue, minutesValue] = formattedTime.split(":").map(Number);
+  if (Number.isNaN(hoursValue) || Number.isNaN(minutesValue)) return formattedTime;
+
+  const period = hoursValue >= 12 ? "PM" : "AM";
+  const hours12 = hoursValue % 12 || 12;
+  return `${hours12}:${String(minutesValue).padStart(2, "0")} ${period}`;
+};
+
+const getDoctorAvailabilityMessage = (hours) =>
+  `Doctor is only available from ${formatDoctorWorkTime(hours.start)} to ${formatDoctorWorkTime(hours.end)}. Please choose a time within those hours.`;
+
+const normalizeAppointmentErrorMessage = (message, hours) => {
+  if (!message) return "❌ Failed to book appointment";
+  if (message.includes("Doctor is only available from")) {
+    const prefix = message.trim().startsWith("❌") ? "❌ " : "";
+    return `${prefix}${getDoctorAvailabilityMessage(hours)}`;
+  }
+  return message;
+};
+
 const formatGeneratedTimestamp = () =>
   new Date().toLocaleString("en-US", {
     month: "long",
@@ -249,6 +283,15 @@ export default function App() {
   const [doctorUnavailableDates] = useState([]);
   const [, setSelectedSlot] = useState(null); // For availability system
   const [bookingSpecialty, setBookingSpecialty] = useState(""); // For availability system
+  const selectedBookingDoctor = doctors.find((doctor) => String(doctor.id) === String(bookingData.doctorId));
+  const selectedBookingDoctorHours = {
+    start: normalizeDoctorWorkStart(bookingData.workStartTime || selectedBookingDoctor?.work_start_time),
+    end: normalizeDoctorWorkEnd(bookingData.workEndTime || selectedBookingDoctor?.work_end_time),
+  };
+  const isBookingTimeWithinDoctorHours = (time) =>
+    !!time &&
+    time >= selectedBookingDoctorHours.start &&
+    time <= selectedBookingDoctorHours.end;
   const [selectedDetail, setSelectedDetail] = useState(null);
   const [selectedDetailType, setSelectedDetailType] = useState("");
   const [profileData, setProfileData] = useState({
@@ -842,6 +885,12 @@ export default function App() {
       return;
     }
 
+    if (!isBookingTimeWithinDoctorHours(bookingData.time)) {
+      setIsError(true);
+      setMessage(`❌ ${getDoctorAvailabilityMessage(selectedBookingDoctorHours)}`);
+      return;
+    }
+
     try {
       const res = await api.post("/appointments", {
         patientId: loggedInUser.id,
@@ -882,7 +931,12 @@ export default function App() {
       }
     } catch (err) {
       setIsError(true);
-      setMessage(err.response?.data?.message || "❌ Failed to book appointment");
+      setMessage(
+        normalizeAppointmentErrorMessage(
+          err.response?.data?.message,
+          selectedBookingDoctorHours
+        )
+      );
     }
   };
 
@@ -1489,6 +1543,12 @@ export default function App() {
       return;
     }
 
+    if (!isBookingTimeWithinDoctorHours(bookingData.time)) {
+      setMessage(`❌ ${getDoctorAvailabilityMessage(selectedBookingDoctorHours)}`, true);
+      setIsError(true);
+      return;
+    }
+
     if (newUserData.patientType === "registered" && !newUserData.selectedPatientId) {
       console.warn("Selected patient ID missing");
       setMessage("❌ Please select a patient", true);
@@ -1576,7 +1636,10 @@ export default function App() {
       }
     } catch (err) {
       console.error("Error booking appointment:", err);
-      const errorMsg = err.response?.data?.message || err.message || "❌ Failed to book appointment";
+      const errorMsg = normalizeAppointmentErrorMessage(
+        err.response?.data?.message || err.message,
+        selectedBookingDoctorHours
+      );
       console.error("Error message:", errorMsg);
       setIsError(true);
       setMessage(errorMsg);
@@ -2252,10 +2315,15 @@ export default function App() {
                         onChange={(e) => {
                           setBookingData({ ...bookingData, time: e.target.value });
                         }}
+                        min={selectedBookingDoctorHours.start}
+                        max={selectedBookingDoctorHours.end}
                         className={`w-full rounded-lg border px-4 py-3 focus:border-teal-500 focus:outline-none ${
                           darkMode ? "border-slate-700 bg-slate-800 text-slate-100" : "border-slate-200 text-slate-900"
                         }`}
                       />
+                      <p className={`mt-2 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                        Available from {formatDoctorWorkTime(selectedBookingDoctorHours.start)} to {formatDoctorWorkTime(selectedBookingDoctorHours.end)}
+                      </p>
                     </>
                   ) : (
                     <div className={`mt-6 flex min-h-[220px] items-center justify-center rounded-2xl border border-dashed p-6 text-center ${
@@ -2275,7 +2343,12 @@ export default function App() {
                           selectedSpecialty={bookingSpecialty}
                           darkMode={darkMode}
                           onDoctorSelect={(doctor) => {
-                            setBookingData({ ...bookingData, doctorId: doctor.id.toString() });
+                            setBookingData({
+                              ...bookingData,
+                              doctorId: doctor.id.toString(),
+                              workStartTime: doctor.work_start_time || doctor.workingHours?.start,
+                              workEndTime: doctor.work_end_time || doctor.workingHours?.end,
+                            });
                             setSelectedSlot(null);
                           }}
                         />
@@ -3779,11 +3852,29 @@ export default function App() {
   };
 
   const renderAdminAppointmentsPage = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const appointmentFilterCounts = adminAppointments.reduce(
+      (counts, apt) => {
+        const appointmentDate = apt.date ? new Date(`${apt.date}T00:00:00`) : null;
+        const status = apt.status || "Pending";
+
+        counts.All += 1;
+        if (appointmentDate && appointmentDate.getTime() === today.getTime()) {
+          counts.Today += 1;
+        }
+        if (Object.prototype.hasOwnProperty.call(counts, status)) {
+          counts[status] += 1;
+        }
+
+        return counts;
+      },
+      { All: 0, Today: 0, Pending: 0, Completed: 0, Cancelled: 0 }
+    );
+
     // Filter appointments by status and search
     const filteredAppointments = adminAppointments.filter((apt) => {
       const appointmentDate = apt.date ? new Date(`${apt.date}T00:00:00`) : null;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
       const matchesStatus =
         appointmentFilter === "All" ||
         (appointmentFilter === "Today"
@@ -3855,7 +3946,7 @@ export default function App() {
         </div>
 
         {/* Filter Tabs */}
-        <div className="mb-6 flex gap-2">
+        <div className="mb-8 flex flex-wrap gap-3">
           {["All", "Today", "Pending", "Completed", "Cancelled"].map((status) => (
             <button
               key={status}
@@ -3863,13 +3954,24 @@ export default function App() {
                 setAppointmentFilter(status);
                 setAdminAppointmentsPage(1);
               }}
-              className={`rounded-full px-5 py-2 font-medium transition-colors ${
+              className={`rounded-full px-6 py-2 font-medium transition ${
                 appointmentFilter === status
                   ? "bg-teal-600 text-white"
-                  : darkMode ? "bg-slate-800 text-slate-300 hover:bg-slate-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  : darkMode
+                    ? "border border-slate-700 text-slate-300 hover:bg-slate-800"
+                    : "border border-slate-200 text-slate-700 hover:bg-slate-50"
               }`}
             >
-              {status}
+              <span>{status}</span>
+              {status === "Pending" && appointmentFilterCounts.Pending > 0 && (
+                <span
+                  className={`ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold ${
+                    appointmentFilter === status ? "bg-white text-teal-700" : "bg-red-500 text-white"
+                  }`}
+                >
+                  {appointmentFilterCounts.Pending > 99 ? "99+" : appointmentFilterCounts.Pending}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -5867,9 +5969,14 @@ export default function App() {
                         type="time" 
                         value={bookingData.time}
                         onChange={(e) => setBookingData({...bookingData, time: e.target.value})}
+                        min={selectedBookingDoctorHours.start}
+                        max={selectedBookingDoctorHours.end}
                         className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none focus:border-teal-600"
                         required 
                       />
+                      <p className="mt-2 text-xs text-slate-500">
+                        Available from {formatDoctorWorkTime(selectedBookingDoctorHours.start)} to {formatDoctorWorkTime(selectedBookingDoctorHours.end)}
+                      </p>
                     </div>
 
                     <div>
