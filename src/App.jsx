@@ -49,6 +49,37 @@ const SimpleAppointmentBooking = lazy(() => import("./SimpleAppointmentBooking")
 const ACTIVE_MEDICAL_RECORD_STATUSES = ["Ongoing", "Critical"];
 const DOCTOR_SCHEDULE_START_HOUR = 8;
 const DOCTOR_SCHEDULE_END_HOUR = 24;
+const DOCTOR_SPECIALIZATIONS = [
+  "Allergy and Immunology",
+  "Anesthesiology",
+  "Cardiology",
+  "Dermatology",
+  "Emergency Medicine",
+  "Endocrinology",
+  "Family Medicine",
+  "Gastroenterology",
+  "General Medicine",
+  "General Surgery",
+  "Geriatrics",
+  "Hematology",
+  "Infectious Disease",
+  "Internal Medicine",
+  "Nephrology",
+  "Neurology",
+  "Obstetrics and Gynecology",
+  "Oncology",
+  "Ophthalmology",
+  "Orthopedics",
+  "Otolaryngology",
+  "Pathology",
+  "Pediatrics",
+  "Physical Medicine and Rehabilitation",
+  "Psychiatry",
+  "Pulmonology",
+  "Radiology",
+  "Rheumatology",
+  "Urology",
+];
 
 const formatGeneratedTimestamp = () =>
   new Date().toLocaleString("en-US", {
@@ -1833,7 +1864,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className="rounded-[28px] bg-gradient-to-r from-teal-700 to-emerald-800 p-9 text-white shadow-lg">
+        <div className="rounded-[28px] bg-gradient-to-r from-teal-700 to-emerald-800 p-9 text-white shadow-lg transition duration-300 hover:-translate-y-1 hover:shadow-xl">
           <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <span className={`inline-block rounded-full px-4 py-2 text-sm font-semibold ${
@@ -1897,7 +1928,7 @@ export default function App() {
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-3">
-          <div className={`rounded-3xl border p-7 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+          <div className={`rounded-3xl border p-7 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
             <div className="flex items-start justify-between">
               <div>
                 <p className={`text-[20px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Upcoming Visits</p>
@@ -1909,7 +1940,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className={`rounded-3xl border p-7 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+          <div className={`rounded-3xl border p-7 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
             <div className="flex items-start justify-between">
               <div>
                 <p className={`text-[20px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Past Visits</p>
@@ -1921,7 +1952,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className={`rounded-3xl border p-7 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+          <div className={`rounded-3xl border p-7 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
             <div className="flex items-start justify-between">
               <div>
                 <p className={`text-[20px] ${darkMode ? "text-slate-400" : "text-slate-500"}`}>Medical Records</p>
@@ -1935,7 +1966,7 @@ export default function App() {
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <div className={`rounded-3xl border p-7 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+          <div className={`rounded-3xl border p-7 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
             <div className="mb-6 flex items-center justify-between">
               <h3 className="text-[20px] font-semibold">Recent Medical Records</h3>
               <button
@@ -1991,7 +2022,7 @@ export default function App() {
             )}
           </div>
 
-          <div className={`rounded-3xl border p-7 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+          <div className={`rounded-3xl border p-7 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
             <h3 className="mb-6 text-[20px] font-semibold">Appointment History</h3>
 
             {appointments.length === 0 ? (
@@ -6518,8 +6549,8 @@ export default function App() {
       >
         <div className="relative min-h-screen w-full overflow-hidden">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_12%,rgba(255,255,255,0.12),transparent_34%),linear-gradient(180deg,rgba(13,38,91,0.04),rgba(7,22,62,0.22))]" />
-          <div className="relative z-10 grid min-h-screen lg:grid-cols-[58%_42%]">
-          <section className="relative hidden min-h-screen p-10 text-white lg:flex lg:flex-col xl:p-14">
+          <div className="relative z-10 grid min-h-screen xl:grid-cols-[46%_54%]">
+          <section className="relative hidden min-h-screen p-10 text-white xl:flex xl:flex-col xl:p-14">
             <div className="relative z-10 flex items-center gap-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-white/20 bg-white/10 shadow-[0_18px_40px_rgba(15,23,42,0.20)] backdrop-blur-sm">
                 <Activity className="text-white" size={29} />
@@ -6527,17 +6558,17 @@ export default function App() {
               <p className="text-[26px] font-bold tracking-tight">MediCare HMS</p>
             </div>
 
-            <div className="relative z-10 flex flex-1 flex-col justify-center">
-              <div className="max-w-[600px]">
-                <h1 className="text-[48px] font-bold leading-[1.16] tracking-tight xl:text-[56px]">
+            <div className="relative z-10 flex flex-1 flex-col pt-24 xl:pt-28">
+              <div className="max-w-[680px]">
+                <h1 className="text-[46px] font-bold leading-[0.98] tracking-tight xl:text-[52px]">
                   Modern healthcare administration, simplified.
                 </h1>
-                <p className="mt-7 max-w-[560px] text-[22px] leading-9 text-blue-50/90">
+                <p className="mt-4 max-w-[560px] text-[21px] leading-7 text-blue-50/90">
                   Manage patients, appointments, and hospital operations from a single, secure command center.
                 </p>
               </div>
 
-              <div className="mt-16 flex gap-16">
+              <div className="mt-8 flex gap-12">
                 <div>
                   <p className="text-[42px] font-bold leading-none">12k+</p>
                   <p className="mt-2 text-base text-blue-50/85">Patients managed</p>
@@ -6555,9 +6586,13 @@ export default function App() {
             </div>
           </section>
 
-          <section className="relative flex min-h-screen w-full items-center justify-center overflow-y-auto px-6 py-10 sm:px-10 lg:justify-start lg:px-0">
-            <div className="relative z-10 w-full max-w-[560px] lg:ml-0 xl:ml-2">
-              <div className="mb-8 lg:hidden">
+          <section className="relative flex min-h-screen w-full items-center justify-center overflow-y-auto px-6 py-10 sm:px-10 xl:justify-center xl:px-8">
+            <div
+              className={`relative z-10 w-full ${
+                !isLogin && !showForgotPassword ? "max-w-[760px]" : "max-w-[560px]"
+              }`}
+            >
+              <div className="mb-8 xl:hidden">
                 <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 shadow-[0_16px_32px_rgba(37,99,235,0.26)]">
                   <Activity className="text-white" size={28} />
                 </div>
@@ -6568,7 +6603,7 @@ export default function App() {
               </div>
 
               <div className="overflow-hidden rounded-[24px] border border-white/80 bg-slate-50/95 shadow-[0_24px_70px_rgba(15,23,42,0.24)] backdrop-blur">
-                <div className="p-7 sm:p-12">
+                <div className={!isLogin && !showForgotPassword ? "p-6 sm:p-8" : "p-7 sm:p-12"}>
                 <div>
                   <h2 className="text-[32px] font-bold tracking-tight text-slate-950">{authTitle}</h2>
                   <p className="mt-3 text-base leading-7 text-slate-500">{authSubtitle}</p>
@@ -6699,8 +6734,8 @@ export default function App() {
                   </div>
                 </form>
               ) : (
-                <form onSubmit={handleRegister} className="mt-8">
-                  <div className="mt-5">
+                <form onSubmit={handleRegister} className="mt-6">
+                  <div>
                     <label className="mb-3 block text-sm font-semibold text-slate-800">
                       Register As
                     </label>
@@ -6734,110 +6769,143 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="mt-5">
-                    <label className="mb-3 block text-sm font-semibold text-slate-800">
-                      Full Name
-                    </label>
-                    <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
-                      <User size={18} className="mr-3 text-slate-400" />
-                      <input
-                        type="text"
-                        name="name"
-                        value={registerData.name}
-                        onChange={handleRegisterChange}
-                        placeholder="Enter your name"
-                        required
-                        className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
-                      />
+                  <div className="mt-5 grid gap-5 md:grid-cols-2">
+                    <div>
+                      <label className="mb-3 block text-sm font-semibold text-slate-800">
+                        Full Name
+                      </label>
+                      <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                        <User size={18} className="mr-3 text-slate-400" />
+                        <input
+                          type="text"
+                          name="name"
+                          value={registerData.name}
+                          onChange={handleRegisterChange}
+                          placeholder="Enter your name"
+                          required
+                          className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                        />
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="mt-5">
-                    <label className="mb-3 block text-sm font-semibold text-slate-800">
-                      Email Address
-                    </label>
-                    <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
-                      <Mail size={18} className="mr-3 text-slate-400" />
-                      <input
-                        type="email"
-                        name="email"
-                        value={registerData.email}
-                        onChange={handleRegisterChange}
-                        placeholder="Enter your email address"
-                        required
-                        className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
-                      />
+                    <div>
+                      <label className="mb-3 block text-sm font-semibold text-slate-800">
+                        Email Address
+                      </label>
+                      <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                        <Mail size={18} className="mr-3 text-slate-400" />
+                        <input
+                          type="email"
+                          name="email"
+                          value={registerData.email}
+                          onChange={handleRegisterChange}
+                          placeholder="Enter your email address"
+                          required
+                          className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                        />
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="mt-5">
-                    <label className="mb-3 block text-sm font-semibold text-slate-800">
-                      Phone Number
-                    </label>
-                    <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
-                      <Phone size={18} className="mr-3 text-slate-400" />
-                      <input
-                        type="tel"
-                        name="phone"
-                        value={registerData.phone}
-                        onChange={handleRegisterChange}
-                        placeholder="Enter your phone number"
-                        required
-                        className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
-                      />
+                    <div>
+                      <label className="mb-3 block text-sm font-semibold text-slate-800">
+                        Phone Number
+                      </label>
+                      <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                        <Phone size={18} className="mr-3 text-slate-400" />
+                        <input
+                          type="tel"
+                          name="phone"
+                          value={registerData.phone}
+                          onChange={handleRegisterChange}
+                          placeholder="Enter your phone number"
+                          required
+                          className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-3 block text-sm font-semibold text-slate-800">
+                        Password
+                      </label>
+                      <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                        <Lock size={18} className="mr-3 text-slate-400" />
+                        <input
+                          type="password"
+                          name="password"
+                          value={registerData.password}
+                          onChange={handleRegisterChange}
+                          placeholder="Create a password"
+                          required
+                          className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                        />
+                      </div>
                     </div>
                   </div>
 
                   {registerData.role === "doctor" && (
-                    <>
-                      <div className="mt-5">
+                    <div className="mt-5 grid gap-5 md:grid-cols-2">
+                      <div>
                         <label className="mb-3 block text-sm font-semibold text-slate-800">
                           Specialization
                         </label>
-                        <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                        <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
                           <Stethoscope size={18} className="mr-3 text-slate-400" />
-                          <input
-                            type="text"
+                          <select
                             name="specialty"
                             value={registerData.specialty}
                             onChange={handleRegisterChange}
-                            placeholder="Enter your specialization"
                             required
-                            className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
-                          />
+                            className={`w-full appearance-none bg-transparent outline-none ${
+                              registerData.specialty ? "text-slate-900" : "text-slate-400"
+                            }`}
+                          >
+                            <option value="">Select your specialization</option>
+                            {DOCTOR_SPECIALIZATIONS.map((specialization) => (
+                              <option key={specialization} value={specialization}>
+                                {specialization}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown size={18} className="ml-3 shrink-0 text-slate-400" />
                         </div>
                       </div>
 
-                      <div className="mt-5">
+                      <div>
                         <label className="mb-3 block text-sm font-semibold text-slate-800">
                           Department
                         </label>
-                        <select
-                          name="department"
-                          value={registerData.department}
-                          onChange={handleRegisterChange}
-                          required
-                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-slate-900 outline-none transition focus:border-sky-400 focus:bg-white focus:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]"
-                        >
-                          <option value="">Select department</option>
-                          <option>Cardiology</option>
-                          <option>Neurology</option>
-                          <option>Orthopedics</option>
-                          <option>Pediatrics</option>
-                          <option>Dermatology</option>
-                          <option>General Medicine</option>
-                          <option>Surgery</option>
-                          <option>Internal Medicine</option>
-                          <option>Pathology</option>
-                          <option>Psychiatry</option>
-                        </select>
+                        <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                          <select
+                            name="department"
+                            value={registerData.department}
+                            onChange={handleRegisterChange}
+                            required
+                            className={`w-full appearance-none bg-transparent outline-none ${
+                              registerData.department ? "text-slate-900" : "text-slate-400"
+                            }`}
+                          >
+                            <option value="">Select department</option>
+                            <option>Cardiology</option>
+                            <option>Neurology</option>
+                            <option>Orthopedics</option>
+                            <option>Pediatrics</option>
+                            <option>Dermatology</option>
+                            <option>General Medicine</option>
+                            <option>Surgery</option>
+                            <option>Internal Medicine</option>
+                            <option>Pathology</option>
+                            <option>Psychiatry</option>
+                          </select>
+                          <ChevronDown size={18} className="ml-3 shrink-0 text-slate-400" />
+                        </div>
                       </div>
 
-                      <div className="mt-5">
+                      <div>
                         <label className="mb-3 block text-sm font-semibold text-slate-800">
                           Years of Experience
                         </label>
-                        <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                        <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3.5 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
                           <User size={18} className="mr-3 text-slate-400" />
                           <input
                             type="number"
@@ -6852,7 +6920,7 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="mt-5">
+                      <div>
                         <label className="mb-3 block text-sm font-semibold text-slate-800">
                           Bio
                         </label>
@@ -6861,59 +6929,12 @@ export default function App() {
                           value={registerData.bio}
                           onChange={handleRegisterChange}
                           placeholder="Tell patients about yourself"
-                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-white focus:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]"
-                          rows="3"
+                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-sky-400 focus:bg-white focus:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]"
+                          rows="2"
                         />
                       </div>
-                    </>
-                  )}
-
-                  <div className="mt-5">
-                    <label className="mb-3 block text-sm font-semibold text-slate-800">
-                      Password
-                    </label>
-                    <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
-                      <Lock size={18} className="mr-3 text-slate-400" />
-                      <input
-                        type="password"
-                        name="password"
-                        value={registerData.password}
-                        onChange={handleRegisterChange}
-                        placeholder="Create a password"
-                        required
-                        className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
-                      />
                     </div>
-                  </div>
-
-                  <div className="mt-6 flex rounded-2xl bg-slate-100 p-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsLogin(true);
-                        setShowForgotPassword(false);
-                        setMessage("");
-                      }}
-                      className={`w-1/2 rounded-xl py-2.5 text-sm font-semibold transition ${
-                        isLogin ? "bg-white text-sky-600 shadow-sm" : "text-slate-600"
-                      }`}
-                    >
-                      Login
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsLogin(false);
-                        setShowForgotPassword(false);
-                        setMessage("");
-                      }}
-                      className={`w-1/2 rounded-xl py-2.5 text-sm font-semibold transition ${
-                        !isLogin ? "bg-white text-sky-600 shadow-sm" : "text-slate-600"
-                      }`}
-                    >
-                      Register
-                    </button>
-                  </div>
+                  )}
 
                   <button
                     type="submit"
@@ -6922,6 +6943,21 @@ export default function App() {
                     Register
                     <ArrowRight size={18} />
                   </button>
+
+                  <p className="mt-5 text-center text-sm text-slate-500">
+                    Already have an account?{" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsLogin(true);
+                        setShowForgotPassword(false);
+                        setMessage("");
+                      }}
+                      className="font-semibold text-sky-600 hover:underline"
+                    >
+                      Sign in
+                    </button>
+                  </p>
                 </form>
               )}
             </div>
