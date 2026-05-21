@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import api from "./api";
 import { downloadWordDocument } from "./wordExport";
 import SuccessPopup from "./SuccessPopup";
+import trueCareLogo from "./assets/true-care-hospital-logo.svg";
 import {
   LayoutDashboard,
   Users,
@@ -12,6 +13,7 @@ import {
   Bell,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   Activity,
   Search,
   ClipboardList,
@@ -71,6 +73,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const [selectedPatient, setSelectedPatient] = useState(null);
   const [openActionsId, setOpenActionsId] = useState(null);
   const [patientSearch, setPatientSearch] = useState("");
+  const [patientPage, setPatientPage] = useState(1);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [recordForm, setRecordForm] = useState({
     patientId: "",
@@ -155,11 +158,24 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     return () => clearInterval(interval);
   }, []);
 
-  const normalizeMedicalRecords = (items = []) =>
-    items.map((record) => ({
-      ...record,
-      patientName: record.patientName || record.patient_name || "Unknown Patient",
-    }));
+  const getMedicalRecordTimestamp = (record) => {
+    const value = record?.record_date || record?.created_at || record?.updated_at || 0;
+    const timestamp = new Date(value).getTime();
+    return Number.isNaN(timestamp) ? 0 : timestamp;
+  };
+
+  const normalizeMedicalRecords = (items = []) => {
+    return items
+      .map((record) => ({
+        ...record,
+        patientName: record.patientName || record.patient_name || "Unknown Patient",
+      }))
+      .sort((a, b) => {
+        const dateDiff = getMedicalRecordTimestamp(b) - getMedicalRecordTimestamp(a);
+        if (dateDiff !== 0) return dateDiff;
+        return Number(b?.id || 0) - Number(a?.id || 0);
+      });
+  };
 
   const getDoctorAvailability = (now) => {
     const day = now.getDay();
@@ -229,34 +245,34 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
   const appClasses = darkMode
     ? "min-h-screen bg-slate-950 text-slate-100"
-    : "min-h-screen bg-[#f6f7f9] text-slate-800";
+    : "min-h-screen bg-[#f7fbff] text-slate-800";
 
   const sidebarClasses = darkMode
     ? `flex flex-col justify-between transition-all duration-300 ${sidebarCollapsed ? "w-20" : "w-[260px]"} border-r border-slate-800 bg-slate-900 hidden md:flex`
-    : `flex flex-col justify-between transition-all duration-300 ${sidebarCollapsed ? "w-20" : "w-[260px]"} border-r border-slate-200 bg-white hidden md:flex`;
+    : `flex flex-col justify-between transition-all duration-300 ${sidebarCollapsed ? "w-20" : "w-[260px]"} border-r border-blue-100 bg-white hidden md:flex`;
 
   const topbarClasses = darkMode
     ? "relative flex h-[72px] items-center justify-between border-b border-slate-800 bg-slate-900 px-4 md:px-9"
-    : "relative flex h-[72px] items-center justify-between border-b border-slate-200 bg-white px-4 md:px-9";
+    : "relative flex h-[72px] items-center justify-between border-b border-blue-100 bg-white px-4 md:px-9";
 
   const cardClasses = darkMode
     ? "rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-sm transition-transform duration-300 hover:-translate-y-1"
-    : "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-transform duration-300 hover:-translate-y-1";
+    : "rounded-2xl border border-blue-100 bg-white p-6 shadow-[0_12px_32px_rgba(15,76,129,0.06)] transition-transform duration-300 hover:-translate-y-1";
 
   const textMain = darkMode ? "text-slate-100" : "text-slate-900";
   const textMuted = darkMode ? "text-slate-400" : "text-slate-500";
   const textSoft = darkMode ? "text-slate-300" : "text-slate-600";
-  const borderSoft = darkMode ? "border-slate-800" : "border-slate-200";
-  const hoverRow = darkMode ? "hover:bg-slate-800" : "hover:bg-slate-50";
+  const borderSoft = darkMode ? "border-slate-800" : "border-blue-100";
+  const hoverRow = darkMode ? "hover:bg-slate-800" : "hover:bg-sky-50/70";
   const panelBg = darkMode ? "bg-slate-950" : "bg-white";
 
   const activeNav = darkMode
-    ? "bg-teal-500/15 text-teal-300"
-    : "bg-teal-50 text-teal-700";
+    ? "bg-sky-500/15 text-sky-300"
+    : "bg-sky-50 text-blue-700";
 
   const inactiveNav = darkMode
     ? "text-slate-300 hover:bg-slate-800"
-    : "text-slate-600 hover:bg-slate-50";
+    : "text-slate-600 hover:bg-sky-50";
 
   const inputClasses = `w-full rounded-lg border ${borderSoft} px-4 py-3 outline-none ${
     darkMode
@@ -267,6 +283,28 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   const secondaryButtonClasses = `rounded-lg border ${borderSoft} py-3 ${
     darkMode ? "text-slate-300 hover:bg-slate-800" : "text-slate-600 hover:bg-slate-50"
   }`;
+
+  const renderHospitalTopbarBrand = () => (
+    <div className="h-12 w-[170px] overflow-hidden">
+      <img
+        src={trueCareLogo}
+        alt="True Care Hospital"
+        className="h-12 w-full object-contain object-left"
+      />
+    </div>
+  );
+
+  const renderHospitalBrandText = () => (
+    <div>
+      <p className="text-[24px] font-bold leading-none" style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}>
+        <span className={darkMode ? "text-sky-200" : "text-blue-800"}>True</span>
+        <span className={darkMode ? "text-lime-300" : "text-lime-600"}>Care</span>
+      </p>
+      <p className={`mt-1 text-[11px] font-bold uppercase leading-none tracking-[0.38em] ${darkMode ? "text-sky-200" : "text-blue-900"}`}>
+        Hospital
+      </p>
+    </div>
+  );
 
   const getInitials = (name = "P") =>
     name
@@ -477,7 +515,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       for (const apt of confirmedToComplete) {
         try {
           await api.put(`/appointments/${apt.id}`, { status: "Completed" });
-          console.log(`✅ Auto-completed appointment ${apt.id}`);
+          console.log(`Auto-completed appointment ${apt.id}`);
         } catch (err) {
           console.error(`Failed to auto-complete appointment ${apt.id}:`, err);
         }
@@ -506,7 +544,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   useEffect(() => {
     if (!loggedInUser) return;
 
-    console.log("📖 useEffect - Syncing loggedInUser to profileForm:");
+    console.log("ðŸ“– useEffect - Syncing loggedInUser to profileForm:");
     console.log("  loggedInUser:", loggedInUser);
 
     setProfileForm((prev) => {
@@ -602,6 +640,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
       const trimmedName = profileForm.fullName?.trim() || "";
       const trimmedEmail = profileForm.email?.trim() || "";
+      const trimmedPhone = profileForm.phone?.trim() || "";
 
       if (!trimmedName || !trimmedEmail) {
         setProfileSaveMessage({
@@ -611,22 +650,30 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         return;
       }
 
+      if (trimmedPhone && !/^\d{11}$/.test(trimmedPhone)) {
+        setProfileSaveMessage({
+          type: "error",
+          text: "Phone number must be exactly 11 digits.",
+        });
+        return;
+      }
+
       const profileData = {
         name: trimmedName,
         email: trimmedEmail,
-        phone: profileForm.phone?.trim() || null,
+        phone: trimmedPhone || null,
         specialization: profileForm.specialization?.trim() || null,
         department: profileForm.department?.trim() || null,
         yearsExperience: profileForm.yearsExperience,
         bio: profileForm.bio?.trim() || null,
       };
 
-      console.log("💾 Sending profile update:");
+      console.log("ðŸ’¾ Sending profile update:");
       console.log("  Data:", profileData);
 
       const response = await api.put(`/users/${loggedInUser.id}`, profileData);
 
-      console.log("✅ Response from server:");
+      console.log("Response from server:");
       console.log("  Message:", response.data?.message);
       console.log("  User data:", response.data?.user);
 
@@ -642,7 +689,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           bio: response.data.user.bio,
           department: response.data.user.department,
         };
-        console.log("🔄 Updating loggedInUser state with:", updatedUser);
+        console.log("ðŸ”„ Updating loggedInUser state with:", updatedUser);
         setLoggedInUser(updatedUser);
       }
 
@@ -855,15 +902,19 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     }
 
     try {
-      await api.post("/medical-records", {
+      const recordDate = new Date().toISOString().split("T")[0];
+      const medicalRecordData = {
         patientId: recordForm.patientId,
         doctorId: loggedInUser.id,
+        title: recordForm.diagnosis,
         diagnosis: recordForm.diagnosis,
         treatment: recordForm.treatment,
         notes: recordForm.notes,
         status: recordForm.status,
-        record_date: new Date().toISOString().split("T")[0],
-      });
+        record_date: recordDate,
+      };
+
+      await api.post("/medical-records", medicalRecordData);
 
       const recordsRes = await api.get("/doctor/medical-records");
       setRecords(normalizeMedicalRecords(recordsRes.data.records || []));
@@ -1049,13 +1100,20 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     <div className="p-9">
       <div className="mb-8">
         <h2 className="text-[32px] font-bold">
-          Welcome back, <span className="text-teal-600">Dr. {loggedInUser?.name || 'Doctor'}</span>
+          Welcome back, <span className="text-blue-600">Dr. {loggedInUser?.name || 'Doctor'}</span>
         </h2>
         <p className={`mt-2 text-[18px] ${textMuted}`}>Here's your schedule for today.</p>
       </div>
 
       <div className="mb-8 grid grid-cols-1 gap-6 md:grid-cols-3">
-        <div className={cardClasses}>
+        <button
+          type="button"
+          onClick={() => {
+            setAppointmentFilter("Today");
+            setActivePage("appointments");
+          }}
+          className={`${cardClasses} w-full text-left focus:outline-none focus:ring-4 focus:ring-blue-500/20`}
+        >
           <div className="flex items-start justify-between">
             <div>
               <p className={`text-[16px] ${textMuted}`}>Today's Appointments</p>
@@ -1064,16 +1122,20 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
             <div
               className={
                 darkMode
-                  ? "rounded-xl bg-teal-500/15 p-3 text-teal-300"
-                  : "rounded-xl bg-teal-50 p-3 text-teal-600"
+                  ? "rounded-xl bg-sky-500/15 p-3 text-sky-300"
+                  : "rounded-xl bg-sky-50 p-3 text-blue-600"
               }
             >
               <CalendarDays size={24} />
             </div>
           </div>
-        </div>
+        </button>
 
-        <div className={cardClasses}>
+        <button
+          type="button"
+          onClick={() => setActivePage("patients")}
+          className={`${cardClasses} w-full text-left focus:outline-none focus:ring-4 focus:ring-blue-500/20`}
+        >
           <div className="flex items-start justify-between">
             <div>
               <p className={`text-[16px] ${textMuted}`}>Total Patients</p>
@@ -1089,7 +1151,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               <Users size={24} />
             </div>
           </div>
-        </div>
+        </button>
 
         <div className={cardClasses}>
           <div className="flex items-start justify-between">
@@ -1128,7 +1190,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               todayAppointments.map((apt) => (
                 <div key={apt.id} className={`flex gap-5 rounded-xl border ${borderSoft} p-5`}>
                   <div className="flex flex-col items-center justify-start pt-1">
-                    <p className="text-[20px] font-bold text-teal-600">{apt.formattedTime.split(" ")[0]}</p>
+                    <p className="text-[20px] font-bold text-blue-600">{apt.formattedTime.split(" ")[0]}</p>
                     <p className={`text-xs ${textMuted}`}>{apt.formattedTime.split(" ")[1] || ""}</p>
                   </div>
 
@@ -1161,7 +1223,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 setSelectedPatient(null);
                 setActivePage("records");
               }}
-              className="text-sm font-medium text-teal-600 hover:underline"
+              className="text-sm font-medium text-blue-600 hover:underline"
             >
               View All
             </button>
@@ -1173,8 +1235,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 <div
                   className={
                     darkMode
-                      ? "rounded-lg bg-teal-500/15 p-3 text-teal-300"
-                      : "rounded-lg bg-teal-50 p-3 text-teal-600"
+                      ? "rounded-lg bg-sky-500/15 p-3 text-sky-300"
+                      : "rounded-lg bg-sky-50 p-3 text-blue-600"
                   }
                 >
                   <FileText size={20} />
@@ -1192,7 +1254,39 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     </div>
   );
 
-  const renderPatientsPage = () => {
+  const _renderPatientCardsPage = () => {
+    const _patientRows = filteredDoctorPatients.map((patient) => {
+      const patientAppointments = appointments.filter((apt) => apt.patient_id === patient.id);
+      const completedAppointments = patientAppointments.filter((apt) => apt.status === "Completed");
+      const lastVisitAppointment = [...completedAppointments].sort(
+        (a, b) => new Date(b.date) - new Date(a.date)
+      )[0];
+
+      const patientRecords = records.filter(
+        (record) => record.patient_id === patient.id || record.patientId === patient.id
+      );
+      const latestRecord = [...patientRecords].sort(
+        (a, b) => new Date(b.record_date || b.date || 0) - new Date(a.record_date || a.date || 0)
+      )[0];
+      const conditionText = patient.condition || latestRecord?.diagnosis || latestRecord?.title || "No condition noted";
+      const status = patient.medical_status || latestRecord?.status || "No Records";
+      const lastVisit = lastVisitAppointment
+        ? new Date(lastVisitAppointment.date).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })
+        : "No completed visits";
+
+      return {
+        patient,
+        conditionText,
+        status,
+        lastVisit,
+        appointmentCount: patientAppointments.length,
+      };
+    });
+
     return (
       <div className="mx-auto max-w-6xl px-6 py-10 md:px-10">
         <div className="mb-8">
@@ -1259,7 +1353,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                         <div>
                           <p className={`text-[16px] font-semibold ${textMain}`}>{patient.name}</p>
                           <p className={`mt-1 text-sm ${textMuted}`}>
-                            {patient.age ? `${patient.age} years` : "Age not provided"} • {patient.gender || "Unknown"}
+                            {patient.age ? `${patient.age} years` : "Age not provided"} / {patient.gender || "Unknown"}
                           </p>
                         </div>
 
@@ -1315,6 +1409,212 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     );
   };
 
+  const renderPatientsTablePage = () => {
+    const patientRows = filteredDoctorPatients.map((patient) => {
+      const patientAppointments = appointments.filter((apt) => apt.patient_id === patient.id);
+      const completedAppointments = patientAppointments.filter((apt) => apt.status === "Completed");
+      const lastVisitAppointment = [...completedAppointments].sort(
+        (a, b) => new Date(b.date) - new Date(a.date)
+      )[0];
+      const patientRecords = records.filter(
+        (record) => record.patient_id === patient.id || record.patientId === patient.id
+      );
+      const latestRecord = [...patientRecords].sort(
+        (a, b) => new Date(b.record_date || b.date || 0) - new Date(a.record_date || a.date || 0)
+      )[0];
+
+      return {
+        patient,
+        conditionText: patient.condition || latestRecord?.diagnosis || latestRecord?.title || "No condition noted",
+        status: patient.medical_status || latestRecord?.status || "No Records",
+        appointmentCount: patientAppointments.length,
+        lastVisit: lastVisitAppointment
+          ? new Date(lastVisitAppointment.date).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })
+          : "No completed visits",
+      };
+    });
+    const patientsPerPage = 5;
+    const totalPatientPages = Math.max(1, Math.ceil(patientRows.length / patientsPerPage));
+    const currentPatientPage = Math.min(patientPage, totalPatientPages);
+    const patientStartIndex = (currentPatientPage - 1) * patientsPerPage;
+    const paginatedPatientRows = patientRows.slice(patientStartIndex, patientStartIndex + patientsPerPage);
+    const patientEndIndex = Math.min(patientStartIndex + paginatedPatientRows.length, patientRows.length);
+    const patientPageNumbers = Array.from({ length: totalPatientPages }, (_, index) => index + 1);
+
+    return (
+      <div className="w-full px-6 py-10 md:px-8 lg:px-10">
+        <div className="mb-8">
+          <h2 className="text-[40px] font-bold tracking-tight">My Patients</h2>
+          <p className={`mt-2 text-[18px] ${textMuted}`}>Patients assigned to your care.</p>
+        </div>
+
+        <div className={`mb-6 rounded-[20px] border ${borderSoft} ${panelBg} p-4 shadow-sm`}>
+          <div
+            className={`flex items-center gap-3 rounded-2xl border ${borderSoft} px-4 py-4 ${
+              darkMode ? "bg-slate-900 text-slate-300" : "bg-white text-slate-500"
+            }`}
+          >
+            <Search size={18} />
+            <input
+              type="text"
+              value={patientSearch}
+              onChange={(e) => {
+                setPatientSearch(e.target.value);
+                setPatientPage(1);
+              }}
+              placeholder="Search by name or condition..."
+              className="w-full bg-transparent text-[16px] outline-none placeholder:text-slate-400"
+            />
+          </div>
+        </div>
+
+        {patientRows.length === 0 ? (
+          <div className={`rounded-3xl border border-dashed ${darkMode ? "border-slate-700 text-slate-400" : "border-slate-300 text-slate-500"} p-10 text-center text-sm`}>
+            No patients found.
+          </div>
+        ) : (
+          <div className={`overflow-hidden rounded-[24px] border ${borderSoft} ${panelBg} shadow-sm`}>
+            <div className="overflow-x-auto">
+              <table className="min-w-[920px] w-full text-left">
+                <thead className={darkMode ? "bg-slate-900" : "bg-slate-50"}>
+                  <tr className={`border-b ${borderSoft} text-xs font-semibold uppercase tracking-wide ${textMuted}`}>
+                    <th className="px-5 py-4">Patient</th>
+                    <th className="px-5 py-4">Age / Gender</th>
+                    <th className="px-5 py-4">Blood</th>
+                    <th className="px-5 py-4">Condition</th>
+                    <th className="px-5 py-4">Status</th>
+                    <th className="px-5 py-4">Appointments</th>
+                    <th className="px-5 py-4">Last Visit</th>
+                    <th className="px-5 py-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedPatientRows.map(({ patient, conditionText, status, appointmentCount, lastVisit }, index) => (
+                    <tr
+                      key={patient.id}
+                      className={`${hoverRow} ${index !== paginatedPatientRows.length - 1 ? `border-b ${borderSoft}` : ""}`}
+                    >
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+                              darkMode ? "bg-slate-800 text-slate-100" : "bg-sky-50 text-blue-700"
+                            }`}
+                          >
+                            {getInitials(patient.name)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className={`truncate text-[16px] font-semibold ${textMain}`}>{patient.name}</p>
+                            <p className={`truncate text-sm ${textMuted}`}>{patient.email || "No email provided"}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className={`px-5 py-4 text-sm ${textSoft}`}>
+                        {patient.age ? `${patient.age} years` : "Age not provided"} / {patient.gender || "Unknown"}
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className={darkMode ? "rounded-full bg-red-500/15 px-3 py-1 text-xs font-semibold text-red-300" : "rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-600"}>
+                          {patient.bloodGroup || patient.blood_group || "N/A"}
+                        </span>
+                      </td>
+                      <td className={`max-w-[220px] px-5 py-4 text-sm ${textSoft}`}>{conditionText}</td>
+                      <td className="px-5 py-4">
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${getMedicalRecordStatusBadgeClass(status)}`}>
+                          {status}
+                        </span>
+                      </td>
+                      <td className={`px-5 py-4 text-sm font-medium ${textSoft}`}>{appointmentCount}</td>
+                      <td className={`px-5 py-4 text-sm ${textSoft}`}>{lastVisit}</td>
+                      <td className="px-5 py-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleViewPatient(patient)}
+                          className={`inline-flex items-center gap-2 rounded-xl border ${borderSoft} px-4 py-2 text-sm font-semibold transition ${
+                            darkMode ? "text-slate-200 hover:bg-slate-800" : "text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          <Eye size={16} />
+                          View Records
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className={`flex flex-col gap-4 border-t ${borderSoft} px-5 py-4 text-sm ${textMuted} sm:flex-row sm:items-center sm:justify-between`}>
+              <span>
+                Showing {patientStartIndex + 1} to {patientEndIndex} of {patientRows.length} entries
+              </span>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPatientPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPatientPage === 1}
+                  className={`flex h-10 w-10 items-center justify-center rounded-xl transition ${
+                    currentPatientPage === 1
+                      ? darkMode
+                        ? "bg-slate-800 text-slate-600"
+                        : "bg-slate-100 text-slate-400"
+                      : darkMode
+                      ? "bg-slate-800 text-slate-100 hover:bg-slate-700"
+                      : "bg-slate-800 text-white hover:bg-slate-700"
+                  }`}
+                  aria-label="Previous patients page"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+
+                {patientPageNumbers.map((pageNumber) => (
+                  <button
+                    key={pageNumber}
+                    type="button"
+                    onClick={() => setPatientPage(pageNumber)}
+                    className={`flex h-10 min-w-10 items-center justify-center rounded-xl px-3 font-semibold transition ${
+                      currentPatientPage === pageNumber
+                        ? darkMode
+                          ? "bg-sky-500/20 text-sky-300"
+                          : "bg-sky-50 text-blue-700"
+                        : darkMode
+                        ? "text-slate-300 hover:bg-slate-800"
+                        : "text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    {pageNumber}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => setPatientPage((page) => Math.min(totalPatientPages, page + 1))}
+                  disabled={currentPatientPage === totalPatientPages}
+                  className={`flex h-10 w-10 items-center justify-center rounded-xl transition ${
+                    currentPatientPage === totalPatientPages
+                      ? darkMode
+                        ? "bg-slate-800 text-slate-600"
+                        : "bg-slate-100 text-slate-400"
+                      : darkMode
+                      ? "bg-slate-800 text-slate-100 hover:bg-slate-700"
+                      : "bg-slate-800 text-white hover:bg-slate-700"
+                  }`}
+                  aria-label="Next patients page"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Helper function to get display status based on appointment date
   const _getDisplayStatus = (apt) => {
     try {
@@ -1333,12 +1633,12 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       const todayNormalized = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       const aptDateNormalized = new Date(aptDate.getFullYear(), aptDate.getMonth(), aptDate.getDate());
 
-      // If appointment is in the future → show "Confirmed"
+      // If appointment is in the future, show "Confirmed"
       if (aptDate > today || (aptDateNormalized.getTime() > todayNormalized.getTime())) {
         return "Confirmed";
       }
 
-      // If appointment is today or in the past → show the actual status
+      // If appointment is today or in the past, show the actual status
       return apt.status || "Pending";
     } catch (err) {
       return apt.status || "Pending";
@@ -1426,17 +1726,17 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               onClick={() => setAppointmentFilter(filter)}
               className={`rounded-full px-6 py-2 font-medium transition ${
                 appointmentFilter === filter
-                  ? "bg-teal-600 text-white"
+                  ? "bg-blue-600 text-white"
                   : darkMode
                   ? "border border-slate-700 text-slate-300 hover:bg-slate-800"
-                  : "border border-slate-200 text-slate-700 hover:bg-slate-50"
+                  : "border border-blue-100 text-slate-700 hover:bg-sky-50"
               }`}
             >
               <span>{filter}</span>
               {filter === "Pending" && filterCounts.Pending > 0 && (
                 <span
                   className={`ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold ${
-                    appointmentFilter === filter ? "bg-white text-teal-700" : "bg-red-500 text-white"
+                    appointmentFilter === filter ? "bg-white text-blue-700" : "bg-red-500 text-white"
                   }`}
                 >
                   {filterCounts.Pending > 99 ? "99+" : filterCounts.Pending}
@@ -1574,13 +1874,13 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 <span
                   className={
                     darkMode
-                      ? "rounded-full bg-teal-500/15 px-3 py-2 text-sm font-semibold text-teal-300"
-                      : "rounded-full bg-teal-50 px-3 py-2 text-sm font-semibold text-teal-700"
+                      ? "rounded-full bg-sky-500/15 px-3 py-2 text-sm font-semibold text-sky-300"
+                      : "rounded-full bg-sky-50 px-3 py-2 text-sm font-semibold text-blue-700"
                   }
                 >
                   Showing records for {selectedPatient.name}
                 </span>
-                <button onClick={() => setSelectedPatient(null)} className="text-sm font-medium text-teal-600 hover:underline">
+                <button onClick={() => setSelectedPatient(null)} className="text-sm font-medium text-blue-600 hover:underline">
                   Clear filter
                 </button>
               </div>
@@ -1589,7 +1889,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
           <button
             onClick={() => setShowAddRecordModal(true)}
-            className="inline-flex items-center gap-2 rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700"
+            className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-4 text-white shadow-md hover:bg-blue-700"
           >
             <Plus size={18} />
             Add Record
@@ -1605,8 +1905,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                 recordStatusFilter === statusOption
                   ? darkMode
-                    ? "bg-teal-500/20 text-teal-300"
-                    : "bg-teal-100 text-teal-700"
+                    ? "bg-sky-500/20 text-sky-300"
+                    : "bg-sky-100 text-blue-700"
                   : darkMode
                   ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
                   : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -1731,8 +2031,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
             <div className={`w-full max-w-md rounded-2xl border ${borderSoft} ${panelBg} p-6 shadow-xl`}>
               <div className="mb-6 flex items-center justify-between">
                 <h3 className="text-[20px] font-bold">Add Medical Record</h3>
-                <button onClick={() => setShowAddRecordModal(false)} className={`${textMuted} hover:text-slate-600`}>
-                  ✕
+                <button onClick={() => setShowAddRecordModal(false)} className={`text-[0px] ${textMuted} hover:text-slate-600`} aria-label="Close add medical record modal">
+                  <X size={18} className={darkMode ? "text-slate-300" : "text-slate-600"} />
                 </button>
               </div>
 
@@ -1808,7 +2108,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                   <button type="button" onClick={() => setShowAddRecordModal(false)} className={`flex-1 ${secondaryButtonClasses}`}>
                     Cancel
                   </button>
-                  <button type="submit" className="flex-1 rounded-lg bg-teal-600 py-3 text-white hover:bg-teal-700">
+                  <button type="submit" className="flex-1 rounded-lg bg-blue-600 py-3 text-white hover:bg-blue-700">
                     Add Record
                   </button>
                 </div>
@@ -1822,8 +2122,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
             <div className={`w-full max-w-2xl rounded-2xl border ${borderSoft} ${panelBg} shadow-xl flex flex-col max-h-[90vh]`}>
               <div className={`flex flex-shrink-0 items-center justify-between border-b ${borderSoft} px-8 py-6`}>
                 <h3 className="text-[22px] font-bold">Record Details</h3>
-                <button onClick={() => setSelectedRecord(null)} className={`text-2xl ${textMuted} hover:text-slate-400`}>
-                  ✕
+                <button onClick={() => setSelectedRecord(null)} className={`text-[0px] ${textMuted} hover:text-slate-400`} aria-label="Close record details">
+                  <X size={20} className={darkMode ? "text-slate-300" : "text-slate-600"} />
                 </button>
               </div>
 
@@ -1960,7 +2260,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
         <button
           onClick={() => setShowAddPrescriptionModal(true)}
-          className="inline-flex items-center gap-2 rounded-2xl bg-teal-600 px-6 py-4 text-white shadow-md hover:bg-teal-700"
+          className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-4 text-white shadow-md hover:bg-blue-700"
         >
           <Plus size={18} />
           Add Prescription
@@ -2079,8 +2379,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           <div className={`w-full max-w-3xl rounded-2xl border ${borderSoft} ${panelBg} p-6 shadow-xl`}>
             <div className="mb-6 flex items-center justify-between">
               <h3 className="text-[20px] font-bold">Add Prescription</h3>
-              <button onClick={() => setShowAddPrescriptionModal(false)} className={`${textMuted} hover:text-slate-600`}>
-                ✕
+              <button onClick={() => setShowAddPrescriptionModal(false)} className={`text-[0px] ${textMuted} hover:text-slate-600`} aria-label="Close add prescription modal">
+                <X size={18} className={darkMode ? "text-slate-300" : "text-slate-600"} />
               </button>
             </div>
 
@@ -2246,7 +2546,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 </button>
                 <button
                   type="submit"
-                  className="w-full rounded-lg bg-teal-600 py-3 text-white hover:bg-teal-700 sm:w-[220px]"
+                  className="w-full rounded-lg bg-blue-600 py-3 text-white hover:bg-blue-700 sm:w-[220px]"
                 >
                   Save Prescription
                 </button>
@@ -2396,7 +2696,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 </button>
                 <button
                   type="submit"
-                  className="w-full rounded-lg bg-teal-600 py-3 text-white hover:bg-teal-700 sm:w-[220px]"
+                  className="w-full rounded-lg bg-blue-600 py-3 text-white hover:bg-blue-700 sm:w-[220px]"
                 >
                   Save Changes
                 </button>
@@ -2411,14 +2711,14 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           <div className={`w-full max-w-lg rounded-2xl border ${borderSoft} ${panelBg} p-6 shadow-xl`}>
             <div className="mb-6 flex items-center justify-between">
               <h3 className="text-[20px] font-bold">Prescription Details</h3>
-              <button onClick={() => setSelectedPrescription(null)} className={`${textMuted} hover:text-slate-600`}>
-                ✕
+              <button onClick={() => setSelectedPrescription(null)} className={`text-[0px] ${textMuted} hover:text-slate-600`} aria-label="Close prescription details">
+                <X size={18} className={darkMode ? "text-slate-300" : "text-slate-600"} />
               </button>
             </div>
             <div className="mb-5 flex justify-end">
               <button
                 onClick={() => handleOpenEditPrescription(selectedPrescription)}
-                className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
+                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
               >
                 <Pencil size={16} />
                 Edit Prescription
@@ -2486,7 +2786,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       <div className={`mb-8 rounded-2xl border ${borderSoft} ${panelBg} p-8 shadow-sm`}>
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex items-start gap-6">
-            <div className="flex h-[120px] w-[120px] items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-teal-500 text-[40px] font-bold text-white">
+            <div className="flex h-[120px] w-[120px] items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-emerald-400 text-[40px] font-bold text-white">
               {getInitials(profileForm.fullName)}
             </div>
 
@@ -2496,8 +2796,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 <p
                   className={
                     darkMode
-                      ? "inline-block rounded-full bg-teal-500/15 px-4 py-2 text-sm font-medium text-teal-300"
-                      : "inline-block rounded-full bg-teal-100 px-4 py-2 text-sm font-medium text-teal-700"
+                      ? "inline-block rounded-full bg-sky-500/15 px-4 py-2 text-sm font-medium text-sky-300"
+                      : "inline-block rounded-full bg-sky-100 px-4 py-2 text-sm font-medium text-blue-700"
                   }
                 >
                   {profileForm.specialization}
@@ -2528,7 +2828,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       </div>
 
       <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className={`rounded-[28px] border p-5 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+        <div className={`rounded-[28px] border p-5 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-blue-100 bg-white"}`}>
           <p className={`text-sm ${textMuted}`}>Working Days</p>
           <div className="mt-2 flex items-center gap-3">
             <CalendarDays size={18} className={textMuted} />
@@ -2536,7 +2836,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           </div>
         </div>
 
-        <div className={`rounded-[28px] border p-5 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+        <div className={`rounded-[28px] border p-5 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-blue-100 bg-white"}`}>
           <p className={`text-sm ${textMuted}`}>Time Schedule</p>
           <div className="mt-2 flex items-start gap-3">
             <Clock3 size={18} className={textMuted} />
@@ -2549,7 +2849,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           </div>
         </div>
 
-        <div className={`rounded-[28px] border p-5 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+        <div className={`rounded-[28px] border p-5 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-blue-100 bg-white"}`}>
           <p className={`text-sm ${textMuted}`}>Availability Status</p>
           <div className="mt-2 flex items-center gap-3">
             <Activity size={18} className={textMuted} />
@@ -2581,7 +2881,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               setEditingProfile((prev) => !prev);
             }}
             className={`inline-flex items-center gap-3 self-start rounded-2xl px-7 py-4 text-base font-semibold text-white shadow-lg transition hover:-translate-y-0.5 ${
-              editingProfile ? "bg-slate-500 hover:bg-slate-600" : "bg-teal-600 hover:bg-teal-700"
+              editingProfile ? "bg-slate-500 hover:bg-slate-600" : "bg-blue-600 hover:bg-blue-700"
             }`}
           >
             <Pencil size={16} />
@@ -2625,7 +2925,16 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                   <input
                     type="tel"
                     value={profileForm.phone}
-                    onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                    onChange={(e) =>
+                      setProfileForm({
+                        ...profileForm,
+                        phone: e.target.value.replace(/\D/g, "").slice(0, 11),
+                      })
+                    }
+                    placeholder="09XXXXXXXXX"
+                    inputMode="numeric"
+                    maxLength={11}
+                    pattern="[0-9]{11}"
                     className={`flex-1 bg-transparent outline-none ${darkMode ? "text-slate-100 placeholder-slate-500" : "text-slate-700 placeholder-slate-400"}`}
                   />
                 </div>
@@ -2688,31 +2997,31 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           </>
         ) : (
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-blue-100 bg-sky-50/60"}`}>
               <p className={`text-sm ${textMuted}`}>Full Name</p>
               <p className="mt-3 text-[18px] font-medium">{profileForm.fullName || "Not set"}</p>
             </div>
-            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-blue-100 bg-sky-50/60"}`}>
               <p className={`text-sm ${textMuted}`}>Email Address</p>
               <p className="mt-3 text-[18px] font-medium">{profileForm.email || "Not set"}</p>
             </div>
-            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-blue-100 bg-sky-50/60"}`}>
               <p className={`text-sm ${textMuted}`}>Phone Number</p>
               <p className="mt-3 text-[18px] font-medium">{profileForm.phone || "Not set"}</p>
             </div>
-            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-blue-100 bg-sky-50/60"}`}>
               <p className={`text-sm ${textMuted}`}>Specialization</p>
               <p className="mt-3 text-[18px] font-medium">{profileForm.specialization || "Not set"}</p>
             </div>
-            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-blue-100 bg-sky-50/60"}`}>
               <p className={`text-sm ${textMuted}`}>Department</p>
               <p className="mt-3 text-[18px] font-medium">{profileForm.department || "Not set"}</p>
             </div>
-            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+            <div className={`rounded-3xl border p-6 ${darkMode ? "border-slate-700 bg-slate-800" : "border-blue-100 bg-sky-50/60"}`}>
               <p className={`text-sm ${textMuted}`}>Years of Experience</p>
               <p className="mt-3 text-[18px] font-medium">{profileForm.yearsExperience || "Not set"}</p>
             </div>
-            <div className={`rounded-3xl border p-6 md:col-span-2 ${darkMode ? "border-slate-700 bg-slate-800" : "border-slate-200 bg-slate-50"}`}>
+            <div className={`rounded-3xl border p-6 md:col-span-2 ${darkMode ? "border-slate-700 bg-slate-800" : "border-blue-100 bg-sky-50/60"}`}>
               <p className={`text-sm ${textMuted}`}>Bio</p>
               <p className="mt-3 text-[18px] font-medium">{profileForm.bio || "Not set"}</p>
             </div>
@@ -2748,7 +3057,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               className={`flex items-center gap-2 rounded-lg px-8 py-3 font-semibold text-white transition ${
                 savingProfile
                   ? "bg-gray-400 cursor-not-allowed"
-                  : "bg-teal-600 hover:bg-teal-700"
+                  : "bg-blue-600 hover:bg-blue-700"
               }`}
             >
               {savingProfile ? (
@@ -2772,8 +3081,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     return (
       <div className={`flex min-h-screen items-center justify-center ${darkMode ? "bg-slate-950 text-slate-100" : "bg-slate-100 text-slate-700"}`}>
         <div className="text-center">
-          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-teal-600"></div>
-          <p className={`rounded-2xl border px-8 py-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"></div>
+          <p className={`rounded-2xl border px-8 py-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-blue-100 bg-white"}`}>
             Loading doctor dashboard...
           </p>
         </div>
@@ -2791,7 +3100,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           <p className={`rounded-2xl px-8 py-6 shadow-sm ${darkMode ? "border border-red-900 bg-red-950/40 text-red-300" : "border border-red-200 bg-red-50 text-red-700"}`}>
             Error loading dashboard: {error}
           </p>
-          <button onClick={() => window.location.reload()} className="mt-4 rounded-lg bg-teal-600 px-6 py-2 text-white hover:bg-teal-700">
+          <button onClick={() => window.location.reload()} className="mt-4 rounded-lg bg-blue-600 px-6 py-2 text-white hover:bg-blue-700">
             Retry
           </button>
         </div>
@@ -2803,8 +3112,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
     return (
       <div className={`flex min-h-screen items-center justify-center ${darkMode ? "bg-slate-950 text-slate-100" : "bg-slate-100 text-slate-700"}`}>
         <div className="text-center">
-          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-teal-600"></div>
-          <p className={`rounded-2xl border px-8 py-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600"></div>
+          <p className={`rounded-2xl border px-8 py-6 shadow-sm ${darkMode ? "border-slate-800 bg-slate-900" : "border-blue-100 bg-white"}`}>
             Initializing your profile...
           </p>
         </div>
@@ -2823,10 +3132,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
         <aside className={sidebarClasses}>
           <div>
             <div className={`flex h-[72px] items-center ${sidebarCollapsed ? "justify-center" : "justify-between"} transition-all duration-300 gap-3 border-b px-6 ${borderSoft}`}>
-              <div className={`flex items-center gap-3 transition-all duration-300 ${sidebarCollapsed ? "opacity-0 w-0" : "opacity-100 w-auto"}`}>
-                <Activity className="text-teal-600 flex-shrink-0" size={28} />
-                <h1 className="text-[30px] font-semibold tracking-tight whitespace-nowrap">MediCare</h1>
-              </div>
+              {!sidebarCollapsed && renderHospitalTopbarBrand()}
               <button
                 onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
                 className={`p-2 rounded-lg transition-all flex-shrink-0 ${darkMode ? "hover:bg-slate-800 text-slate-400" : "hover:bg-slate-100 text-slate-600"}`}
@@ -2977,7 +3283,8 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 
         <main className="flex-1">
           <div className={topbarClasses}>
-            <div className="flex items-center gap-2 md:gap-6 flex-1">
+            <div className="flex flex-1 items-center gap-2 md:gap-6">
+              {renderHospitalBrandText()}
             </div>
 
             <div className="flex items-center gap-2 md:gap-6">
@@ -3012,7 +3319,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 {showNotifications && (
                   <div
                     className={`absolute right-0 top-12 z-50 w-[360px] overflow-hidden rounded-2xl border shadow-xl ${
-                      darkMode ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"
+                      darkMode ? "border-slate-800 bg-slate-900" : "border-blue-100 bg-white"
                     }`}
                   >
                     <div className={`flex items-center justify-between border-b px-5 py-4 ${borderSoft}`}>
@@ -3064,8 +3371,10 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                                     e.stopPropagation();
                                     deleteNotification(item.id);
                                   }}
-                                  className={`text-xs px-2 py-1 rounded ${darkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}>
-                                  ✕
+                                  className={`rounded p-1.5 text-[0px] transition ${darkMode ? 'bg-slate-700 hover:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300'}`}
+                                  aria-label="Delete notification"
+                                >
+                                  <X size={14} className={darkMode ? "text-slate-200" : "text-slate-600"} />
                                 </button>
                               </div>
                             </div>
@@ -3098,7 +3407,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                 </div>
 
                 {showAccountMenu && (
-                  <div className={`absolute right-0 top-full z-50 mt-2 w-44 rounded-2xl border p-2 shadow-xl ${darkMode ? `${panelBg} ${borderSoft}` : "border-slate-200 bg-white"}`}>
+                  <div className={`absolute right-0 top-full z-50 mt-2 w-44 rounded-2xl border p-2 shadow-xl ${darkMode ? `${panelBg} ${borderSoft}` : "border-blue-100 bg-white"}`}>
                     <button
                       type="button"
                       onClick={() => {
@@ -3117,7 +3426,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
           </div>
 
           {activePage === "dashboard" && renderDashboardPage()}
-          {activePage === "patients" && renderPatientsPage()}
+          {activePage === "patients" && renderPatientsTablePage()}
           {activePage === "appointments" && renderAppointmentsPage()}
           {activePage === "prescriptions" && renderPrescriptionPage()}
           {activePage === "records" && renderMedicalRecordsPage()}
@@ -3132,9 +3441,10 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               <h3 className="text-[22px] font-bold">Appointment Details</h3>
               <button 
                 onClick={() => setShowAppointmentDetailsModal(false)} 
-                className={`text-2xl ${textMuted} hover:text-slate-400 transition`}
+                className={`text-[0px] ${textMuted} hover:text-slate-400 transition`}
+                aria-label="Close appointment details"
               >
-                ✕
+                <X size={20} className={darkMode ? "text-slate-300" : "text-slate-600"} />
               </button>
             </div>
 
@@ -3142,7 +3452,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
               {loadingAppointmentDetails ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="text-center">
-                    <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-b-2 border-teal-600"></div>
+                    <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600"></div>
                     <p className={textMuted}>Loading appointment details...</p>
                   </div>
                 </div>
@@ -3238,3 +3548,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
 };
 
 export default DoctorDashboard;
+
+
+
+

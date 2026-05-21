@@ -8,6 +8,11 @@ const { signToken, authenticateToken, authorizeRoles } = require("./middleware/a
 
 const app = express();
 const MEDICAL_RECORD_STATUSES = ["Ongoing", "Stable", "Recovered", "Critical"];
+const STRONG_PASSWORD_MESSAGE =
+  "❌ Password must be at least 8 characters and include uppercase, lowercase, number, and special character";
+
+const isStrongPassword = (password = "") =>
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(password);
 
 const getNormalizedMedicalRecordStatus = (status) => {
   if (!status) return "Ongoing";
@@ -1146,6 +1151,10 @@ app.post("/register", async (req, res) => {
     return res.status(400).json({ message: "❌ Please fill all fields" });
   }
 
+  if (!isStrongPassword(trimmedPassword)) {
+    return res.status(400).json({ message: STRONG_PASSWORD_MESSAGE });
+  }
+
   try {
     const hashedPassword = await bcrypt.hash(trimmedPassword, 10);
     const userRole = role || "patient";
@@ -1328,6 +1337,10 @@ app.post("/forgot-password/reset", async (req, res) => {
 
   if (!token || !newPassword) {
     return res.status(400).json({ message: "Token and new password are required" });
+  }
+
+  if (!isStrongPassword(newPassword.trim())) {
+    return res.status(400).json({ message: STRONG_PASSWORD_MESSAGE });
   }
 
   const tokenSql = "SELECT user_id, expires_at, used FROM password_reset_tokens WHERE token = ?";
@@ -1978,6 +1991,7 @@ app.post("/medical-records", (req, res) => {
   }
 
   const recordTitle = title || diagnosis;
+  const savedRecordDate = record_date || recordDate || new Date();
   const sql = `
     INSERT INTO medical_records (
       patient_id,
@@ -2003,7 +2017,7 @@ app.post("/medical-records", (req, res) => {
     treatment,
     notes || "",
     normalizedStatus,
-    record_date || recordDate || new Date(),
+    savedRecordDate,
     patientId,
   ];
 
@@ -2297,6 +2311,10 @@ app.put("/users/:userId/change-password", authenticateToken, async (req, res) =>
   // Verify passwords match
   if (newPassword !== confirmPassword) {
     return res.status(400).json({ message: "❌ Passwords do not match" });
+  }
+
+  if (!isStrongPassword(newPassword.trim())) {
+    return res.status(400).json({ message: STRONG_PASSWORD_MESSAGE });
   }
 
   // Verify password length
@@ -2781,6 +2799,7 @@ app.patch("/medical-records/:recordId", (req, res) => {
     updateFields.push("record_date = ?");
     params.push(record_date);
   }
+  updateFields.push("updated_at = CURRENT_TIMESTAMP");
 
   params.push(recordId);
   const sql = `UPDATE medical_records SET ${updateFields.join(", ")} WHERE id = ?`;
@@ -3271,6 +3290,7 @@ app.get("/admin/stats", (req, res) => {
     totalDoctors: "SELECT COUNT(*) as count FROM users WHERE role = 'doctor'",
     totalAppointments: "SELECT COUNT(*) as count FROM appointments",
     totalMedicalRecords: "SELECT COUNT(*) as count FROM medical_records",
+    activeCases: "SELECT COUNT(DISTINCT patient_id) as count FROM medical_records WHERE status IN ('Ongoing', 'Critical')",
     pendingAppointments: "SELECT COUNT(*) as count FROM appointments WHERE status = 'Pending'",
     completedAppointments: "SELECT COUNT(*) as count FROM appointments WHERE status = 'Completed'"
   };

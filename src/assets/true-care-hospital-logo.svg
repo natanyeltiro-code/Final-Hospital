@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">True Care Hospital logo</title>
+  <desc id="desc">Blue and green heart-shaped hospital logo with True Care Hospital text.</desc>
+  <defs>
+    <linearGradient id="blue" x1="90" x2="430" y1="255" y2="80" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0f3f98"/>
+      <stop offset="0.52" stop-color="#1678c4"/>
+      <stop offset="1" stop-color="#39a9e8"/>
+    </linearGradient>
+    <linearGradient id="green" x1="310" x2="480" y1="285" y2="75" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#58b51f"/>
+      <stop offset="1" stop-color="#7fd22d"/>
+    </linearGradient>
+    <linearGradient id="wordBlue" x1="520" x2="800" y1="135" y2="135" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0f3f98"/>
+      <stop offset="1" stop-color="#1766bd"/>
+    </linearGradient>
+    <filter id="softShadow" x="-12%" y="-12%" width="124%" height="124%">
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#08245d" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#softShadow)">
+    <path fill="url(#blue)" d="M112 160h52v-48c0-14 11-25 25-25h42c14 0 25 11 25 25v48h55c14 0 25 11 25 25v42c0 14-11 25-25 25h-55v55c0 14-11 25-25 25h-42c-14 0-25-11-25-25v-55h-52c-14 0-25-11-25-25v-42c0-14 11-25 25-25Zm87 44h31v-31h-31v31Z"/>
+    <path fill="url(#blue)" d="M302 226c-42-20-72-63-72-113 0-69 56-125 125-125 44 0 82 22 105 56 6 9 10 19 13 29-33-32-80-47-122-32-48 17-76 69-64 121 5 24 18 45 36 62-7 2-14 3-21 2Z"/>
+    <path fill="url(#green)" d="M472 83c25-37 71-55 116-44 55 14 89 68 80 126-8 52-49 104-105 152-43 37-91 65-145 82 78-71 139-139 154-205 11-49-9-86-47-94-20-5-39 0-53 13v-30Z"/>
+    <path fill="url(#blue)" d="M150 326c9-79 47-131 118-155 53-18 78-37 102-86 13 50-8 94-58 125-35 22-78 31-111 62l139-38c-37 44-95 74-190 92Z"/>
+    <path fill="url(#green)" d="M247 330c88-20 170-52 238-103 32-24 59-51 82-81-21 67-80 128-173 170-55 25-104 35-147 14Z"/>
+  </g>
+
+  <g font-family="Georgia, 'Times New Roman', serif" font-weight="700">
+    <text x="520" y="175" fill="url(#wordBlue)" font-size="112">True</text>
+    <text x="800" y="175" fill="#5fbd25" font-size="112">Care</text>
+  </g>
+  <g fill="#0b2f82" font-family="Arial, Helvetica, sans-serif" font-size="45" font-weight="700" letter-spacing="20">
+    <text x="650" y="265">HOSPITAL</text>
+  </g>
+  <path fill="#0b2f82" d="M550 248h105v9H550zM1050 248h105v9h-105z"/>
+</svg>
