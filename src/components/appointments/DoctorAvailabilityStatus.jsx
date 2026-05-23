@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from "react";
 import { Activity, Clock, AlertCircle, CheckCircle } from "lucide-react";
-import api from "./api";
+import api from "../../services/api";
 
 const formatDoctorWorkTime = (time) => {
   const formattedTime = (time || "").substring(0, 5);

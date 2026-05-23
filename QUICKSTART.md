@@ -9,13 +9,13 @@ Get the availability system running in **~30 minutes**.
 ### Run the SQL script:
 ```bash
 cd backend
-mysql -u root -p < setup-availability.sql
+mysql -u root -p < database/setup-availability.sql
 ```
 
 **Or manually:**
 Open MySQL Workbench / command line and run:
 ```sql
--- Copy contents of backend/setup-availability.sql and paste here
+-- Copy contents of backend/database/setup-availability.sql and paste here
 ```
 
 ✅ **Done:** 3 new tables created, 4 columns added to users table
@@ -239,7 +239,7 @@ Your appointment booking system now has:
 ## 📋 Files Modified/Created
 
 **Backend:**
-- [x] `backend/setup-availability.sql` - Database schema
+- [x] `backend/database/setup-availability.sql` - Database schema
 - [x] `backend/routes/availability.js` - API endpoints
 - [x] `backend/server.js` - Import routes (you do this)
 

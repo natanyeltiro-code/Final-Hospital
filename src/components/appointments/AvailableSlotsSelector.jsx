@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from "react";
 import { Clock, AlertCircle, CheckCircle } from "lucide-react";
-import api from "./api";
+import api from "../../services/api";
 
 export default function AvailableSlotsSelector({
   doctorId,

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Suspense, lazy } from "react";
-import api, { setAuthToken } from "./api";
+import api, { setAuthToken } from "./services/api";
 import {
   Mail,
   Lock,
@@ -38,20 +38,32 @@ import {
   Info,
   X,
 } from "lucide-react";
-import SuccessPopup from "./SuccessPopup";
-import { buildReportAnalytics } from "./reportUtils";
-import { downloadWordDocument } from "./wordExport";
+import SuccessPopup from "./components/common/SuccessPopup";
+import { buildReportAnalytics } from "./utils/reportUtils";
+import { downloadWordDocument } from "./utils/wordExport";
 import trueCareLogo from "./assets/true-care-hospital-logo.svg";
 
-const DoctorDashboard = lazy(() => import("./DoctorDashboard"));
-const SimpleDoctorList = lazy(() => import("./SimpleDoctorList"));
-const SimpleAppointmentBooking = lazy(() => import("./SimpleAppointmentBooking"));
+const DoctorDashboard = lazy(() => import("./pages/DoctorDashboard"));
+const SimpleDoctorList = lazy(() => import("./components/appointments/SimpleDoctorList"));
+const SimpleAppointmentBooking = lazy(() => import("./components/appointments/SimpleAppointmentBooking"));
 const ACTIVE_MEDICAL_RECORD_STATUSES = ["Ongoing", "Critical"];
 const MEDICAL_RECORD_STATUS_FILTERS = ["All", "Ongoing", "Stable", "Recovered", "Critical"];
 const STRONG_PASSWORD_MESSAGE =
   "Password must be at least 8 characters and include uppercase, lowercase, number, and special character.";
+const DOCTOR_ON_LEAVE_MESSAGE =
+  "Doctor is on leave on weekends. Please choose a weekday appointment date.";
 const isStrongPassword = (password = "") =>
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(password);
+const isWeekendAppointmentDate = (dateString = "") => {
+  const match = String(dateString).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+
+  const [, year, month, day] = match.map(Number);
+  const appointmentDate = new Date(Date.UTC(year, month - 1, day));
+  const dayOfWeek = appointmentDate.getUTCDay();
+
+  return dayOfWeek === 0 || dayOfWeek === 6;
+};
 const DOCTOR_SCHEDULE_START_HOUR = 8;
 const DOCTOR_SCHEDULE_END_HOUR = 24;
 const DOCTOR_SPECIALIZATIONS = [
@@ -359,11 +371,16 @@ export default function App() {
     email: "",
     phone: "",
     password: "",
+    confirmPassword: "",
     specialty: "",
     department: "",
     yearsExperience: "",
     bio: "",
   });
+  const hasRegisterPasswordConfirmation =
+    registerData.password.length > 0 && registerData.confirmPassword.length > 0;
+  const registerPasswordsMatch =
+    hasRegisterPasswordConfirmation && registerData.password === registerData.confirmPassword;
 
   const [loginData, setLoginData] = useState({
     email: "",
@@ -1314,12 +1331,13 @@ export default function App() {
     e.preventDefault();
     setMessage("");
 
-    const { role, name, email, phone, password, specialty, department, yearsExperience, bio } = registerData;
+    const { role, name, email, phone, password, confirmPassword, specialty, department, yearsExperience, bio } = registerData;
     const trimmedRole = role.trim();
     const trimmedName = name.trim();
     const trimmedEmail = email.trim();
     const trimmedPhone = phone.trim();
     const trimmedPassword = password.trim();
+    const trimmedConfirmPassword = confirmPassword.trim();
     const trimmedSpecialty = specialty.trim();
     const trimmedDepartment = department.trim();
     const trimmedYearsExperience = yearsExperience.toString().trim();
@@ -1361,6 +1379,18 @@ export default function App() {
       return;
     }
 
+    if (!trimmedConfirmPassword) {
+      setIsError(true);
+      setMessage("âŒ Please confirm your password.");
+      return;
+    }
+
+    if (trimmedPassword !== trimmedConfirmPassword) {
+      setIsError(true);
+      setMessage("âŒ Passwords do not match.");
+      return;
+    }
+
     if (!isStrongPassword(trimmedPassword)) {
       setIsError(true);
       setMessage(STRONG_PASSWORD_MESSAGE);
@@ -1396,6 +1426,7 @@ export default function App() {
         email: "",
         phone: "",
         password: "",
+        confirmPassword: "",
         specialty: "",
         department: "",
         yearsExperience: "",
@@ -1603,6 +1634,12 @@ export default function App() {
       return;
     }
     
+    if (isWeekendAppointmentDate(bookingData.date)) {
+      setMessage(`âŒ ${DOCTOR_ON_LEAVE_MESSAGE}`, true);
+      setIsError(true);
+      return;
+    }
+
     if (!bookingData.time) {
       console.warn("❌ Time missing");
       setMessage("❌ Please select a time", true);
@@ -7011,7 +7048,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div>
+                    <div className="md:col-span-2">
                       <label className="mb-3 block text-sm font-semibold text-slate-800">
                         Phone Number
                       </label>
@@ -7048,6 +7085,34 @@ export default function App() {
                           className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
                         />
                       </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-3 block text-sm font-semibold text-slate-800">
+                        Confirm Password
+                      </label>
+                      <div className="flex items-center rounded-2xl border border-blue-100 bg-sky-50/60 px-4 py-3.5 shadow-sm transition focus-within:border-sky-400 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]">
+                        <Lock size={18} className="mr-3 text-slate-400" />
+                        <input
+                          type="password"
+                          name="confirmPassword"
+                          value={registerData.confirmPassword}
+                          onChange={handleRegisterChange}
+                          placeholder="Confirm your password"
+                          required
+                          aria-invalid={hasRegisterPasswordConfirmation && !registerPasswordsMatch}
+                          className="w-full bg-transparent text-slate-900 outline-none placeholder:text-slate-400"
+                        />
+                      </div>
+                      {hasRegisterPasswordConfirmation && (
+                        <p
+                          className={`mt-2 text-sm font-medium ${
+                            registerPasswordsMatch ? "text-emerald-600" : "text-red-600"
+                          }`}
+                        >
+                          {registerPasswordsMatch ? "Passwords match." : "Passwords do not match."}
+                        </p>
+                      )}
                     </div>
                   </div>
 

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import api from "./api";
-import { downloadWordDocument } from "./wordExport";
-import SuccessPopup from "./SuccessPopup";
-import trueCareLogo from "./assets/true-care-hospital-logo.svg";
+import api from "../services/api";
+import { downloadWordDocument } from "../utils/wordExport";
+import SuccessPopup from "../components/common/SuccessPopup";
+import trueCareLogo from "../assets/true-care-hospital-logo.svg";
 import {
   LayoutDashboard,
   Users,

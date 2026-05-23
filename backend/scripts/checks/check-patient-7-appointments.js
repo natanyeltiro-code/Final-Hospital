@@ -1,5 +1,5 @@
-require('dotenv').config();
-const db = require('./config/db');
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
+const db = require('../../config/db');
 
 console.log('\n📋 Checking appointments for patient 7 (wew)...');
 db.query(

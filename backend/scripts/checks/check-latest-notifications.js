@@ -1,5 +1,5 @@
-require('dotenv').config();
-const db = require('./config/db');
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
+const db = require('../../config/db');
 
 // Get the latest appointment_status notification for patient 14 (pet)
 db.query(

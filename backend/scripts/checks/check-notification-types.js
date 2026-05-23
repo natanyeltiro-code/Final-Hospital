@@ -1,5 +1,5 @@
-require('dotenv').config();
-const db = require('./config/db');
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
+const db = require('../../config/db');
 
 db.query('SELECT type, COUNT(*) as count FROM notifications GROUP BY type', (err, results) => {
   console.log('\n📊 Notification types in database:');

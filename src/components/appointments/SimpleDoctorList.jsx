@@ -6,7 +6,7 @@
 
 import { useState, useEffect } from "react";
 import { Users, AlertCircle } from "lucide-react";
-import api from "./api";
+import api from "../../services/api";
 
 export default function SimpleDoctorList({ selectedSpecialty, darkMode, onDoctorSelect }) {
   const [doctors, setDoctors] = useState([]);

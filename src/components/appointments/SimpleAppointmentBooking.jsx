@@ -20,8 +20,22 @@ import {
   Loader,
   X,
 } from "lucide-react";
-import api from "./api";
-import SuccessPopup from "./SuccessPopup";
+import api from "../../services/api";
+import SuccessPopup from "../common/SuccessPopup";
+
+const DOCTOR_ON_LEAVE_MESSAGE =
+  "Doctor is on leave on weekends. Please choose a weekday appointment date.";
+
+const isWeekendAppointmentDate = (dateString = "") => {
+  const match = String(dateString).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+
+  const [, year, month, day] = match.map(Number);
+  const appointmentDate = new Date(Date.UTC(year, month - 1, day));
+  const dayOfWeek = appointmentDate.getUTCDay();
+
+  return dayOfWeek === 0 || dayOfWeek === 6;
+};
 
 const normalizeDoctorWorkStart = (time) => {
   const formattedTime = (time || "08:00").substring(0, 5);
@@ -160,6 +174,14 @@ export default function SimpleAppointmentBooking({
     setError("");
     setMessage("");
     setSelectedTime("");
+
+    if (isWeekendAppointmentDate(selectedDate)) {
+      setAvailableSlots([]);
+      setBookedSlots([]);
+      setMessage(DOCTOR_ON_LEAVE_MESSAGE);
+      setLoadingSlots(false);
+      return;
+    }
     
     try {
       console.log(`\n📅 Fetching available slots...`);
@@ -208,7 +230,7 @@ export default function SimpleAppointmentBooking({
     e.preventDefault();
     
     // Validation
-    if (!selectedDoctor || !selectedDate || !selectedTime) {
+    if (!selectedDoctor || !selectedDate) {
       setError("❌ Please select doctor, date, and time");
       return;
     }
@@ -218,6 +240,17 @@ export default function SimpleAppointmentBooking({
       return;
     }
     
+    if (isWeekendAppointmentDate(selectedDate)) {
+      setError(DOCTOR_ON_LEAVE_MESSAGE);
+      setSelectedTime("");
+      return;
+    }
+
+    if (!selectedTime) {
+      setError("âŒ Please select doctor, date, and time");
+      return;
+    }
+
     setSubmitting(true);
     setError("");
     setMessage("");
@@ -470,7 +503,12 @@ export default function SimpleAppointmentBooking({
           <input
             type="date"
             value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
+            onChange={(e) => {
+              setSelectedDate(e.target.value);
+              setSelectedTime("");
+              setError("");
+              setMessage("");
+            }}
             disabled={!selectedDoctor}
             min={getTodayDate()}
             max={getMaxDate()}

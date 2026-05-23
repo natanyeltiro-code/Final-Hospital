@@ -8,11 +8,24 @@ const { signToken, authenticateToken, authorizeRoles } = require("./middleware/a
 
 const app = express();
 const MEDICAL_RECORD_STATUSES = ["Ongoing", "Stable", "Recovered", "Critical"];
+const DOCTOR_ON_LEAVE_MESSAGE =
+  "Doctor is on leave on weekends. Please choose a weekday appointment date.";
 const STRONG_PASSWORD_MESSAGE =
   "❌ Password must be at least 8 characters and include uppercase, lowercase, number, and special character";
 
 const isStrongPassword = (password = "") =>
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(password);
+
+const isWeekendAppointmentDate = (dateString = "") => {
+  const match = String(dateString).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+
+  const [, year, month, day] = match.map(Number);
+  const appointmentDate = new Date(Date.UTC(year, month - 1, day));
+  const dayOfWeek = appointmentDate.getUTCDay();
+
+  return dayOfWeek === 0 || dayOfWeek === 6;
+};
 
 const getNormalizedMedicalRecordStatus = (status) => {
   if (!status) return "Ongoing";
@@ -1532,7 +1545,15 @@ app.get("/doctors", authenticateToken, (req, res) => {
 });
 
 app.post(["/appointments", "/api/appointments"], authenticateToken, authorizeRoles("patient", "admin"), (req, res, next) => {
-  const { doctorId, time } = req.body;
+  const { doctorId, date, time } = req.body;
+
+  if (date && isWeekendAppointmentDate(date)) {
+    return res.status(400).json({
+      message: DOCTOR_ON_LEAVE_MESSAGE,
+      available: false,
+      onLeave: true,
+    });
+  }
 
   if (!doctorId || !time) {
     next();
@@ -1588,6 +1609,15 @@ app.post("/appointments", authenticateToken, authorizeRoles("patient", "admin"),
     console.log("  date present?", !!date);
     console.log("  time present?", !!time);
     return res.status(400).json({ message: "❌ Please fill all required fields: doctor, date, time" });
+  }
+
+  if (isWeekendAppointmentDate(date)) {
+    console.log("Doctor on leave - weekend appointment blocked");
+    return res.status(400).json({
+      message: DOCTOR_ON_LEAVE_MESSAGE,
+      available: false,
+      onLeave: true,
+    });
   }
 
   // Either must have patientId (registered) OR emergency patient details (walk-in)
@@ -1724,7 +1754,15 @@ app.get("/appointments/:userId", authenticateToken, (req, res) => {
 
 /* ⭐ CHECK IF TIME SLOT IS AVAILABLE (Double-booking prevention) */
 app.get(["/appointments/check-slot/:doctorId/:date/:time", "/api/appointments/check-slot/:doctorId/:date/:time"], (req, res, next) => {
-  const { doctorId, time } = req.params;
+  const { doctorId, date, time } = req.params;
+
+  if (isWeekendAppointmentDate(date)) {
+    return res.status(409).json({
+      message: DOCTOR_ON_LEAVE_MESSAGE,
+      available: false,
+      onLeave: true,
+    });
+  }
 
   validateAppointmentWithinWorkingHours(doctorId, time, (err, validation) => {
     if (err) {
@@ -1757,6 +1795,14 @@ app.get("/appointments/check-slot/:doctorId/:date/:time", (req, res) => {
     return res.status(400).json({ 
       message: "Doctor ID, date, and time are required",
       available: false 
+    });
+  }
+
+  if (isWeekendAppointmentDate(date)) {
+    return res.status(409).json({
+      message: DOCTOR_ON_LEAVE_MESSAGE,
+      available: false,
+      onLeave: true,
     });
   }
   
@@ -1867,6 +1913,18 @@ app.get("/available-slots/:doctorId/:date", (req, res) => {
     return res.status(400).json({ 
       message: "Doctor ID and date are required",
       availableSlots: []
+    });
+  }
+
+  if (isWeekendAppointmentDate(date)) {
+    return res.json({
+      message: DOCTOR_ON_LEAVE_MESSAGE,
+      availableSlots: [],
+      bookedSlots: [],
+      doctorId: parseInt(doctorId, 10),
+      date,
+      onLeave: true,
+      availableCount: 0,
     });
   }
   

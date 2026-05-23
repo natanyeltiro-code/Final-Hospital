@@ -1,5 +1,5 @@
-require("dotenv").config();
-const db = require("./config/db");
+require("dotenv").config({ path: require("path").join(__dirname, "../../.env") });
+const db = require("../../config/db");
 
 // Test updating doctor profile
 const testUserId = 1; // Usually the first doctor in the database

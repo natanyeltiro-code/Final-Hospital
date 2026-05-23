@@ -1,4 +1,4 @@
-require("dotenv").config();
+require("dotenv").config({ path: require("path").join(__dirname, "../../.env") });
 const API_URL = "http://localhost:3000";
 
 async function testPatientNotifications() {
@@ -10,7 +10,7 @@ async function testPatientNotifications() {
     // First, we need to know wew's password. Let me just test with a known user or create one
     
     // Actually, let's just query the database directly to see notifications for user 7
-    const db_module = require("./config/db");
+    const db_module = require("../../config/db");
     
     console.log("\n📧 Checking notifications for patient user 7 (wew):");
     db_module.query(

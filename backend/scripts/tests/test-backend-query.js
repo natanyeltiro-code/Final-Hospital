@@ -1,5 +1,5 @@
-require('dotenv').config();
-const db = require('./config/db');
+require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
+const db = require('../../config/db');
 
 const sql = "SELECT id, name, email, role, specialty, phone, rating, experience FROM users WHERE role = 'doctor'";
 

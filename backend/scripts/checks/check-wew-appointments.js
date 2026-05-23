@@ -1,5 +1,5 @@
-require("dotenv").config();
-const db = require("./config/db");
+require("dotenv").config({ path: require("path").join(__dirname, "../../.env") });
+const db = require("../../config/db");
 
 // Check appointments for patient user 7 (wew)
 console.log("\n🏥 Appointments for patient 'wew' (user 7):");

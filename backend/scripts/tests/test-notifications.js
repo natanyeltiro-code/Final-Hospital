@@ -1,6 +1,6 @@
 /*
   Test script for the enhanced notification system
-  Run: node backend/test-notifications.js
+  Run: node backend/scripts/tests/test-notifications.js
 */
 
 const http = require('http');
