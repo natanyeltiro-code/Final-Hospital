@@ -2033,12 +2033,33 @@ app.put("/appointments/:appointmentId", (req, res) => {
   });
 });
 
-/* CREATE MEDICAL RECORD */
-app.post("/medical-records", (req, res) => {
-  const { patientId, doctorId, title, diagnosis, treatment, notes, status, recordDate, record_date } = req.body;
+const verifyDoctorPatientBooking = (doctorId, patientId, callback) => {
+  const sql = `
+    SELECT id
+    FROM appointments
+    WHERE doctor_id = ?
+      AND patient_id = ?
+      AND COALESCE(status, '') <> 'Cancelled'
+    LIMIT 1
+  `;
 
-  if (!patientId || !doctorId || !diagnosis || !treatment) {
+  db.query(sql, [doctorId, patientId], (err, results) => {
+    if (err) return callback(err);
+    callback(null, results.length > 0);
+  });
+};
+
+/* CREATE MEDICAL RECORD */
+app.post("/medical-records", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
+  const { patientId, doctorId, title, diagnosis, treatment, notes, status, recordDate, record_date } = req.body;
+  const recordDoctorId = req.user.role === "doctor" ? req.user.id : doctorId;
+
+  if (!patientId || !recordDoctorId || !diagnosis || !treatment) {
     return res.status(400).json({ message: "❌ Please fill all required fields" });
+  }
+
+  if (req.user.role === "doctor" && doctorId && Number(doctorId) !== Number(req.user.id)) {
+    return res.status(403).json({ message: "Doctors can only create records under their own account" });
   }
 
   const normalizedStatus = getNormalizedMedicalRecordStatus(status);
@@ -2065,11 +2086,12 @@ app.post("/medical-records", (req, res) => {
     SELECT ?, u.name, ?, ?, ?, ?, ?, ?, ?
     FROM users u
     WHERE u.id = ?
+      AND u.role = 'patient'
     LIMIT 1
   `;
   const insertParams = [
     patientId,
-    doctorId,
+    recordDoctorId,
     recordTitle,
     diagnosis,
     treatment,
@@ -2161,6 +2183,22 @@ app.post("/medical-records", (req, res) => {
     });
   };
 
+  if (req.user.role === "doctor") {
+    verifyDoctorPatientBooking(recordDoctorId, patientId, (bookingErr, hasBooking) => {
+      if (bookingErr) {
+        console.error("Error checking doctor-patient booking:", bookingErr);
+        return res.status(500).json({ message: "Failed to verify patient booking" });
+      }
+
+      if (!hasBooking) {
+        return res.status(403).json({ message: "You can only add records for patients who booked an appointment with you" });
+      }
+
+      createMedicalRecord();
+    });
+    return;
+  }
+
   createMedicalRecord();
 });
 
@@ -2172,9 +2210,15 @@ app.get("/medical-records/:patientId", authenticateToken, (req, res) => {
     return res.status(403).json({ message: "Forbidden" });
   }
 
-  const sql = "SELECT mr.*, u.name AS patient_name, d.name AS doctor_name FROM medical_records mr JOIN users u ON mr.patient_id = u.id JOIN users d ON mr.doctor_id = d.id WHERE mr.patient_id = ? ORDER BY mr.record_date DESC";
+  let sql = "SELECT mr.*, u.name AS patient_name, d.name AS doctor_name FROM medical_records mr JOIN users u ON mr.patient_id = u.id JOIN users d ON mr.doctor_id = d.id WHERE mr.patient_id = ?";
+  const params = [patientId];
+  if (req.user.role === "doctor") {
+    sql += " AND mr.doctor_id = ? AND EXISTS (SELECT 1 FROM appointments a WHERE a.doctor_id = ? AND a.patient_id = ? AND COALESCE(a.status, '') <> 'Cancelled')";
+    params.push(req.user.id, req.user.id, patientId);
+  }
+  sql += " ORDER BY mr.record_date DESC";
   
-  db.query(sql, [patientId], (err, results) => {
+  db.query(sql, params, (err, results) => {
     if (err) {
       return res.status(500).json({ message: "❌ Database error" });
     }
@@ -2578,7 +2622,7 @@ const deleteAppointment = (appointmentId, res) => {
 app.delete("/medical-records/:recordId", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
   const { recordId } = req.params;
 
-  const fetchPatientSql = "SELECT patient_id FROM medical_records WHERE id = ?";
+  const fetchPatientSql = "SELECT patient_id, doctor_id FROM medical_records WHERE id = ?";
   db.query(fetchPatientSql, [recordId], (fetchErr, fetchResults) => {
     if (fetchErr) {
       return res.status(500).json({ message: "❌ Failed to fetch medical record" });
@@ -2589,6 +2633,44 @@ app.delete("/medical-records/:recordId", authenticateToken, authorizeRoles("doct
     }
 
     const patientId = fetchResults[0].patient_id;
+    const recordDoctorId = fetchResults[0].doctor_id;
+    if (req.user.role === "doctor" && Number(recordDoctorId) !== Number(req.user.id)) {
+      return res.status(403).json({ message: "You can only delete your own medical records" });
+    }
+    if (req.user.role === "doctor") {
+      const deleteAfterBookingCheck = () => {
+        const sql = "DELETE FROM medical_records WHERE id = ?";
+
+        db.query(sql, [recordId], (err) => {
+          if (err) {
+            return res.status(500).json({ message: "Failed to delete medical record" });
+          }
+
+          syncPatientMedicalSummary(patientId, (updateErr) => {
+            if (updateErr) {
+              console.error("Error updating patient medical summary after delete:", updateErr);
+              return res.status(500).json({ message: "Medical record deleted, but failed to refresh patient medical summary" });
+            }
+
+            res.json({ message: "Medical record deleted successfully" });
+          });
+        });
+      };
+
+      verifyDoctorPatientBooking(req.user.id, patientId, (bookingErr, hasBooking) => {
+        if (bookingErr) {
+          console.error("Error checking doctor-patient booking:", bookingErr);
+          return res.status(500).json({ message: "Failed to verify patient booking" });
+        }
+
+        if (!hasBooking) {
+          return res.status(403).json({ message: "You can only delete records for patients who booked an appointment with you" });
+        }
+
+        deleteAfterBookingCheck();
+      });
+      return;
+    }
     const sql = "DELETE FROM medical_records WHERE id = ?";
 
     db.query(sql, [recordId], (err) => {
@@ -2793,12 +2875,17 @@ app.patch("/appointments/:appointmentId", (req, res) => {
 });
 
 /* GET SINGLE MEDICAL RECORD BY ID */
-app.get("/medical-records-details/:recordId", (req, res) => {
+app.get("/medical-records-details/:recordId", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
   const { recordId } = req.params;
   
-  const sql = "SELECT * FROM medical_records WHERE id = ?";
+  let sql = "SELECT * FROM medical_records WHERE id = ?";
+  const params = [recordId];
+  if (req.user.role === "doctor") {
+    sql += " AND doctor_id = ? AND EXISTS (SELECT 1 FROM appointments a WHERE a.doctor_id = medical_records.doctor_id AND a.patient_id = medical_records.patient_id AND COALESCE(a.status, '') <> 'Cancelled')";
+    params.push(req.user.id);
+  }
   
-  db.query(sql, [recordId], (err, results) => {
+  db.query(sql, params, (err, results) => {
     if (err) {
       return res.status(500).json({ message: "❌ Database error" });
     }
@@ -2815,7 +2902,7 @@ app.get("/medical-records-details/:recordId", (req, res) => {
 });
 
 /* PATCH/UPDATE MEDICAL RECORD */
-app.patch("/medical-records/:recordId", (req, res) => {
+app.patch("/medical-records/:recordId", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
   const { recordId } = req.params;
   const { title, diagnosis, treatment, notes, status, record_date } = req.body;
 
@@ -2860,9 +2947,13 @@ app.patch("/medical-records/:recordId", (req, res) => {
   updateFields.push("updated_at = CURRENT_TIMESTAMP");
 
   params.push(recordId);
-  const sql = `UPDATE medical_records SET ${updateFields.join(", ")} WHERE id = ?`;
+  let sql = `UPDATE medical_records SET ${updateFields.join(", ")} WHERE id = ?`;
+  if (req.user.role === "doctor") {
+    sql += " AND doctor_id = ? AND EXISTS (SELECT 1 FROM appointments a WHERE a.doctor_id = medical_records.doctor_id AND a.patient_id = medical_records.patient_id AND COALESCE(a.status, '') <> 'Cancelled')";
+    params.push(req.user.id);
+  }
   const updateMedicalRecord = () => {
-    db.query(sql, params, (err) => {
+    db.query(sql, params, (err, updateResult) => {
     if (err) {
       if (shouldRetryMedicalRecordStatusWrite(err)) {
         ensureMedicalRecordStatusEnum((schemaErr) => {
@@ -2911,6 +3002,10 @@ app.patch("/medical-records/:recordId", (req, res) => {
 
       console.error("Error updating medical record:", err);
       return res.status(500).json({ message: "❌ Failed to update medical record" });
+    }
+
+    if (!updateResult || updateResult.affectedRows === 0) {
+      return res.status(req.user.role === "doctor" ? 403 : 404).json({ message: "Medical record not found or not allowed" });
     }
 
     if (diagnosis !== undefined || status !== undefined || record_date !== undefined) {
@@ -2979,7 +3074,14 @@ app.get("/doctor/medical-records", authenticateToken, authorizeRoles("doctor"), 
       u.emergency_contact as patient_emergency_contact
     FROM medical_records mr 
     JOIN users u ON mr.patient_id = u.id 
-    WHERE mr.doctor_id = ? 
+    WHERE mr.doctor_id = ?
+      AND EXISTS (
+        SELECT 1
+        FROM appointments a
+        WHERE a.doctor_id = mr.doctor_id
+          AND a.patient_id = mr.patient_id
+          AND COALESCE(a.status, '') <> 'Cancelled'
+      )
     ORDER BY mr.record_date DESC
   `;
 
@@ -3100,7 +3202,7 @@ app.get("/admin/appointments", authenticateToken, authorizeRoles("admin"), (req,
 });
 
 /* CREATE PRESCRIPTION */
-app.post("/prescriptions", (req, res) => {
+app.post("/prescriptions", authenticateToken, authorizeRoles("doctor", "admin"), (req, res) => {
   const {
     appointmentId,
     medicalRecordId,
@@ -3113,17 +3215,35 @@ app.post("/prescriptions", (req, res) => {
     instructions,
     prescribed_date,
   } = req.body;
+  const prescriptionDoctorId = req.user.role === "doctor" ? req.user.id : doctorId;
   
-  if (!medicalRecordId || !patientId || !doctorId || !medication || !dosage || !frequency || !duration) {
+  if (!medicalRecordId || !patientId || !prescriptionDoctorId || !medication || !dosage || !frequency || !duration) {
     return res.status(400).json({ message: "❌ Please fill all required fields" });
   }
   
-  const verifyRecordSql =
-    "SELECT id FROM medical_records WHERE id = ? AND patient_id = ? AND doctor_id = ? LIMIT 1";
+  if (req.user.role === "doctor" && doctorId && Number(doctorId) !== Number(req.user.id)) {
+    return res.status(403).json({ message: "Doctors can only create prescriptions under their own account" });
+  }
+
+  const verifyRecordSql = `
+    SELECT id
+    FROM medical_records
+    WHERE id = ?
+      AND patient_id = ?
+      AND doctor_id = ?
+      AND EXISTS (
+        SELECT 1
+        FROM appointments a
+        WHERE a.doctor_id = medical_records.doctor_id
+          AND a.patient_id = medical_records.patient_id
+          AND COALESCE(a.status, '') <> 'Cancelled'
+      )
+    LIMIT 1
+  `;
   const insertSql =
     "INSERT INTO prescriptions (appointment_id, medical_record_id, patient_id, doctor_id, medication, dosage, frequency, duration, instructions, prescribed_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-  db.query(verifyRecordSql, [medicalRecordId, patientId, doctorId], (verifyErr, verifyResults) => {
+  db.query(verifyRecordSql, [medicalRecordId, patientId, prescriptionDoctorId], (verifyErr, verifyResults) => {
     if (verifyErr) {
       return res.status(500).json({ message: "❌ Failed to verify medical record" });
     }
@@ -3138,7 +3258,7 @@ app.post("/prescriptions", (req, res) => {
         appointmentId || null,
         medicalRecordId,
         patientId,
-        doctorId,
+        prescriptionDoctorId,
         medication,
         dosage,
         frequency,
@@ -3166,7 +3286,7 @@ app.post("/prescriptions", (req, res) => {
         generatePrescriptionNotification(
           insertResult?.insertId || null,
           patientId,
-          doctorId,
+          prescriptionDoctorId,
           medication,
           (notifyErr) => {
             if (notifyErr) {

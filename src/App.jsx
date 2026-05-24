@@ -97,6 +97,18 @@ const DOCTOR_SPECIALIZATIONS = [
   "Rheumatology",
   "Urology",
 ];
+const DOCTOR_DEPARTMENTS = [
+  "Cardiology",
+  "Neurology",
+  "Orthopedics",
+  "Pediatrics",
+  "Dermatology",
+  "General Medicine",
+  "Surgery",
+  "Internal Medicine",
+  "Pathology",
+  "Psychiatry",
+];
 
 const normalizeDoctorWorkStart = (time) => {
   const formattedTime = (time || "08:00").substring(0, 5);
@@ -2412,12 +2424,11 @@ export default function App() {
                     }`}
                   >
                     <option value="">Choose a department...</option>
-                    <option value="Cardiology">Cardiology</option>
-                    <option value="Neurology">Neurology</option>
-                    <option value="Orthopedics">Orthopedics</option>
-                    <option value="Pediatrics">Pediatrics</option>
-                    <option value="Dermatology">Dermatology</option>
-                    <option value="Psychiatry">Psychiatry</option>
+                    {DOCTOR_DEPARTMENTS.map((department) => (
+                      <option key={department} value={department}>
+                        {department}
+                      </option>
+                    ))}
                   </select>
 
                   {bookingData.doctorId ? (
@@ -7159,16 +7170,11 @@ export default function App() {
                             }`}
                           >
                             <option value="">Select department</option>
-                            <option>Cardiology</option>
-                            <option>Neurology</option>
-                            <option>Orthopedics</option>
-                            <option>Pediatrics</option>
-                            <option>Dermatology</option>
-                            <option>General Medicine</option>
-                            <option>Surgery</option>
-                            <option>Internal Medicine</option>
-                            <option>Pathology</option>
-                            <option>Psychiatry</option>
+                            {DOCTOR_DEPARTMENTS.map((department) => (
+                              <option key={department} value={department}>
+                                {department}
+                              </option>
+                            ))}
                           </select>
                           <ChevronDown size={18} className="ml-3 shrink-0 text-slate-400" />
                         </div>

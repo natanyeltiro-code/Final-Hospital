@@ -729,6 +729,21 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       return;
     }
 
+    if (!doctorPatients.some((patient) => String(patient.id) === String(prescriptionForm.patientId))) {
+      alert("You can only prescribe for patients who booked an appointment with you.");
+      return;
+    }
+
+    const selectedMedicalRecord = records.find(
+      (record) =>
+        String(record.id) === String(prescriptionForm.medicalRecordId) &&
+        String(record.patient_id || record.patientId) === String(prescriptionForm.patientId)
+    );
+    if (!selectedMedicalRecord) {
+      alert("Please select a medical record for the selected patient.");
+      return;
+    }
+
     try {
       const appointmentToComplete = [...appointments]
         .filter(
@@ -901,6 +916,11 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       return;
     }
 
+    if (!doctorPatients.some((patient) => String(patient.id) === String(recordForm.patientId))) {
+      alert("You can only add medical records for patients who booked an appointment with you.");
+      return;
+    }
+
     try {
       const recordDate = new Date().toISOString().split("T")[0];
       const medicalRecordData = {
@@ -929,7 +949,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
       showDoctorSuccessPopup("Medical Record Added Successfully");
     } catch (err) {
       console.error("Error adding medical record:", err);
-      alert("Failed to add medical record.");
+      alert(err.response?.data?.message || "Failed to add medical record.");
     }
   };
 
@@ -950,12 +970,14 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
   // Get unique patient IDs from appointments with this doctor
   const patientIdsWithAppointments = new Set(
     appointments
-      .filter((apt) => apt.patient_id) // Only patients with patient_id (exclude emergency patients)
-      .map((apt) => apt.patient_id)
+      .filter((apt) => apt.patient_id && apt.status !== "Cancelled") // Only booked registered patients.
+      .map((apt) => String(apt.patient_id))
   );
 
   // Filter patients to only show those who have appointments with this doctor
-  const doctorPatients = patients.filter((patient) => patientIdsWithAppointments.has(patient.id));
+  const doctorPatients = patients.filter((patient) => patientIdsWithAppointments.has(String(patient.id)));
+  const getRecordsForPatient = (patientId) =>
+    records.filter((record) => String(record.patient_id || record.patientId) === String(patientId));
   
   const filteredDoctorPatients = doctorPatients.filter((patient) => {
     const search = patientSearch.toLowerCase();
@@ -2046,12 +2068,15 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                     required
                   >
                     <option value="">Select patient</option>
-                    {patients.map((patient) => (
+                    {doctorPatients.map((patient) => (
                       <option key={patient.id} value={patient.id}>
                         {patient.name}
                       </option>
                     ))}
                   </select>
+                  {doctorPatients.length === 0 && (
+                    <p className={`mt-2 text-sm ${textSoft}`}>No booked patients available.</p>
+                  )}
                 </div>
 
                 <div>
@@ -2401,12 +2426,15 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                     required
                   >
                     <option value="">Select patient</option>
-                    {patients.map((patient) => (
+                    {doctorPatients.map((patient) => (
                       <option key={patient.id} value={patient.id}>
                         {patient.name}
                       </option>
                     ))}
                   </select>
+                  {doctorPatients.length === 0 && (
+                    <p className={`mt-2 text-sm ${textSoft}`}>No booked patients available.</p>
+                  )}
                 </div>
 
                 <div>
@@ -2418,8 +2446,7 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                     required
                   >
                     <option value="">Select medical record</option>
-                    {records
-                      .filter((record) => String(record.patient_id || record.patientId) === String(prescriptionForm.patientId))
+                    {getRecordsForPatient(prescriptionForm.patientId)
                       .map((record) => (
                         <option key={record.id} value={record.id}>
                           {record.record_date
@@ -2428,6 +2455,9 @@ const DoctorDashboard = ({ loggedInUser, setLoggedInUser, onLogout }) => {
                         </option>
                       ))}
                   </select>
+                  {prescriptionForm.patientId && getRecordsForPatient(prescriptionForm.patientId).length === 0 && (
+                    <p className={`mt-2 text-sm ${textSoft}`}>No medical records found for this patient yet.</p>
+                  )}
                 </div>
               </div>
 
